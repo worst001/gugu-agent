@@ -43,6 +43,8 @@ export const zh: Record<TranslationKey, string> = {
   'titlebar.terminal': '终端',
   'titlebar.history': '历史',
 
+  'statusBar.modelFromServerEnv': '服务端模型（.env）',
+
   // ─── Status Bar ──────────────────────────────────────
   'status.connected': '已连接',
   'status.connecting': '连接中...',
@@ -507,6 +509,12 @@ export const zh: Record<TranslationKey, string> = {
   'empty.addFiles': '添加文件或图片',
   'empty.slashCommands': '斜杠命令',
   'empty.failedToCreate': '创建会话失败',
+  'empty.saveDefaultWorkDir': '设为默认工作目录',
+  'empty.defaultWorkDirActive': '当前默认：{path}',
+  'empty.clearDefaultWorkDir': '清除默认',
+  'empty.defaultWorkDirSavedToast': '已保存默认工作目录（写入 ~/.claude/settings.json）',
+  'empty.defaultWorkDirClearedToast': '已清除默认工作目录',
+  'empty.defaultWorkDirSaveFailed': '保存默认工作目录失败',
 
   // ─── Chat Input ──────────────────────────────────────
   'chat.placeholder': '让 Claude 编辑、调试或解释代码...',
@@ -624,6 +632,8 @@ export const zh: Record<TranslationKey, string> = {
   'streaming.thinking': '思考中',
   'streaming.running': '运行中',
   'streaming.working': '工作中',
+  'streaming.awaitingThinkingHint':
+    '有思考流时，片段会显示在下方。部分模型或线路不返回可展示的思考内容；若耗时较长，仍可能是在生成回复。',
 
   // ─── Permission Dialog ──────────────────────────────────────
   'permission.allowEditFile': '允许 Claude {toolName} {fileName}？',
@@ -633,7 +643,9 @@ export const zh: Record<TranslationKey, string> = {
   'permission.awaitingApproval': '等待审批',
   'permission.responded': '已响应',
   'permission.allow': '允许',
+  'permission.allowOnce': '仅此一次',
   'permission.allowForSession': '本次会话允许',
+  'permission.allowAlways': '永远允许',
   'permission.deny': '拒绝',
   'permission.hideDetails': '隐藏详情',
   'permission.showFullInput': '显示完整输入',
@@ -964,6 +976,30 @@ export const zh: Record<TranslationKey, string> = {
   'serverVerb.Thinking': '思考中',
   'serverVerb.Task started': '任务已启动',
   'serverVerb.Task in progress': '任务进行中',
+
+  // ─── Compound Engineering workflow (composer pill) ──────────────────────────────────────
+  'ceWorkflow.panelTitle': 'CE 工作流',
+  'ceWorkflow.role.quick.label': '轻量速迭',
+  'ceWorkflow.role.quick.tag': '小改动 · 排错',
+  'ceWorkflow.role.quick.description': '脚本、单文件修改、局部 bug 与小提交。',
+  'ceWorkflow.role.standard.label': '标准交付',
+  'ceWorkflow.role.standard.tag': '需求 · 实现 · 评审',
+  'ceWorkflow.role.standard.description': '常规功能：澄清 → 计划 → 实现 → 代码评审。',
+  'ceWorkflow.role.deep.label': '深度工程',
+  'ceWorkflow.role.deep.tag': '复杂功能 · 测试',
+  'ceWorkflow.role.deep.description': '多模块改造，配合测试与浏览器验证。',
+  'ceWorkflow.role.architecture.label': '架构 / Agent',
+  'ceWorkflow.role.architecture.tag': '系统设计',
+  'ceWorkflow.role.architecture.description': 'Agent、MCP、模块边界与长期演进。',
+  'ceWorkflow.role.ship.label': '发布流水线',
+  'ceWorkflow.role.ship.tag': 'PR · 合并 · 说明',
+  'ceWorkflow.role.ship.description': '从实现到 PR、合并与发布说明。',
+  'ceWorkflow.role.doc.label': '文档与评审',
+  'ceWorkflow.role.doc.tag': '规格 · 方案稿',
+  'ceWorkflow.role.doc.description': '需求稿、方案、文档质量与评审闭环。',
+  'ceWorkflow.role.hands_off.label': '端到端托管',
+  'ceWorkflow.role.hands_off.tag': '少交互 · 全流程',
+  'ceWorkflow.role.hands_off.description': '尽量少来回确认、一条龙推进（大改动请谨慎）。',
 
   // ─── Tabs ──────────────────────────────────────
   'tabs.close': '关闭',

@@ -4,13 +4,11 @@ import { sessionsApi } from '../api/sessions'
 import { useTeamStore } from './teamStore'
 import { useSessionStore } from './sessionStore'
 import { useCLITaskStore } from './cliTaskStore'
-import { useSessionRuntimeStore } from './sessionRuntimeStore'
 import { useTabStore } from './tabStore'
 import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
 import type { MessageEntry } from '../types/session'
 import type { PermissionMode } from '../types/settings'
-import type { RuntimeSelection } from '../types/runtime'
 import type {
   AgentTaskNotification,
   AttachmentRef,
@@ -108,7 +106,6 @@ type ChatStore = {
     requestId: string,
     response: ComputerUsePermissionResponse,
   ) => void
-  setSessionRuntime: (sessionId: string, selection: RuntimeSelection) => void
   setSessionPermissionMode: (sessionId: string, mode: PermissionMode) => void
   stopGeneration: (sessionId: string) => void
   loadHistory: (sessionId: string) => Promise<void>
@@ -230,10 +227,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       get().handleServerMessage(sessionId, msg)
     })
 
-    const runtimeSelection = useSessionRuntimeStore.getState().selections[sessionId]
-    if (runtimeSelection) {
-      wsManager.send(sessionId, { type: 'set_runtime_config', ...runtimeSelection })
-    }
+    // Model + API credentials come from the server process `.env` (ANTHROPIC_*).
+    // Do not send `set_runtime_config` from the desktop UI — overrides caused
+    // mismatches vs CLI and third-party providers (e.g. DeepSeek).
     if (!sessionId.startsWith('__') && !useTeamStore.getState().getMemberBySessionId(sessionId)) {
       wsManager.send(sessionId, { type: 'prewarm_session' })
     }
@@ -269,7 +265,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   sendMessage: (sessionId, content, attachments, options) => {
     const userFacingContent =
-      options?.displayContent?.trim() || content.trim()
+      options && 'displayContent' in options
+        ? String(options.displayContent ?? '').trim()
+        : content.trim()
     const isMemberSession = !!useTeamStore.getState().getMemberBySessionId(sessionId)
     const uiAttachments: UIAttachment[] | undefined =
       attachments && attachments.length > 0
@@ -393,13 +391,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         chatState: response.userConsented === false ? 'idle' : 'tool_executing',
       })),
     }))
-  },
-
-  setSessionRuntime: (sessionId, selection) => {
-    wsManager.send(sessionId, {
-      type: 'set_runtime_config',
-      ...selection,
-    })
   },
 
   setSessionPermissionMode: (sessionId, mode) => {
@@ -545,7 +536,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           const shouldFlush = hasPendingStreamText && msg.state === 'idle'
           return {
             chatState: preserveStreamingTurn ? 'streaming' : msg.state,
-            ...(msg.verb && msg.verb !== 'Thinking' ? { statusVerb: msg.verb } : {}),
+            // Server sends verb: "Thinking" while the model is reasoning. Clear the
+            // whimsical verb from sendMessage so the indicator shows localized
+            // "Thinking" / thinking stream instead of a stuck random spinner word.
+            ...(msg.verb && msg.verb !== 'Thinking'
+              ? { statusVerb: msg.verb }
+              : msg.verb === 'Thinking'
+                ? { statusVerb: '' }
+                : {}),
             ...(msg.tokens ? { tokenUsage: { ...session.tokenUsage, output_tokens: msg.tokens } } : {}),
             ...(msg.state === 'idle' ? { activeThinkingId: null, statusVerb: '' } : {}),
             ...(shouldFlush ? {

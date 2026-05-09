@@ -647,7 +647,15 @@ function triggerTitleGeneration(ws: ServerWebSocket<WebSocketData>, sessionId: s
  */
 type SessionStreamState = {
   hasReceivedStreamEvents: boolean
-  activeBlockTypes: Map<number, 'text' | 'tool_use'>
+  /**
+   * True after at least one thinking_delta was forwarded for the current
+   * assistant message. When stream_events exist but the model only puts
+   * thinking in the final assistant payload (no streaming reasoning), we must
+   * still forward that block — but if we already streamed deltas, the final
+   * block is usually redundant and would duplicate the UI.
+   */
+  receivedThinkingDelta: boolean
+  activeBlockTypes: Map<number, 'text' | 'tool_use' | 'thinking'>
   activeToolBlocks: Map<number, { toolName: string; toolUseId: string; inputJson: string }>
   /** Tool blocks whose input JSON failed to parse in content_block_stop.
    *  The assistant message carries the complete input — defer to that. */
@@ -661,6 +669,7 @@ function getStreamState(sessionId: string): SessionStreamState {
   if (!state) {
     state = {
       hasReceivedStreamEvents: false,
+      receivedThinkingDelta: false,
       activeBlockTypes: new Map(),
       activeToolBlocks: new Map(),
       pendingToolBlocks: new Map(),
@@ -854,7 +863,8 @@ async function ensureCliSessionStarted(
   }
 }
 
-function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
+/** Exported for unit tests — translates one CLI stdout JSON line into WS payloads. */
+export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
   const streamState = getStreamState(sessionId)
   switch (cliMsg.type) {
     case 'assistant': {
@@ -886,6 +896,16 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
                 input: block.input,
                 parentToolUseId: pending.parentToolUseId,
               })
+            } else if (
+              block.type === 'thinking' &&
+              typeof block.thinking === 'string' &&
+              block.thinking.length > 0 &&
+              !streamState.receivedThinkingDelta
+            ) {
+              // Many providers stream text/tool_use but attach reasoning only on
+              // the final assistant message (no thinking_delta). Without this,
+              // the desktop never shows thinking while stream_events were seen.
+              messages.push({ type: 'thinking', text: block.thinking })
             }
           } else {
             // No stream events received — this is the only source, process everything
@@ -911,6 +931,7 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
 
         // Reset flags for next turn
         streamState.hasReceivedStreamEvents = false
+        streamState.receivedThinkingDelta = false
         streamState.pendingToolBlocks.clear()
         return messages
       }
@@ -957,6 +978,7 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
 
       switch (event.type) {
         case 'message_start': {
+          streamState.receivedThinkingDelta = false
           return [{ type: 'status', state: 'streaming' }]
         }
 
@@ -965,6 +987,14 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
           if (!contentBlock) return []
 
           const index = event.index ?? 0
+
+          if (contentBlock.type === 'thinking') {
+            streamState.activeBlockTypes.set(index, 'thinking')
+            // Thinking UI is driven by thinking_delta / final assistant block — do not
+            // emit content_start:text (would clear the thinking spinner state wrongly).
+            return []
+          }
+
           streamState.activeBlockTypes.set(index, contentBlock.type === 'tool_use' ? 'tool_use' : 'text')
 
           if (contentBlock.type === 'tool_use') {
@@ -1003,6 +1033,7 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
             return [{ type: 'content_delta', toolInput: delta.partial_json }]
           }
           if (delta.type === 'thinking_delta' && delta.thinking) {
+            streamState.receivedThinkingDelta = true
             return [{ type: 'thinking', text: delta.thinking }]
           }
           return []

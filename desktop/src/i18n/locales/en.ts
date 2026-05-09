@@ -41,6 +41,8 @@ export const en = {
   'titlebar.terminal': 'Terminal',
   'titlebar.history': 'History',
 
+  'statusBar.modelFromServerEnv': 'Server model (.env)',
+
   // ─── Status Bar ──────────────────────────────────────
   'status.connected': 'Connected',
   'status.connecting': 'Connecting...',
@@ -505,6 +507,12 @@ export const en = {
   'empty.addFiles': 'Add files or photos',
   'empty.slashCommands': 'Slash commands',
   'empty.failedToCreate': 'Failed to create session',
+  'empty.saveDefaultWorkDir': 'Save as default workspace',
+  'empty.defaultWorkDirActive': 'Default: {path}',
+  'empty.clearDefaultWorkDir': 'Clear default',
+  'empty.defaultWorkDirSavedToast': 'Default workspace saved (~/.claude/settings.json)',
+  'empty.defaultWorkDirClearedToast': 'Default workspace cleared',
+  'empty.defaultWorkDirSaveFailed': 'Could not save default workspace',
 
   // ─── Chat Input ──────────────────────────────────────
   'chat.placeholder': 'Ask Claude to edit, debug or explain...',
@@ -622,6 +630,8 @@ export const en = {
   'streaming.thinking': 'Thinking',
   'streaming.running': 'Running',
   'streaming.working': 'Working',
+  'streaming.awaitingThinkingHint':
+    'Partial reasoning will appear below when the stream starts. Some models or providers do not expose a visible reasoning stream — long waits can still mean the model is working.',
 
   // ─── Permission Dialog ──────────────────────────────────────
   'permission.allowEditFile': 'Allow Claude to {toolName} {fileName}?',
@@ -631,7 +641,9 @@ export const en = {
   'permission.awaitingApproval': 'Awaiting approval',
   'permission.responded': 'Responded',
   'permission.allow': 'Allow',
-  'permission.allowForSession': 'Allow for session',
+  'permission.allowOnce': 'Allow once',
+  'permission.allowForSession': 'Allow for this session',
+  'permission.allowAlways': 'Always allow (save to local settings)',
   'permission.deny': 'Deny',
   'permission.hideDetails': 'Hide details',
   'permission.showFullInput': 'Show full input',
@@ -962,6 +974,30 @@ export const en = {
   'serverVerb.Thinking': 'Thinking',
   'serverVerb.Task started': 'Task started',
   'serverVerb.Task in progress': 'Task in progress',
+
+  // ─── Compound Engineering workflow (composer pill) ──────────────────────────────────────
+  'ceWorkflow.panelTitle': 'CE workflow',
+  'ceWorkflow.role.quick.label': 'Light iteration',
+  'ceWorkflow.role.quick.tag': 'Small fixes · debug',
+  'ceWorkflow.role.quick.description': 'Scripts, single-file edits, and localized bug fixes.',
+  'ceWorkflow.role.standard.label': 'Standard delivery',
+  'ceWorkflow.role.standard.tag': 'Requirements · build · review',
+  'ceWorkflow.role.standard.description': 'Typical features: clarify, plan, implement, code review.',
+  'ceWorkflow.role.deep.label': 'Deep engineering',
+  'ceWorkflow.role.deep.tag': 'Complex changes · tests',
+  'ceWorkflow.role.deep.description': 'Multi-module work with tests and browser validation.',
+  'ceWorkflow.role.architecture.label': 'Architecture / agents',
+  'ceWorkflow.role.architecture.tag': 'System design',
+  'ceWorkflow.role.architecture.description': 'Agents, MCP, boundaries, and long-term structure.',
+  'ceWorkflow.role.ship.label': 'Ship pipeline',
+  'ceWorkflow.role.ship.tag': 'PR · merge · notes',
+  'ceWorkflow.role.ship.description': 'From implementation through PR, merge, and release notes.',
+  'ceWorkflow.role.doc.label': 'Docs & review',
+  'ceWorkflow.role.doc.tag': 'Specs · drafts',
+  'ceWorkflow.role.doc.description': 'Specs, proposals, doc quality, and review loops.',
+  'ceWorkflow.role.hands_off.label': 'Hands-off pipeline',
+  'ceWorkflow.role.hands_off.tag': 'Low chat · full flow',
+  'ceWorkflow.role.hands_off.description': 'Push end-to-end with minimal back-and-forth (use carefully on large changes).',
 
   // ─── Tabs ──────────────────────────────────────
   'tabs.close': 'Close',

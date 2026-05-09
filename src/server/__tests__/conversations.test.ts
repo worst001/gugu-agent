@@ -42,7 +42,7 @@ describe('ConversationService', () => {
     expect(result).toBe(false)
   })
 
-  it('should forward suggested permission updates for allow-for-session decisions', () => {
+  it('should forward suggested permission updates for allow-always (localSettings) decisions', () => {
     const svc = new ConversationService()
     const sent: unknown[] = []
 
@@ -89,7 +89,60 @@ describe('ConversationService', () => {
               type: 'addRules',
               rules: [{ toolName: 'Bash', ruleContent: 'ls src' }],
               behavior: 'allow',
-              destination: 'session',
+              destination: 'localSettings',
+            },
+          ],
+        },
+      },
+    })
+  })
+
+  it('should fall back to tool-wide allow when permission suggestions are invalid for Zod', () => {
+    const svc = new ConversationService()
+    const sent: unknown[] = []
+
+    ;(svc as any).sessions.set('session-bad-sugg', {
+      proc: null,
+      outputCallbacks: [],
+      workDir: process.cwd(),
+      sdkToken: 'token',
+      sdkSocket: {
+        send(data: string) {
+          sent.push(JSON.parse(data))
+        },
+      },
+      pendingOutbound: [],
+      stderrLines: [],
+      sdkMessages: [],
+      pendingPermissionRequests: new Map([
+        [
+          'req-bad',
+          {
+            toolName: 'Write',
+            input: { file_path: '/tmp/x' },
+            permissionSuggestions: [
+              { type: 'addRules', rules: 'not-an-array' },
+            ],
+          },
+        ],
+      ]),
+    })
+
+    const result = svc.respondToPermission('session-bad-sugg', 'req-bad', true, 'always')
+
+    expect(result).toBe(true)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({
+      type: 'control_response',
+      response: {
+        response: {
+          behavior: 'allow',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              rules: [{ toolName: 'Write' }],
+              behavior: 'allow',
+              destination: 'localSettings',
             },
           ],
         },

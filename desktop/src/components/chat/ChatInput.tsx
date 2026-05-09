@@ -7,8 +7,10 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi } from '../../api/sessions'
+import { CeWorkflowRoleSelector } from '../controls/CeWorkflowRoleSelector'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
-import { ModelSelector } from '../controls/ModelSelector'
+import { buildCeWorkflowMessage } from '../../constants/ceWorkflowRoles'
+import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import type { AttachmentRef } from '../../types/chat'
 import { AttachmentGallery } from './AttachmentGallery'
 import { ProjectContextChip } from '../shared/ProjectContextChip'
@@ -331,7 +333,13 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       mimeType: attachment.mimeType,
     }))
 
-    sendMessage(activeTabId!, text, attachmentPayload)
+    if (!isMemberSession) {
+      const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId!]
+      const { wire, display } = buildCeWorkflowMessage(roleId, text)
+      sendMessage(activeTabId!, wire, attachmentPayload, { displayContent: display })
+    } else {
+      sendMessage(activeTabId!, text, attachmentPayload)
+    }
     setInput('')
     setAttachments([])
     setPlusMenuOpen(false)
@@ -686,7 +694,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
             <div className="flex items-center gap-2">
               {!isMemberSession && activeTabId && (
-                <ModelSelector runtimeKey={activeTabId} disabled={isActive} />
+                <CeWorkflowRoleSelector sessionKey={activeTabId} disabled={isWorkspaceMissing} />
               )}
               <button
                 onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : handleSubmit}
@@ -728,6 +736,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   const { disconnectSession, connectToSession } = useChatStore.getState()
                   const newId = await createSession(newWorkDir)
                   useSessionRuntimeStore.getState().moveSelection(oldId, newId)
+                  useCeWorkflowRoleStore.getState().moveRole(oldId, newId)
                   disconnectSession(oldId)
                   replaceTabSession(oldId, newId)
                   connectToSession(newId)
