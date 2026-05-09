@@ -33,8 +33,15 @@ desktop/package-lock.json
 # Desktop brand asset candidates (keep only selected ones in public/)
 desktop/brand-assets/
 
-# Claude local config & auto-generated
-.claude/
+# Claude local config & auto-generated — skills under .claude/skills/ are tracked (CE symlinks + vendor)
+.claude/*
+!.claude/skills/
+!.claude/skills/**
+
+# Only vendor Compound Engineering plugin; keep other third_party trees local-only
+.claude/skills/third-party/*
+!.claude/skills/third-party/compound-engineering-plugin/
+!.claude/skills/third-party/compound-engineering-plugin/**
 
 # Superpowers plans & specs (local only)
 docs/superpowers/
