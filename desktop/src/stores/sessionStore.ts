@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { sessionsApi } from '../api/sessions'
 import { useSessionRuntimeStore } from './sessionRuntimeStore'
 import type { SessionListItem } from '../types/session'
+import { resolveDefaultSessionWorkDir } from '../utils/defaultSessionWorkDir'
 
 type SessionStore = {
   sessions: SessionListItem[]
@@ -49,7 +50,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   createSession: async (workDir?: string) => {
-    const { sessionId: id } = await sessionsApi.create(workDir || undefined)
+    let resolved = workDir
+    if (resolved === undefined || resolved === null || resolved === '') {
+      resolved = await resolveDefaultSessionWorkDir()
+    }
+    const { sessionId: id } = await sessionsApi.create(resolved || undefined)
     const now = new Date().toISOString()
     const optimisticSession: SessionListItem = {
       id,
@@ -58,7 +63,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       modifiedAt: now,
       messageCount: 0,
       projectPath: '',
-      workDir: workDir ?? null,
+      workDir: resolved ?? null,
       workDirExists: true,
     }
 

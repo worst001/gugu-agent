@@ -70,13 +70,23 @@ export function resolveClaudeCliLauncher(options?: {
   }
 }
 
+/**
+ * Prefer the same Bun binary as the current process so desktop/server spawns
+ * do not rely on `bun` being on PATH (avoids exit 127 from `bin/claude-gugu`).
+ */
+export function resolveBunExecutableForCliSpawn(): string {
+  const base = path.basename(process.execPath).replace(/\.exe$/i, '')
+  if (base === 'bun') return process.execPath
+  return 'bun'
+}
+
 export function buildClaudeCliArgs(
   launcher: ClaudeCliLauncher,
   baseArgs: string[],
   appRoot: string | undefined = process.env.CLAUDE_APP_ROOT,
 ): string[] {
   if (launcher.kind === 'script') {
-    return ['bun', launcher.command, ...baseArgs]
+    return [resolveBunExecutableForCliSpawn(), launcher.command, ...baseArgs]
   }
 
   if (launcher.kind === 'sidecar') {

@@ -286,7 +286,7 @@ describe('chatStore history mapping', () => {
     ])
   })
 
-  it('replays saved runtime selection when reconnecting a session', () => {
+  it('does not send set_runtime_config on connect (model comes from server .env)', () => {
     useSessionRuntimeStore.getState().setSelection(TEST_SESSION_ID, {
       providerId: 'provider-1',
       modelId: 'kimi-k2.6',
@@ -294,22 +294,12 @@ describe('chatStore history mapping', () => {
 
     useChatStore.getState().connectToSession(TEST_SESSION_ID)
 
-    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
-      type: 'set_runtime_config',
-      providerId: 'provider-1',
-      modelId: 'kimi-k2.6',
-    })
-    expect(sendMock.mock.calls.slice(0, 2)).toEqual([
-      [
-        TEST_SESSION_ID,
-        {
-          type: 'set_runtime_config',
-          providerId: 'provider-1',
-          modelId: 'kimi-k2.6',
-        },
-      ],
-      [TEST_SESSION_ID, { type: 'prewarm_session' }],
-    ])
+    expect(
+      sendMock.mock.calls.some(
+        (c) => c[0] === TEST_SESSION_ID && (c[1] as { type?: string })?.type === 'set_runtime_config',
+      ),
+    ).toBe(false)
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, { type: 'prewarm_session' })
   })
 
   it('prewarms regular desktop sessions when connecting', () => {
@@ -339,19 +329,6 @@ describe('chatStore history mapping', () => {
 
     expect(sendMock).not.toHaveBeenCalledWith('__settings__', {
       type: 'prewarm_session',
-    })
-  })
-
-  it('sends explicit runtime overrides over websocket', () => {
-    useChatStore.getState().setSessionRuntime(TEST_SESSION_ID, {
-      providerId: null,
-      modelId: 'claude-opus-4-7',
-    })
-
-    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
-      type: 'set_runtime_config',
-      providerId: null,
-      modelId: 'claude-opus-4-7',
     })
   })
 

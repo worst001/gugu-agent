@@ -12,12 +12,13 @@ describe('chat blocks', () => {
     useChatStore.setState({ sessions: {} })
   })
 
-  it('keeps thinking collapsed by default', () => {
+  it('expands active thinking by default so partial reasoning is visible while streaming', () => {
     const { container } = render(<ThinkingBlock content="this is a long internal reasoning trace" isActive />)
 
-    expect(screen.getByText(/Thinking/)).toBeTruthy()
+    expect(screen.getByText(/thinking|思考/i)).toBeTruthy()
     expect(container.textContent).toContain('this is a long internal reasoning trace')
-    expect(container.querySelector('.thinking-cursor')).toBeNull()
+    // Expanded active block shows the typing cursor at end of the reasoning panel
+    expect(container.querySelector('.thinking-cursor')).toBeTruthy()
   })
 
   it('does not animate inactive historical thinking blocks', () => {
@@ -40,7 +41,7 @@ describe('chat blocks', () => {
 
     fireEvent.click(screen.getByRole('button'))
 
-    expect(container.textContent).toContain('Tool Input')
+    expect(container.textContent).toMatch(/Tool Input|工具输入/)
     expect(container.textContent).not.toContain('const answer = 42')
   })
 
@@ -141,7 +142,7 @@ describe('chat blocks', () => {
     )
 
     expect(container.textContent).toContain('/tmp/example.ts')
-    expect(container.textContent).toContain('Allow')
+    expect(container.textContent).toMatch(/Allow|允许/)
     // react-diff-viewer-continued uses styled-components tables that don't
     // fully render in jsdom, so we verify the DiffViewer wrapper is mounted
     expect(container.querySelector('[class*="rounded-[var(--radius-lg)]"]')).toBeTruthy()

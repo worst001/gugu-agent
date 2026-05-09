@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { settingsApi } from '../api/settings'
 import { skillsApi } from '../api/skills'
 import { useTranslation } from '../i18n'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
-import { useProviderStore } from '../stores/providerStore'
-import { useSessionRuntimeStore, DRAFT_RUNTIME_SELECTION_KEY } from '../stores/sessionRuntimeStore'
-import { useSettingsStore } from '../stores/settingsStore'
 import { useUIStore } from '../stores/uiStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
-import { OFFICIAL_DEFAULT_MODEL_ID } from '../constants/modelCatalog'
 import { DirectoryPicker } from '../components/shared/DirectoryPicker'
+import { CeWorkflowRoleSelector } from '../components/controls/CeWorkflowRoleSelector'
 import { PermissionModeSelector } from '../components/controls/PermissionModeSelector'
-import { ModelSelector } from '../components/controls/ModelSelector'
+import { CE_WORKFLOW_DEFAULT_ROLE_ID, buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
+import { DRAFT_CE_WORKFLOW_KEY, useCeWorkflowRoleStore } from '../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
 import { FileSearchMenu, type FileSearchMenuHandle } from '../components/chat/FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from '../components/chat/LocalSlashCommandPanel'
@@ -40,6 +39,7 @@ export function EmptySession() {
   const [input, setInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [workDir, setWorkDir] = useState('')
+  const [savedDefaultWorkDir, setSavedDefaultWorkDir] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
   const [slashMenuOpen, setSlashMenuOpen] = useState(false)
@@ -64,6 +64,39 @@ export function EmptySession() {
 
   useEffect(() => {
     textareaRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const user = await settingsApi.getUser()
+        if (cancelled) return
+        const raw =
+          typeof user.defaultSessionWorkDir === 'string'
+            ? user.defaultSessionWorkDir.trim()
+            : ''
+        setSavedDefaultWorkDir(raw || null)
+        const env =
+          typeof import.meta.env.VITE_DEFAULT_SESSION_WORKDIR === 'string'
+            ? import.meta.env.VITE_DEFAULT_SESSION_WORKDIR.trim()
+            : ''
+        const initial = raw || env
+        if (initial) setWorkDir(initial)
+      } catch {
+        if (!cancelled) {
+          setSavedDefaultWorkDir(null)
+          const env =
+            typeof import.meta.env.VITE_DEFAULT_SESSION_WORKDIR === 'string'
+              ? import.meta.env.VITE_DEFAULT_SESSION_WORKDIR.trim()
+              : ''
+          if (env) setWorkDir(env)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -184,6 +217,34 @@ export function EmptySession() {
     }
   }, [slashMenuOpen, slashSelectedIndex])
 
+  const handleSaveDefaultWorkDir = async () => {
+    const dir = workDir.trim()
+    if (!dir) return
+    try {
+      await settingsApi.updateUser({ defaultSessionWorkDir: dir })
+      setSavedDefaultWorkDir(dir)
+      addToast({ type: 'success', message: t('empty.defaultWorkDirSavedToast') })
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : t('empty.defaultWorkDirSaveFailed'),
+      })
+    }
+  }
+
+  const handleClearDefaultWorkDir = async () => {
+    try {
+      await settingsApi.updateUser({ defaultSessionWorkDir: '' })
+      setSavedDefaultWorkDir(null)
+      addToast({ type: 'success', message: t('empty.defaultWorkDirClearedToast') })
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : t('empty.defaultWorkDirSaveFailed'),
+      })
+    }
+  }
+
   const handleSubmit = async () => {
     const text = input.trim()
     if ((!text && attachments.length === 0) || isSubmitting) return
@@ -210,30 +271,11 @@ export function EmptySession() {
 
     setIsSubmitting(true)
     try {
-      const settings = useSettingsStore.getState()
-      let providerState = useProviderStore.getState()
-      if (
-        settings.activeProviderName &&
-        providerState.providers.length === 0 &&
-        !providerState.isLoading
-      ) {
-        await providerState.fetchProviders()
-        providerState = useProviderStore.getState()
-      }
-      const inferredProviderId = providerState.activeId ?? (
-        settings.activeProviderName
-          ? providerState.providers.find((provider) => provider.name === settings.activeProviderName)?.id ?? null
-          : null
-      )
-      const draftSelection =
-        useSessionRuntimeStore.getState().selections[DRAFT_RUNTIME_SELECTION_KEY]
-        ?? {
-          providerId: inferredProviderId,
-          modelId: settings.currentModel?.id ?? OFFICIAL_DEFAULT_MODEL_ID,
-        }
       const sessionId = await createSession(workDir || undefined)
-      useSessionRuntimeStore.getState().setSelection(sessionId, draftSelection)
-      useSessionRuntimeStore.getState().clearSelection(DRAFT_RUNTIME_SELECTION_KEY)
+      const draftRole =
+        useCeWorkflowRoleStore.getState().selections[DRAFT_CE_WORKFLOW_KEY] ?? CE_WORKFLOW_DEFAULT_ROLE_ID
+      useCeWorkflowRoleStore.getState().setRole(sessionId, draftRole)
+
       setActiveView('code')
       useTabStore.getState().openTab(sessionId, 'New Session')
       connectToSession(sessionId)
@@ -243,7 +285,8 @@ export function EmptySession() {
         data: attachment.data,
         mimeType: attachment.mimeType,
       }))
-      sendMessage(sessionId, text, attachmentPayload)
+      const { wire, display } = buildCeWorkflowMessage(draftRole, text)
+      sendMessage(sessionId, wire, attachmentPayload, { displayContent: display })
       setInput('')
       setAttachments([])
     } catch (error) {
@@ -590,7 +633,7 @@ export function EmptySession() {
               </div>
 
               <div className="flex items-center gap-3">
-                <ModelSelector runtimeKey={DRAFT_RUNTIME_SELECTION_KEY} disabled={isSubmitting} />
+                <CeWorkflowRoleSelector sessionKey={DRAFT_CE_WORKFLOW_KEY} disabled={isSubmitting} />
                 <button
                   onClick={handleSubmit}
                   disabled={(!input.trim() && attachments.length === 0) || isSubmitting}
@@ -603,8 +646,33 @@ export function EmptySession() {
             </div>
           </div>
 
-          <div>
+          <div className="flex flex-col gap-2">
             <DirectoryPicker value={workDir} onChange={setWorkDir} />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--color-text-tertiary)]">
+              {workDir.trim() ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSaveDefaultWorkDir()}
+                  className="rounded-md px-2 py-1 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                >
+                  {t('empty.saveDefaultWorkDir')}
+                </button>
+              ) : null}
+              {savedDefaultWorkDir ? (
+                <>
+                  <span className="max-w-[min(100%,48rem)] truncate" title={savedDefaultWorkDir}>
+                    {t('empty.defaultWorkDirActive', { path: savedDefaultWorkDir })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleClearDefaultWorkDir()}
+                    className="rounded-md px-2 py-1 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                  >
+                    {t('empty.clearDefaultWorkDir')}
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

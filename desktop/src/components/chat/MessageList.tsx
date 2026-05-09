@@ -356,7 +356,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
             - thinking but no active ThinkingBlock yet: the gap between
               sending a message and receiving the first thinking delta */}
         {(chatState === 'tool_executing' || (chatState === 'thinking' && !activeThinkingId)) && (
-          <StreamingIndicator />
+          <StreamingIndicator
+            showAwaitingThinkingHint={chatState === 'thinking' && !activeThinkingId}
+          />
         )}
 
         <div ref={bottomRef} />

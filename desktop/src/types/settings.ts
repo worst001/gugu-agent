@@ -19,5 +19,7 @@ export type UserSettings = {
   permissionMode?: PermissionMode
   theme?: ThemeMode
   skipWebFetchPreflight?: boolean
+  /** Default CLI working directory for new sessions (stored in ~/.claude/settings.json). */
+  defaultSessionWorkDir?: string
   [key: string]: unknown
 }

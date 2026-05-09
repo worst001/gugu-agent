@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { RuntimeSelection } from '../types/runtime'
 
-const STORAGE_KEY = 'cc-haha-session-runtime'
+/** Bumped when runtime overrides should be cleared (e.g. switch to server `.env` only). */
+const STORAGE_KEY = 'cc-haha-session-runtime-v2'
 
 export const DRAFT_RUNTIME_SELECTION_KEY = '__draft__'
 

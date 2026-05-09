@@ -6,16 +6,29 @@ export function ThinkingBlock({ content, isActive = false }: { content: string; 
   const [expanded, setExpanded] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
 
+  // Stream partial reasoning without requiring a click — user can still collapse.
+  useEffect(() => {
+    if (isActive) setExpanded(true)
+  }, [isActive])
+
   useEffect(() => {
     if (expanded && isActive && contentRef.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight
     }
   }, [content, expanded, isActive])
 
-  // Preview: take first meaningful line, not first 140 chars
+  // Preview: first meaningful line; if the model streams one long line without \n, use its tail
   const lines = content.split('\n').filter((l) => l.trim())
   const firstLine = lines[0]?.replace(/\s+/g, ' ').trim() || ''
-  const preview = firstLine.length > 80 ? firstLine.slice(0, 80) + '...' : firstLine
+  const collapsed = content.replace(/\s+/g, ' ').trim()
+  const tailWhenNoBreak =
+    !firstLine && collapsed.length > 0
+      ? collapsed.length > 100
+        ? `…${collapsed.slice(-100)}`
+        : collapsed
+      : ''
+  const previewSource = firstLine || tailWhenNoBreak
+  const preview = previewSource.length > 80 ? previewSource.slice(0, 80) + '...' : previewSource
 
   return (
     <div className="mb-1">

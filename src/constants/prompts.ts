@@ -145,7 +145,11 @@ function getLanguageSection(
   if (!languagePreference) return null
 
   return `# Language
-Always respond in ${languagePreference}. Use ${languagePreference} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.`
+Always respond in ${languagePreference}. Use ${languagePreference} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.
+
+Also align the following with ${languagePreference} (this is required for user-visible task tracking):
+- Task and todo entries (every title and description you write, including via ${TODO_WRITE_TOOL_NAME} and ${TASK_CREATE_TOOL_NAME}): must be in ${languagePreference}.
+- Extended thinking / reasoning traces: prefer ${languagePreference}; keep file paths, symbols, and raw logs in their original form when mixing languages would hurt clarity.`
 }
 
 function getOutputStyleSection(

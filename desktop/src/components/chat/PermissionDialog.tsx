@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useChatStore } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useTranslation } from '../../i18n'
@@ -118,6 +118,8 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
   const t = useTranslation()
   const isPending = pendingPermission?.requestId === requestId
   const [showRaw, setShowRaw] = useState(false)
+  const [allowMenuOpen, setAllowMenuOpen] = useState(false)
+  const allowMenuRef = useRef<HTMLDivElement>(null)
 
   const meta = TOOL_META[toolName] || { icon: 'shield', label: toolName, color: 'var(--color-text-tertiary)' }
   const details = extractToolDetails(toolName, input, t)
@@ -125,6 +127,36 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
   const preview = renderPermissionPreview(toolName, input)
   const title = getPermissionTitle(toolName, input, t)
   const allowRawToggle = !preview
+
+  useEffect(() => {
+    if (!allowMenuOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (allowMenuRef.current && !allowMenuRef.current.contains(e.target as Node)) {
+        setAllowMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAllowMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [allowMenuOpen])
+
+  const pickAllow = (kind: 'once' | 'session' | 'always') => {
+    if (!activeTabId) return
+    if (kind === 'once') {
+      respondToPermission(activeTabId, requestId, true)
+    } else if (kind === 'session') {
+      respondToPermission(activeTabId, requestId, true, { rule: 'session' })
+    } else {
+      respondToPermission(activeTabId, requestId, true, { rule: 'always' })
+    }
+    setAllowMenuOpen(false)
+  }
 
   return (
     <div className={`mb-4 overflow-hidden rounded-[var(--radius-lg)] border ${
@@ -224,26 +256,53 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
       {/* Action buttons */}
       {isPending && (
         <div className="flex items-center gap-2 border-t border-[var(--color-outline-variant)]/20 bg-[var(--color-surface-container-low)] px-4 py-3">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => activeTabId && respondToPermission(activeTabId, requestId, true)}
-            icon={
-              <span className="material-symbols-outlined text-[14px]">check</span>
-            }
-          >
-            {t('permission.allow')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => activeTabId && respondToPermission(activeTabId, requestId, true, { rule: 'always' })}
-            icon={
-              <span className="material-symbols-outlined text-[14px]">verified</span>
-            }
-          >
-            {t('permission.allowForSession')}
-          </Button>
+          <div ref={allowMenuRef} className="relative">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setAllowMenuOpen((o) => !o)}
+              aria-expanded={allowMenuOpen}
+              aria-haspopup="menu"
+            >
+              {t('permission.allow')}
+              <span className="material-symbols-outlined text-[14px]">expand_more</span>
+            </Button>
+            {allowMenuOpen && (
+              <div
+                className="absolute bottom-full left-0 z-50 mb-1.5 min-w-[240px] overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]"
+                role="menu"
+                aria-label={t('permission.allow')}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pickAllow('once')}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">check</span>
+                  <span className="min-w-0 flex-1">{t('permission.allowOnce')}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pickAllow('session')}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">schedule</span>
+                  <span className="min-w-0 flex-1">{t('permission.allowForSession')}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pickAllow('always')}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">lock_open</span>
+                  <span className="min-w-0 flex-1">{t('permission.allowAlways')}</span>
+                </button>
+              </div>
+            )}
+          </div>
           <div className="flex-1" />
           <Button
             variant="danger"
