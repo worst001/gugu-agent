@@ -4,6 +4,9 @@
 node_modules
 .DS_Store
 
+# Local Git worktrees
+.worktrees/
+
 # Computer Use runtime (auto-generated)
 .runtime/
 extracted-natives/
