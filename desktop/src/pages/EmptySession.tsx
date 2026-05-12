@@ -22,7 +22,6 @@ import {
   replaceSlashCommand,
   resolveSlashUiAction,
 } from '../components/chat/composerUtils'
-import type { AttachmentRef } from '../types/chat'
 import type { SlashCommandOption } from '../components/chat/composerUtils'
 
 type Attachment = {
@@ -279,14 +278,16 @@ export function EmptySession() {
       setActiveView('code')
       useTabStore.getState().openTab(sessionId, 'New Session')
       connectToSession(sessionId)
-      const attachmentPayload: AttachmentRef[] = attachments.map((attachment) => ({
+      const attachmentPayload = attachments.map((attachment) => ({
         type: attachment.type,
         name: attachment.name,
         data: attachment.data,
         mimeType: attachment.mimeType,
       }))
-      const { wire, display } = buildCeWorkflowMessage(draftRole, text)
-      sendMessage(sessionId, wire, attachmentPayload, { displayContent: display })
+      const { wire } = buildCeWorkflowMessage(draftRole, text)
+      sendMessage(sessionId, wire, attachmentPayload, {
+        displayContent: text,
+      })
       setInput('')
       setAttachments([])
     } catch (error) {

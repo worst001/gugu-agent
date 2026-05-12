@@ -24,6 +24,192 @@ import {
 } from '../services/chatgptAuthService.js'
 
 const providerService = new ProviderService()
+const DEFAULT_PROXY_STREAM_CONNECT_TIMEOUT_MS = 0
+const DEFAULT_PROXY_STREAM_IDLE_TIMEOUT_MS = 300_000
+const DEFAULT_PROXY_STREAM_PING_INTERVAL_MS = 15_000
+const DEFAULT_PROXY_REQUEST_TIMEOUT_MS = 300_000
+const PROXY_STREAM_IDLE_MESSAGE = '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。'
+
+type UpstreamFetchResult = {
+  response: Response
+  abort?: () => void
+}
+
+function getTimeoutMs(envName: string, fallback: number): number | undefined {
+  const raw = process.env[envName]
+  const value = raw === undefined ? fallback : Number(raw)
+  if (!Number.isFinite(value) || value < 0) return fallback || undefined
+  return value === 0 ? undefined : value
+}
+
+async function fetchUpstream(
+  input: Parameters<typeof fetch>[0],
+  init: RequestInit,
+  isStream: boolean,
+): Promise<UpstreamFetchResult> {
+  if (!isStream) {
+    const timeoutMs = getTimeoutMs('CC_HAHA_PROXY_REQUEST_TIMEOUT_MS', DEFAULT_PROXY_REQUEST_TIMEOUT_MS)
+    const response = await fetch(input, {
+      ...init,
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
+    })
+    return { response }
+  }
+
+  const controller = new AbortController()
+  const timeoutMs = getTimeoutMs(
+    'CC_HAHA_PROXY_STREAM_CONNECT_TIMEOUT_MS',
+    DEFAULT_PROXY_STREAM_CONNECT_TIMEOUT_MS,
+  )
+  if (!timeoutMs) {
+    const response = await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+    return { response, abort: () => controller.abort(PROXY_STREAM_IDLE_MESSAGE) }
+  }
+
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException('Upstream stream connection timed out.', 'TimeoutError'))
+  }, timeoutMs)
+  const unref = (timer as { unref?: () => void }).unref
+  if (unref) {
+    unref.call(timer)
+  }
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+    return { response, abort: () => controller.abort(PROXY_STREAM_IDLE_MESSAGE) }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function formatSse(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+function getStreamIdleTimeoutMs(): number | undefined {
+  return getTimeoutMs(
+    'CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS',
+    DEFAULT_PROXY_STREAM_IDLE_TIMEOUT_MS,
+  )
+}
+
+function getStreamPingIntervalMs(): number | undefined {
+  return getTimeoutMs(
+    'CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS',
+    DEFAULT_PROXY_STREAM_PING_INTERVAL_MS,
+  )
+}
+
+function wrapAnthropicSseStream(
+  upstream: ReadableStream<Uint8Array>,
+  options: {
+    abortUpstream?: () => void
+    idleTimeoutMs?: number
+    pingIntervalMs?: number
+  } = {},
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+
+  return new ReadableStream({
+    async start(controller) {
+      const reader = upstream.getReader()
+      let pingTimer: ReturnType<typeof setInterval> | null = null
+      let closed = false
+
+      const clearTimers = () => {
+        if (pingTimer) {
+          clearInterval(pingTimer)
+          pingTimer = null
+        }
+      }
+
+      const close = () => {
+        if (closed) return
+        closed = true
+        clearTimers()
+        controller.close()
+      }
+
+      const enqueue = (chunk: string | Uint8Array) => {
+        if (closed) return
+        controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk)
+      }
+
+      const emitIdleError = () => {
+        if (closed) return
+        closed = true
+        clearTimers()
+        options.abortUpstream?.()
+        void reader.cancel(PROXY_STREAM_IDLE_MESSAGE).catch(() => {})
+        controller.enqueue(encoder.encode(formatSse('error', {
+          type: 'error',
+          error: {
+            type: 'api_error',
+            message: PROXY_STREAM_IDLE_MESSAGE,
+          },
+        })))
+        controller.close()
+      }
+
+      if (options.pingIntervalMs) {
+        pingTimer = setInterval(() => {
+          enqueue(formatSse('ping', { type: 'ping' }))
+        }, options.pingIntervalMs)
+      }
+
+      try {
+        while (!closed) {
+          let timeout: ReturnType<typeof setTimeout> | null = null
+          const readResult = await Promise.race([
+            reader.read().then((result) => ({ kind: 'read' as const, result })),
+            ...(options.idleTimeoutMs
+              ? [new Promise<{ kind: 'timeout' }>((resolve) => {
+                  timeout = setTimeout(() => resolve({ kind: 'timeout' }), options.idleTimeoutMs)
+                })]
+              : []),
+          ])
+          if (timeout) clearTimeout(timeout)
+
+          if (readResult.kind === 'timeout') {
+            emitIdleError()
+            break
+          }
+
+          const { done, value } = readResult.result
+          if (done) break
+          enqueue(value)
+        }
+        close()
+      } catch (err) {
+        clearTimers()
+        if (!closed) {
+          closed = true
+          controller.error(err)
+        }
+      }
+    },
+    cancel() {
+      options.abortUpstream?.()
+    },
+  })
+}
+
+function monitorAnthropicSseStream(
+  upstream: ReadableStream<Uint8Array>,
+  abortUpstream?: () => void,
+): ReadableStream<Uint8Array> {
+  return wrapAnthropicSseStream(upstream, {
+    abortUpstream,
+    idleTimeoutMs: getStreamIdleTimeoutMs(),
+    pingIntervalMs: getStreamPingIntervalMs(),
+  })
+}
 
 export async function handleProxyRequest(req: Request, url: URL): Promise<Response> {
   const providerMatch = url.pathname.match(/^\/proxy\/providers\/([^/]+)\/v1\/messages$/)
@@ -78,7 +264,7 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
         type: 'error',
         error: {
           type: 'invalid_request_error',
-          message: `Model "${body.model}" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.`,
+          message: getUnsupportedImageInputMessage(baseUrl, body.model),
         },
       },
       { status: 400 },
@@ -128,6 +314,14 @@ function isKnownTextOnlyProvider(baseUrl: string, model: string): boolean {
   return haystack.includes('deepseek')
 }
 
+function getUnsupportedImageInputMessage(baseUrl: string, model: string): string {
+  const haystack = `${baseUrl} ${model}`.toLowerCase()
+  if (haystack.includes('deepseek')) {
+    return `DeepSeek's Anthropic-compatible API currently does not support image content blocks, including DeepSeek V4 models. Model "${model}" can only receive text/tool content through this provider. Switch to a vision-capable provider/model, or send text only.`
+  }
+  return `Model "${model}" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.`
+}
+
 async function handleAnthropicPassThrough(
   req: Request,
   body: AnthropicRequest,
@@ -143,12 +337,11 @@ async function handleAnthropicPassThrough(
   const anthropicBeta = req.headers.get('anthropic-beta')
   if (anthropicBeta) headers['anthropic-beta'] = anthropicBeta
 
-  const upstream = await fetch(`${baseUrl}/v1/messages`, {
+  const { response: upstream, abort: abortUpstream } = await fetchUpstream(`${baseUrl}/v1/messages`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-    signal: isStream ? AbortSignal.timeout(30_000) : AbortSignal.timeout(300_000),
-  })
+  }, isStream)
 
   if (isStream) {
     if (!upstream.body) {
@@ -157,7 +350,7 @@ async function handleAnthropicPassThrough(
         { status: 502 },
       )
     }
-    return new Response(upstream.body, {
+    return new Response(monitorAnthropicSseStream(upstream.body, abortUpstream), {
       status: upstream.status,
       headers: {
         'Content-Type': upstream.headers.get('Content-Type') || 'text/event-stream',
@@ -196,7 +389,7 @@ async function handleChatGPTCodex(
 
   const transformed = anthropicToChatGPTCodexRequest(body)
   transformed.stream = true
-  const upstream = await fetch(CHATGPT_CODEX_API_ENDPOINT, {
+  const { response: upstream, abort: abortUpstream } = await fetchUpstream(CHATGPT_CODEX_API_ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -207,8 +400,7 @@ async function handleChatGPTCodex(
       session_id: crypto.randomUUID(),
     },
     body: JSON.stringify(transformed),
-    signal: isStream ? AbortSignal.timeout(30_000) : AbortSignal.timeout(300_000),
-  })
+  }, isStream)
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
@@ -233,7 +425,7 @@ async function handleChatGPTCodex(
 
   const anthropicStream = openaiResponsesStreamToAnthropic(upstream.body, body.model)
   if (isStream) {
-    return new Response(anthropicStream, {
+    return new Response(monitorAnthropicSseStream(anthropicStream, abortUpstream), {
       status: 200,
       headers: {
         'Content-Type': 'text/event-stream',
@@ -354,15 +546,14 @@ async function handleOpenaiChat(
   const transformed = anthropicToOpenaiChat(body)
   const url = `${baseUrl}/v1/chat/completions`
 
-  const upstream = await fetch(url, {
+  const { response: upstream, abort: abortUpstream } = await fetchUpstream(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(transformed),
-    signal: isStream ? AbortSignal.timeout(30_000) : AbortSignal.timeout(300_000),
-  })
+  }, isStream)
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
@@ -386,7 +577,7 @@ async function handleOpenaiChat(
       )
     }
     const anthropicStream = openaiChatStreamToAnthropic(upstream.body, body.model)
-    return new Response(anthropicStream, {
+    return new Response(monitorAnthropicSseStream(anthropicStream, abortUpstream), {
       status: 200,
       headers: {
         'Content-Type': 'text/event-stream',
@@ -411,15 +602,14 @@ async function handleOpenaiResponses(
   const transformed = anthropicToOpenaiResponses(body)
   const url = `${baseUrl}/v1/responses`
 
-  const upstream = await fetch(url, {
+  const { response: upstream, abort: abortUpstream } = await fetchUpstream(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(transformed),
-    signal: isStream ? AbortSignal.timeout(30_000) : AbortSignal.timeout(300_000),
-  })
+  }, isStream)
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
@@ -443,7 +633,7 @@ async function handleOpenaiResponses(
       )
     }
     const anthropicStream = openaiResponsesStreamToAnthropic(upstream.body, body.model)
-    return new Response(anthropicStream, {
+    return new Response(monitorAnthropicSseStream(anthropicStream, abortUpstream), {
       status: 200,
       headers: {
         'Content-Type': 'text/event-stream',

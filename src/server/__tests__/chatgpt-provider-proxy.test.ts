@@ -8,17 +8,38 @@ import { handleProxyRequest } from '../proxy/handler.js'
 
 let tmpDir: string
 let originalConfigDir: string | undefined
+let originalProxyStreamTimeout: string | undefined
+let originalProxyStreamIdleTimeout: string | undefined
+let originalProxyStreamPingInterval: string | undefined
 let originalFetch: typeof fetch
 
 async function setup() {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'chatgpt-provider-test-'))
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  originalProxyStreamTimeout = process.env.CC_HAHA_PROXY_STREAM_CONNECT_TIMEOUT_MS
+  originalProxyStreamIdleTimeout = process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS
+  originalProxyStreamPingInterval = process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS
   originalFetch = globalThis.fetch
   process.env.CLAUDE_CONFIG_DIR = tmpDir
 }
 
 async function teardown() {
   globalThis.fetch = originalFetch
+  if (originalProxyStreamTimeout === undefined) {
+    delete process.env.CC_HAHA_PROXY_STREAM_CONNECT_TIMEOUT_MS
+  } else {
+    process.env.CC_HAHA_PROXY_STREAM_CONNECT_TIMEOUT_MS = originalProxyStreamTimeout
+  }
+  if (originalProxyStreamIdleTimeout === undefined) {
+    delete process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS
+  } else {
+    process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS = originalProxyStreamIdleTimeout
+  }
+  if (originalProxyStreamPingInterval === undefined) {
+    delete process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS
+  } else {
+    process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS = originalProxyStreamPingInterval
+  }
   if (originalConfigDir === undefined) {
     delete process.env.CLAUDE_CONFIG_DIR
   } else {
@@ -179,7 +200,8 @@ describe('ChatGPT provider integration', () => {
 
     expect(res.status).toBe(400)
     expect(fetchCalled).toBe(false)
-    expect(body.error.message).toContain('does not support image input')
+    expect(body.error.message).toContain('DeepSeek')
+    expect(body.error.message).toContain('does not support image content blocks')
   })
 
   test('proxy sends ChatGPT OAuth token to Codex endpoint', async () => {
@@ -243,5 +265,239 @@ describe('ChatGPT provider integration', () => {
     expect(upstreamBody?.stream).toBe(true)
     expect(body.type).toBe('message')
     expect(body.content[0]?.text).toBe('ok')
+  })
+
+  test('stream proxy timeout does not abort after upstream responds', async () => {
+    process.env.CC_HAHA_PROXY_STREAM_CONNECT_TIMEOUT_MS = '10'
+    const svc = new ProviderService()
+    const provider = await svc.addProvider({
+      presetId: 'openai-compatible',
+      name: 'OpenAI Compatible',
+      apiKey: 'openai-key',
+      baseUrl: 'https://openai-compatible.test',
+      apiFormat: 'openai_chat',
+      models: {
+        main: 'gpt-test',
+        haiku: 'gpt-test',
+        sonnet: 'gpt-test',
+        opus: 'gpt-test',
+      },
+    })
+    await svc.activateProvider(provider.id)
+
+    let upstreamSignal: AbortSignal | undefined
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      upstreamSignal = init?.signal as AbortSignal | undefined
+      const encoder = new TextEncoder()
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}',
+            '',
+          ].join('\n')))
+          setTimeout(() => {
+            controller.enqueue(encoder.encode([
+              'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}',
+              '',
+              'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+              '',
+              'data: [DONE]',
+              '',
+            ].join('\n')))
+            controller.close()
+          }, 25)
+        },
+      })
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    }) as typeof fetch
+
+    const req = new Request('http://127.0.0.1:3456/proxy/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-test',
+        max_tokens: 64,
+        stream: true,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    const res = await handleProxyRequest(req, new URL(req.url))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(upstreamSignal?.aborted).toBe(false)
+    expect(text).toContain('content_block_delta')
+    expect(text).toContain('ok')
+  })
+
+  test('stream proxy does not install a fixed timeout by default', async () => {
+    delete process.env.CC_HAHA_PROXY_STREAM_CONNECT_TIMEOUT_MS
+    process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS = '0'
+    process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS = '0'
+    const svc = new ProviderService()
+    const provider = await svc.addProvider({
+      presetId: 'openai-compatible',
+      name: 'OpenAI Compatible',
+      apiKey: 'openai-key',
+      baseUrl: 'https://openai-compatible.test',
+      apiFormat: 'openai_chat',
+      models: {
+        main: 'gpt-test',
+        haiku: 'gpt-test',
+        sonnet: 'gpt-test',
+        opus: 'gpt-test',
+      },
+    })
+    await svc.activateProvider(provider.id)
+
+    let upstreamSignal: AbortSignal | undefined
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      upstreamSignal = init?.signal as AbortSignal | undefined
+      return new Response([
+        'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}',
+        '',
+        'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}',
+        '',
+        'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+        '',
+        'data: [DONE]',
+        '',
+      ].join('\n'), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    }) as typeof fetch
+
+    const req = new Request('http://127.0.0.1:3456/proxy/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-test',
+        max_tokens: 64,
+        stream: true,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    const res = await handleProxyRequest(req, new URL(req.url))
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(upstreamSignal?.aborted).toBe(false)
+    expect(text).toContain('ok')
+  })
+
+  test('stream proxy emits pings without cutting an active long stream', async () => {
+    process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS = '0'
+    process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS = '5'
+    const svc = new ProviderService()
+    const provider = await svc.addProvider({
+      presetId: 'openai-compatible',
+      name: 'OpenAI Compatible',
+      apiKey: 'openai-key',
+      baseUrl: 'https://openai-compatible.test',
+      apiFormat: 'openai_chat',
+      models: {
+        main: 'gpt-test',
+        haiku: 'gpt-test',
+        sonnet: 'gpt-test',
+        opus: 'gpt-test',
+      },
+    })
+    await svc.activateProvider(provider.id)
+
+    globalThis.fetch = (async () => {
+      const encoder = new TextEncoder()
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            controller.enqueue(encoder.encode([
+              'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":null}]}',
+              '',
+              'data: {"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+              '',
+              'data: [DONE]',
+              '',
+            ].join('\n')))
+            controller.close()
+          }, 20)
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    }) as typeof fetch
+
+    const req = new Request('http://127.0.0.1:3456/proxy/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-test',
+        max_tokens: 64,
+        stream: true,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    const res = await handleProxyRequest(req, new URL(req.url))
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(text).toContain('event: ping')
+    expect(text).toContain('ok')
+  })
+
+  test('stream proxy closes with a recovery error after upstream idle timeout', async () => {
+    process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS = '20'
+    process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS = '5'
+    const svc = new ProviderService()
+    const provider = await svc.addProvider({
+      presetId: 'openai-compatible',
+      name: 'OpenAI Compatible',
+      apiKey: 'openai-key',
+      baseUrl: 'https://openai-compatible.test',
+      apiFormat: 'openai_chat',
+      models: {
+        main: 'gpt-test',
+        haiku: 'gpt-test',
+        sonnet: 'gpt-test',
+        opus: 'gpt-test',
+      },
+    })
+    await svc.activateProvider(provider.id)
+
+    let upstreamSignal: AbortSignal | undefined
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      upstreamSignal = init?.signal as AbortSignal | undefined
+      return new Response(new ReadableStream<Uint8Array>({
+        start() {
+          // Keep the upstream stream open without real model chunks.
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    }) as typeof fetch
+
+    const req = new Request('http://127.0.0.1:3456/proxy/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-test',
+        max_tokens: 64,
+        stream: true,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    const res = await handleProxyRequest(req, new URL(req.url))
+    const text = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(upstreamSignal?.aborted).toBe(true)
+    expect(text).toContain('event: ping')
+    expect(text).toContain('event: error')
+    expect(text).toContain('已中止本轮以恢复会话')
   })
 })

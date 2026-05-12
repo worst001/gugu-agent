@@ -102,4 +102,43 @@ describe('translateCliMessage thinking bridge', () => {
 
     expect(out).toEqual([])
   })
+
+  it('turns repeated assistant snapshots without stream events into suffix deltas', () => {
+    const sessionId = sid()
+    const first = translateCliMessage(
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Configured API key auth.' }] },
+      },
+      sessionId,
+    )
+    const second = translateCliMessage(
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Configured API key auth. Ready.' }] },
+      },
+      sessionId,
+    )
+    const duplicate = translateCliMessage(
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Configured API key auth. Ready.' }] },
+      },
+      sessionId,
+    )
+
+    expect(first).toContainEqual({ type: 'content_delta', text: 'Configured API key auth.' })
+    expect(second).toContainEqual({ type: 'content_delta', text: ' Ready.' })
+    expect(duplicate).toEqual([])
+
+    translateCliMessage({ type: 'result', usage: { input_tokens: 0, output_tokens: 0 } }, sessionId)
+    const nextTurn = translateCliMessage(
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Configured API key auth.' }] },
+      },
+      sessionId,
+    )
+    expect(nextTurn).toContainEqual({ type: 'content_delta', text: 'Configured API key auth.' })
+  })
 })

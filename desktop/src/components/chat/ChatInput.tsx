@@ -8,10 +8,10 @@ import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi } from '../../api/sessions'
 import { CeWorkflowRoleSelector } from '../controls/CeWorkflowRoleSelector'
+import { EffortSelector } from '../controls/EffortSelector'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
 import { buildCeWorkflowMessage } from '../../constants/ceWorkflowRoles'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
-import type { AttachmentRef } from '../../types/chat'
 import { AttachmentGallery } from './AttachmentGallery'
 import { ProjectContextChip } from '../shared/ProjectContextChip'
 import { DirectoryPicker } from '../shared/DirectoryPicker'
@@ -326,7 +326,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       return
     }
 
-    const attachmentPayload: AttachmentRef[] = attachments.map((attachment) => ({
+    const attachmentPayload = attachments.map((attachment) => ({
       type: attachment.type,
       name: attachment.name,
       data: attachment.data,
@@ -335,10 +335,12 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
     if (!isMemberSession) {
       const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId!]
-      const { wire, display } = buildCeWorkflowMessage(roleId, text)
-      sendMessage(activeTabId!, wire, attachmentPayload, { displayContent: display })
+      const { wire } = buildCeWorkflowMessage(roleId, text)
+      sendMessage(activeTabId!, wire, attachmentPayload, {
+        displayContent: text,
+      })
     } else {
-      sendMessage(activeTabId!, text, attachmentPayload)
+      sendMessage(activeTabId!, text)
     }
     setInput('')
     setAttachments([])
@@ -694,7 +696,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
             <div className="flex items-center gap-2">
               {!isMemberSession && activeTabId && (
-                <CeWorkflowRoleSelector sessionKey={activeTabId} disabled={isWorkspaceMissing} />
+                <>
+                  <CeWorkflowRoleSelector sessionKey={activeTabId} disabled={isWorkspaceMissing} />
+                  <EffortSelector disabled={isWorkspaceMissing || isActive} />
+                </>
               )}
               <button
                 onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : handleSubmit}

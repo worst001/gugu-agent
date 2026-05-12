@@ -6,9 +6,11 @@ import { useSessionStore } from './sessionStore'
 import { useCLITaskStore } from './cliTaskStore'
 import { useTabStore } from './tabStore'
 import { randomSpinnerVerb } from '../config/spinnerVerbs'
+import { t } from '../i18n'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
+import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
 import type { MessageEntry } from '../types/session'
-import type { PermissionMode } from '../types/settings'
+import type { EffortLevel, PermissionMode } from '../types/settings'
 import type {
   AgentTaskNotification,
   AttachmentRef,
@@ -90,7 +92,7 @@ type ChatStore = {
     sessionId: string,
     content: string,
     attachments?: AttachmentRef[],
-    options?: { displayContent?: string },
+    options?: { displayContent?: string; displayAttachments?: AttachmentRef[] },
   ) => void
   respondToPermission: (
     sessionId: string,
@@ -107,6 +109,7 @@ type ChatStore = {
     response: ComputerUsePermissionResponse,
   ) => void
   setSessionPermissionMode: (sessionId: string, mode: PermissionMode) => void
+  setSessionEffort: (sessionId: string, level: EffortLevel) => void
   stopGeneration: (sessionId: string) => void
   loadHistory: (sessionId: string) => Promise<void>
   reloadHistory: (sessionId: string) => Promise<void>
@@ -133,6 +136,7 @@ function toImageDataUrl(data: string | undefined, mimeType?: string): string | u
 // Streaming throttle for content_delta
 let pendingDelta = ''
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+const SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH = 16
 
 function consumePendingDelta(): string {
   if (flushTimer) {
@@ -144,6 +148,16 @@ function consumePendingDelta(): string {
   return text
 }
 
+function getStreamingAppendText(currentText: string, incomingText: string): string {
+  if (
+    currentText.length >= SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH &&
+    incomingText.startsWith(currentText)
+  ) {
+    return incomingText.slice(currentText.length)
+  }
+  return incomingText
+}
+
 function appendAssistantTextMessage(
   messages: UIMessage[],
   content: string,
@@ -152,11 +166,14 @@ function appendAssistantTextMessage(
 ): UIMessage[] {
   if (!content.trim()) return messages
 
+  const normalizedContent = getUnsupportedAttachmentPrompt(content) ?? content
   const last = messages[messages.length - 1]
   if (last?.type === 'assistant_text') {
+    if (last.content === normalizedContent) return messages
+
     const merged: UIMessage = {
       ...last,
-      content: last.content + content,
+      content: last.content + normalizedContent,
       ...(model ?? last.model ? { model: model ?? last.model } : {}),
     }
     return [...messages.slice(0, -1), merged]
@@ -167,11 +184,63 @@ function appendAssistantTextMessage(
     {
       id: nextId(),
       type: 'assistant_text',
-      content,
+      content: normalizedContent,
       timestamp,
       ...(model ? { model } : {}),
     },
   ]
+}
+
+function appendAssistantPromptMessage(
+  messages: UIMessage[],
+  content: string,
+  timestamp: number,
+): UIMessage[] {
+  if (!content.trim()) return messages
+
+  const last = messages[messages.length - 1]
+  if (last?.type === 'assistant_text' && last.content === content) {
+    return messages
+  }
+
+  return [
+    ...messages,
+    {
+      id: nextId(),
+      type: 'assistant_text',
+      content,
+      timestamp,
+    },
+  ]
+}
+
+function getUnsupportedAttachmentPrompt(message: string): string | null {
+  return isUnsupportedAttachmentInputError(message)
+    ? t('chat.unsupportedAttachmentInput')
+    : null
+}
+
+function getAgentRecoveryPrompt(message: string): string | null {
+  if (
+    message.includes('模型长时间没有返回内容') ||
+    message.includes('已中止本轮以恢复会话') ||
+    message.includes('Agent 连接长时间没有心跳') ||
+    message.includes('工具长时间没有返回结果')
+  ) {
+    return message
+  }
+  return null
+}
+
+function appendSystemMessage(
+  messages: UIMessage[],
+  content: string,
+  timestamp: number,
+): UIMessage[] {
+  if (!content.trim()) return messages
+  const last = messages[messages.length - 1]
+  if (last?.type === 'system' && last.content === content) return messages
+  return [...messages, { id: nextId(), type: 'system', content, timestamp }]
 }
 
 /** Helper: immutably update a specific session within the sessions record */
@@ -269,9 +338,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         ? String(options.displayContent ?? '').trim()
         : content.trim()
     const isMemberSession = !!useTeamStore.getState().getMemberBySessionId(sessionId)
+    const attachmentsForDisplay = options?.displayAttachments ?? attachments
     const uiAttachments: UIAttachment[] | undefined =
-      attachments && attachments.length > 0
-        ? attachments.map((a) => ({
+      attachmentsForDisplay && attachmentsForDisplay.length > 0
+        ? attachmentsForDisplay.map((a) => ({
             type: a.type,
             name: a.name || a.path || a.mimeType || a.type,
             data: a.type === 'image' ? toImageDataUrl(a.data, a.mimeType) : a.data,
@@ -396,6 +466,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setSessionPermissionMode: (sessionId, mode) => {
     if (!get().sessions[sessionId]) return
     wsManager.send(sessionId, { type: 'set_permission_mode', mode })
+  },
+
+  setSessionEffort: (sessionId, level) => {
+    if (!get().sessions[sessionId]) return
+    wsManager.send(sessionId, { type: 'set_effort', level })
   },
 
   stopGeneration: (sessionId) => {
@@ -593,7 +668,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       case 'content_delta':
         if (msg.text !== undefined) {
-          pendingDelta += msg.text
+          const session = get().sessions[sessionId]
+          const currentText = `${session?.streamingText ?? ''}${pendingDelta}`
+          pendingDelta += getStreamingAppendText(currentText, msg.text)
           if (!flushTimer) {
             flushTimer = setTimeout(() => {
               const text = pendingDelta
@@ -727,23 +804,31 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case 'error':
-        update((s) => {
-          const pendingText = `${s.streamingText}${consumePendingDelta()}`
-          let newMessages = s.messages
-          if (pendingText.trim()) {
-            newMessages = appendAssistantTextMessage(newMessages, pendingText, Date.now())
-          }
-          newMessages = [...newMessages, { id: nextId(), type: 'error', message: msg.message, code: msg.code, timestamp: Date.now() }]
-          return {
-            messages: newMessages,
-            chatState: 'idle',
-            activeThinkingId: null,
-            streamingText: '',
-            pendingPermission: null,
-            pendingComputerUsePermission: null,
-          }
-        })
-        useTabStore.getState().updateTabStatus(sessionId, 'error')
+        {
+          const unsupportedAttachmentPrompt = getUnsupportedAttachmentPrompt(msg.message)
+          const agentRecoveryPrompt = getAgentRecoveryPrompt(msg.message)
+          update((s) => {
+            const pendingText = `${s.streamingText}${consumePendingDelta()}`
+            let newMessages = s.messages
+            if (pendingText.trim()) {
+              newMessages = appendAssistantTextMessage(newMessages, pendingText, Date.now())
+            }
+            newMessages = unsupportedAttachmentPrompt
+              ? appendAssistantPromptMessage(newMessages, unsupportedAttachmentPrompt, Date.now())
+              : agentRecoveryPrompt
+                ? appendSystemMessage(newMessages, agentRecoveryPrompt, Date.now())
+                : [...newMessages, { id: nextId(), type: 'error', message: msg.message, code: msg.code, timestamp: Date.now() }]
+            return {
+              messages: newMessages,
+              chatState: 'idle',
+              activeThinkingId: null,
+              streamingText: '',
+              pendingPermission: null,
+              pendingComputerUsePermission: null,
+            }
+          })
+          useTabStore.getState().updateTabStatus(sessionId, unsupportedAttachmentPrompt || agentRecoveryPrompt ? 'idle' : 'error')
+        }
         {
           const session = get().sessions[sessionId]
           if (session?.elapsedTimer) {
@@ -798,18 +883,34 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         if (msg.subtype === 'compact_boundary') {
           update((session) => ({
-            messages: [
-              ...session.messages,
-              {
-                id: nextId(),
-                type: 'system',
-                content: typeof msg.message === 'string' && msg.message.trim()
-                  ? msg.message
-                  : 'Context compacted',
-                timestamp: Date.now(),
-              },
-            ],
+            messages: appendSystemMessage(
+              session.messages,
+              typeof msg.message === 'string' && msg.message.trim()
+                ? msg.message
+                : 'Context compacted',
+              Date.now(),
+            ),
           }))
+        }
+        if (msg.subtype === 'agent_recovery') {
+          const session = get().sessions[sessionId]
+          if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
+          update((session) => ({
+            messages: appendSystemMessage(
+              session.messages,
+              typeof msg.message === 'string' && msg.message.trim()
+                ? msg.message
+                : 'Agent 已恢复到可继续输入状态。',
+              Date.now(),
+            ),
+            chatState: 'idle',
+            streamingText: '',
+            activeThinkingId: null,
+            pendingPermission: null,
+            pendingComputerUsePermission: null,
+            elapsedTimer: null,
+          }))
+          useTabStore.getState().updateTabStatus(sessionId, 'idle')
         }
         if (msg.subtype === 'task_notification' && msg.data && typeof msg.data === 'object') {
           const data = msg.data as Record<string, unknown>

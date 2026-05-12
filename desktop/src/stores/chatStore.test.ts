@@ -96,10 +96,37 @@ vi.mock('./cliTaskStore', () => ({
   },
 }))
 
-import { mapHistoryMessagesToUiMessages, useChatStore } from './chatStore'
+import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } from './chatStore'
 
 const TEST_SESSION_ID = 'test-session-1'
 const initialState = useChatStore.getState()
+
+function seedSession(overrides: Partial<PerSessionState> = {}) {
+  useChatStore.setState({
+    sessions: {
+      [TEST_SESSION_ID]: {
+        messages: [],
+        chatState: 'idle',
+        connectionState: 'connected',
+        streamingText: '',
+        streamingToolInput: '',
+        activeToolUseId: null,
+        activeToolName: null,
+        activeThinkingId: null,
+        pendingPermission: null,
+        pendingComputerUsePermission: null,
+        tokenUsage: { input_tokens: 0, output_tokens: 0 },
+        elapsedSeconds: 0,
+        statusVerb: '',
+        slashCommands: [],
+        agentTaskNotifications: {},
+        elapsedTimer: null,
+        composerPrefill: null,
+        ...overrides,
+      },
+    },
+  })
+}
 
 describe('chatStore history mapping', () => {
   beforeEach(() => {
@@ -307,6 +334,17 @@ describe('chatStore history mapping', () => {
 
     expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
       type: 'prewarm_session',
+    })
+  })
+
+  it('sends effort updates to the active session', () => {
+    seedSession()
+
+    useChatStore.getState().setSessionEffort(TEST_SESSION_ID, 'high')
+
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'set_effort',
+      level: 'high',
     })
   })
 
@@ -560,6 +598,110 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('renders agent recovery notifications as neutral system messages and unlocks input', () => {
+    seedSession({
+      chatState: 'thinking',
+      streamingText: 'partial answer',
+      activeThinkingId: 'thinking-1',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: '模型长时间没有返回内容，已中止本轮以恢复会话。',
+      data: { reason: 'model_stream_stalled' },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.streamingText).toBe('')
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: '模型长时间没有返回内容，已中止本轮以恢复会话。',
+      },
+    ])
+  })
+
+  it('turns recoverable agent timeout errors into neutral system messages', () => {
+    seedSession({ chatState: 'thinking' })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'CLI_ERROR',
+      message: '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.messages).toHaveLength(1)
+    expect(session?.messages[0]).toMatchObject({
+      type: 'system',
+      content: '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。',
+    })
+  })
+
+  it('turns unsupported image provider errors into assistant guidance', () => {
+    seedSession()
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'invalid_request_error',
+      message:
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Model \\"deepseek-v4-pro\\" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only."}}',
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toHaveLength(1)
+    expect(messages?.[0]).toMatchObject({ type: 'assistant_text' })
+    const content = messages?.[0]?.type === 'assistant_text' ? messages[0].content : ''
+    expect(content).not.toContain('API Error')
+    expect(content).not.toContain('deepseek-v4-pro')
+    expect(content.length).toBeGreaterThan(0)
+  })
+
+  it('deduplicates the follow-up CLI error for unsupported attachments', () => {
+    seedSession()
+    const providerError =
+      'Model "deepseek-v4-pro" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.'
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'invalid_request_error',
+      message: providerError,
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'CLI_ERROR',
+      message: `API Error: 400 ${providerError}`,
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toHaveLength(1)
+    expect(messages?.[0]).toMatchObject({ type: 'assistant_text' })
+  })
+
+  it('replaces streamed unsupported attachment API text with assistant guidance', () => {
+    seedSession()
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text:
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Model \\"deepseek-v4-pro\\" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only."}}',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 0, output_tokens: 0 },
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    const content = messages?.[0]?.type === 'assistant_text' ? messages[0].content : ''
+    expect(messages).toHaveLength(1)
+    expect(content).not.toContain('API Error')
+    expect(content).not.toContain('deepseek-v4-pro')
+    expect(content.length).toBeGreaterThan(0)
+  })
+
   it('flushes the previous assistant draft before starting a new user turn', () => {
     useChatStore.setState({
       sessions: {
@@ -597,6 +739,67 @@ describe('chatStore history mapping', () => {
       },
     ])
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.streamingText).toBe('')
+  })
+
+  it('can display image attachments without sending them over the wire', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    useChatStore.getState().sendMessage(
+      TEST_SESSION_ID,
+      'image as base64 text',
+      undefined,
+      {
+        displayContent: '看这张图',
+        displayAttachments: [
+          {
+            type: 'image',
+            name: 'screen.png',
+            data: 'aW1hZ2U=',
+            mimeType: 'image/png',
+          },
+        ],
+      },
+    )
+
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'user_message',
+      content: 'image as base64 text',
+      attachments: undefined,
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'user_text',
+        content: '看这张图',
+        attachments: [
+          {
+            type: 'image',
+            name: 'screen.png',
+            data: 'data:image/png;base64,aW1hZ2U=',
+          },
+        ],
+      },
+    ])
   })
 
   it('resets completed CLI tasks before continuing the next user turn', () => {
@@ -762,6 +965,47 @@ describe('chatStore history mapping', () => {
       {
         type: 'assistant_text',
         content: '第一段：先到达。\r\n第二段：稍后到达，但仍属于同一轮回复。',
+      },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('deduplicates full snapshot text that arrives after streamed text', () => {
+    vi.useFakeTimers()
+    seedSession()
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_start',
+      blockType: 'text',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'Configured API key auth.',
+    })
+    vi.advanceTimersByTime(60)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'Configured API key auth. Ready.',
+    })
+    vi.advanceTimersByTime(60)
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'Configured API key auth. Ready.',
+    })
+    vi.advanceTimersByTime(60)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'assistant_text',
+        content: 'Configured API key auth. Ready.',
       },
     ])
 

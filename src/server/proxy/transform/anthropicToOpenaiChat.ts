@@ -32,8 +32,9 @@ export function anthropicToOpenaiChat(body: AnthropicRequest): OpenAIChatRequest
   }
 
   // Convert messages
+  let pendingAssistantThinkingParts: string[] = []
   for (const msg of body.messages) {
-    convertMessage(msg, messages)
+    pendingAssistantThinkingParts = convertMessage(msg, messages, pendingAssistantThinkingParts)
   }
 
   // Build request
@@ -90,25 +91,38 @@ export function anthropicToOpenaiChat(body: AnthropicRequest): OpenAIChatRequest
   return result
 }
 
-function convertMessage(msg: AnthropicMessage, output: OpenAIChatMessage[]): void {
+function convertMessage(
+  msg: AnthropicMessage,
+  output: OpenAIChatMessage[],
+  pendingAssistantThinkingParts: string[] = [],
+): string[] {
   const content = msg.content
 
   // Simple string content
   if (typeof content === 'string') {
-    output.push({ role: msg.role, content })
-    return
+    if (msg.role === 'assistant') {
+      const assistantMessage: OpenAIChatMessage = { role: 'assistant', content }
+      if (pendingAssistantThinkingParts.length > 0) {
+        assistantMessage.reasoning_content = pendingAssistantThinkingParts.join('\n')
+      }
+      output.push(assistantMessage)
+    } else {
+      output.push({ role: msg.role, content })
+    }
+    return []
   }
 
   // Array content blocks
   if (!Array.isArray(content) || content.length === 0) {
     output.push({ role: msg.role, content: '' })
-    return
+    return []
   }
 
   if (msg.role === 'user') {
     convertUserMessage(content, output)
+    return []
   } else {
-    convertAssistantMessage(content, output)
+    return convertAssistantMessage(content, output, pendingAssistantThinkingParts)
   }
 }
 
@@ -147,13 +161,20 @@ function convertUserMessage(blocks: AnthropicContentBlock[], output: OpenAIChatM
   }
 }
 
-function convertAssistantMessage(blocks: AnthropicContentBlock[], output: OpenAIChatMessage[]): void {
+function convertAssistantMessage(
+  blocks: AnthropicContentBlock[],
+  output: OpenAIChatMessage[],
+  pendingThinkingParts: string[] = [],
+): string[] {
   let textContent = ''
+  const thinkingParts: string[] = []
   const toolCalls: OpenAIToolCall[] = []
 
   for (const block of blocks) {
     if (block.type === 'text') {
       textContent += block.text
+    } else if (block.type === 'thinking') {
+      if (block.thinking) thinkingParts.push(block.thinking)
     } else if (block.type === 'tool_use') {
       toolCalls.push({
         id: block.id,
@@ -164,7 +185,13 @@ function convertAssistantMessage(blocks: AnthropicContentBlock[], output: OpenAI
         },
       })
     }
-    // Skip thinking blocks — no OpenAI equivalent
+  }
+
+  const allThinkingParts = [...pendingThinkingParts, ...thinkingParts]
+  if (!textContent && toolCalls.length === 0 && allThinkingParts.length > 0) {
+    // Desktop streaming can replay a thinking-only assistant fragment before
+    // the assistant fragment that contains the tool call DeepSeek expects.
+    return allThinkingParts
   }
 
   const msg: OpenAIChatMessage = {
@@ -172,11 +199,16 @@ function convertAssistantMessage(blocks: AnthropicContentBlock[], output: OpenAI
     content: textContent || null,
   }
 
+  if (allThinkingParts.length > 0) {
+    msg.reasoning_content = allThinkingParts.join('\n')
+  }
+
   if (toolCalls.length > 0) {
     msg.tool_calls = toolCalls
   }
 
   output.push(msg)
+  return []
 }
 
 function convertToolChoice(choice: unknown): unknown {

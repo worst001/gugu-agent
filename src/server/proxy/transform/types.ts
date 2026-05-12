@@ -9,6 +9,7 @@
 export type OpenAIChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content?: string | OpenAIChatContentPart[] | null
+  reasoning_content?: string
   name?: string
   tool_calls?: OpenAIToolCall[]
   tool_call_id?: string
@@ -67,6 +68,9 @@ export type OpenAIChatResponse = {
     message: {
       role: string
       content: string | null
+      reasoning_content?: string
+      reasoning?: string
+      thinking_blocks?: Array<Record<string, unknown>>
       tool_calls?: OpenAIToolCall[]
     }
     finish_reason: string | null

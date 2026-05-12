@@ -682,6 +682,54 @@ describe('MessageList nested tool calls', () => {
     })
   })
 
+  it('renders unsupported attachment errors as assistant guidance instead of error panels', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'error-attachment',
+              type: 'error',
+              code: 'invalid_request_error',
+              message:
+                'Model "deepseek-v4-pro" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.',
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText(/I cannot read that image or attachment/)).toBeTruthy()
+    expect(screen.queryByText('Error:')).toBeNull()
+  })
+
+  it('replaces assistant text that contains unsupported attachment API errors', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-raw-error',
+              type: 'assistant_text',
+              content:
+                'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Model \\"deepseek-v4-pro\\" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only."}}',
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText(/I cannot read that image or attachment/)).toBeTruthy()
+    expect(screen.queryByText(/API Error: 400/)).toBeNull()
+    expect(screen.queryByText(/deepseek-v4-pro/)).toBeNull()
+  })
+
   it('shows raw startup details under translated CLI startup errors', () => {
     useChatStore.setState({
       sessions: {

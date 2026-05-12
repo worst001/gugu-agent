@@ -21,6 +21,11 @@ const ROLE_I18N: Record<string, RoleI18n> = {
     tag: 'ceWorkflow.role.deep.tag',
     description: 'ceWorkflow.role.deep.description',
   },
+  compound_delivery: {
+    label: 'ceWorkflow.role.compound_delivery.label',
+    tag: 'ceWorkflow.role.compound_delivery.tag',
+    description: 'ceWorkflow.role.compound_delivery.description',
+  },
   architecture: {
     label: 'ceWorkflow.role.architecture.label',
     tag: 'ceWorkflow.role.architecture.tag',

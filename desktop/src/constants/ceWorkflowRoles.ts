@@ -103,9 +103,17 @@ When scope is unclear, use /ce-brainstorm or /ce-plan first. Implement with /ce-
   {
     id: 'deep',
     complexity: 'heavy',
-    skills: ['/ce-plan', '/ce-work', '/ce-test-browser', '/ce-code-review', '/ce-debug'],
+    skills: ['/ce-plan', '/ce-work', '/ce-debug', '/ce-test-browser', '/ce-code-review', '/ce-compound'],
     preamble: `[Workflow: deep engineering]
-Break down with /ce-plan, implement with /ce-work, validate with /ce-test-browser where UI is involved, use /ce-debug for hard failures, finish with /ce-code-review.`,
+If requirements or direction are unclear, use /ce-brainstorm before /ce-plan. Otherwise break down with /ce-plan, implement with /ce-work, use /ce-debug for failures, validate with /ce-test-browser where UI is involved, and finish with /ce-code-review. After review passes, use /ce-compound only for durable learnings or patterns that should be available to future sessions.`,
+    enforceFirstPhase: 'plan',
+  },
+  {
+    id: 'compound_delivery',
+    complexity: 'full',
+    skills: ['/ce-plan', '/ce-work', '/ce-code-review', '/ce-compound'],
+    preamble: `[Workflow: compound delivery]
+Plan with /ce-plan, implement with /ce-work, validate with /ce-code-review, then use /ce-compound when the completed work produced reusable lessons, debugging paths, architecture decisions, or project conventions worth preserving. Skip /ce-compound for purely mechanical, cosmetic, or one-off changes.`,
     enforceFirstPhase: 'plan',
   },
   {

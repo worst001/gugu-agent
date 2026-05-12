@@ -7,6 +7,7 @@ import { useTeamStore } from '../../stores/teamStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation } from '../../i18n'
 import type { TranslationKey } from '../../i18n/locales/en'
+import { isUnsupportedAttachmentInputError } from '../../utils/attachmentErrors'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
 import { ThinkingBlock } from './ThinkingBlock'
@@ -515,7 +516,15 @@ export const MessageBlock = memo(function MessageBlock({
         />
       )
     case 'assistant_text':
-      return <AssistantMessage content={message.content} />
+      return (
+        <AssistantMessage
+          content={
+            isUnsupportedAttachmentInputError(message.content)
+              ? t('chat.unsupportedAttachmentInput')
+              : message.content
+          }
+        />
+      )
     case 'thinking':
       return <ThinkingBlock content={message.content} isActive={message.id === activeThinkingId} />
     case 'tool_use':
@@ -558,6 +567,9 @@ export const MessageBlock = memo(function MessageBlock({
         />
       )
     case 'error': {
+      if (isUnsupportedAttachmentInputError(message.message)) {
+        return <AssistantMessage content={t('chat.unsupportedAttachmentInput')} />
+      }
       const errorKey = message.code ? `error.${message.code}` as TranslationKey : null
       const errorText = errorKey ? t(errorKey) : null
       const displayMessage = (errorText && errorText !== errorKey) ? errorText : message.message
