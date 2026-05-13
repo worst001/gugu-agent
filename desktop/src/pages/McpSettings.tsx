@@ -237,6 +237,27 @@ function StatusBadge({ server }: { server: McpServerRecord }) {
   )
 }
 
+function getMissingHostCommand(statusDetail?: string) {
+  if (!statusDetail) return null
+  return statusDetail.match(/^Host command "([^"]+)" is not available in PATH\./)?.[1] ?? null
+}
+
+function getDisplayStatusDetail(server: McpServerRecord, t: ReturnType<typeof useTranslation>) {
+  if (!server.statusDetail) return null
+  if (!server.name.startsWith('plugin:')) return server.statusDetail
+
+  const command = getMissingHostCommand(server.statusDetail)
+  if (command) {
+    return t('settings.mcp.pluginMissingHostCommand', { command })
+  }
+
+  if (server.status === 'failed') {
+    return t('settings.mcp.pluginRuntimeUnavailable', { reason: server.statusDetail })
+  }
+
+  return server.statusDetail
+}
+
 function getServerIdentityKey(server: Pick<McpServerRecord, 'name' | 'scope' | 'projectPath'>) {
   if (server.scope === 'local' || server.scope === 'project') {
     return `${server.scope}:${server.projectPath ?? ''}:${server.name}`
@@ -361,6 +382,8 @@ function ServerRow({
   onToggle: () => void
   t: ReturnType<typeof useTranslation>
 }) {
+  const statusDetail = getDisplayStatusDetail(server, t)
+
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 px-6 py-5 border-t border-[var(--color-border)] first:border-t-0">
       <div className="min-w-0">
@@ -377,8 +400,8 @@ function ServerRow({
           </span>
           <span className="truncate">{server.summary}</span>
         </div>
-        {server.statusDetail && (
-          <div className="mt-2 text-xs text-[var(--color-text-tertiary)] truncate">{server.statusDetail}</div>
+        {statusDetail && (
+          <div className="mt-2 text-xs leading-5 text-[var(--color-text-tertiary)] break-words">{statusDetail}</div>
         )}
       </div>
 
@@ -541,7 +564,7 @@ export function McpSettings() {
         type: updated.status === 'connected' ? 'success' : 'warning',
         message: updated.status === 'connected'
           ? t('settings.mcp.toast.reconnected', { name: server.name })
-          : updated.statusDetail || updated.statusLabel,
+          : getDisplayStatusDetail(updated, t) || updated.statusLabel,
       })
       if (view.type === 'edit') setView({ type: 'edit', server: updated })
       if (view.type === 'details') setView({ type: 'details', server: updated })
@@ -676,6 +699,7 @@ export function McpSettings() {
 
   if (view.type === 'details') {
     const server = view.server
+    const statusDetail = getDisplayStatusDetail(server, t)
     return (
       <>
         <div className="max-w-5xl min-w-0">
@@ -694,8 +718,8 @@ export function McpSettings() {
               <p className="mt-3 text-base text-[var(--color-text-secondary)]">{server.summary}</p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <StatusBadge server={server} />
-                {server.statusDetail && (
-                  <span className="text-sm text-[var(--color-text-tertiary)]">{server.statusDetail}</span>
+                {statusDetail && (
+                  <span className="text-sm text-[var(--color-text-tertiary)]">{statusDetail}</span>
                 )}
               </div>
             </div>
@@ -730,6 +754,7 @@ export function McpSettings() {
   if (view.type === 'create' || view.type === 'edit') {
     const editing = view.type === 'edit'
     const targetServer = editing ? view.server : null
+    const targetStatusDetail = targetServer ? getDisplayStatusDetail(targetServer, t) : null
     const transportLocked = editing
     const isBusy = isSaving || isDeleting
 
@@ -756,8 +781,8 @@ export function McpSettings() {
               {editing && targetServer && (
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <StatusBadge server={targetServer} />
-                  {targetServer.statusDetail && (
-                    <span className="text-sm text-[var(--color-text-tertiary)]">{targetServer.statusDetail}</span>
+                  {targetStatusDetail && (
+                    <span className="text-sm text-[var(--color-text-tertiary)]">{targetStatusDetail}</span>
                   )}
                 </div>
               )}

@@ -113,6 +113,34 @@ describe('McpSettings', () => {
     expect(screen.getByText('global-user')).toBeInTheDocument()
   })
 
+  it('explains plugin MCP host command failures without implying the plugin is missing', () => {
+    useMcpStore.setState({
+      servers: [
+        {
+          name: 'plugin:claude-mem:mcp-search',
+          scope: 'dynamic',
+          transport: 'stdio',
+          enabled: true,
+          status: 'failed',
+          statusLabel: 'Unavailable',
+          statusDetail: 'Host command "sh" is not available in PATH. This STDIO MCP runs on the host machine. Install "sh" on this machine or update PATH, then retry.',
+          configLocation: '/tmp/config',
+          summary: 'sh -c ./plugin/mcp-search',
+          canEdit: false,
+          canRemove: false,
+          canReconnect: true,
+          canToggle: true,
+          config: { type: 'stdio', command: 'sh', args: ['-c', './plugin/mcp-search'], env: {} },
+        },
+      ],
+    })
+
+    render(<McpSettings />)
+
+    expect(screen.getByText('Plugin is installed, but the host command "sh" is missing. Install it or add it to PATH, then reconnect.')).toBeInTheDocument()
+    expect(screen.queryByText(/Host command "sh" is not available in PATH/)).not.toBeInTheDocument()
+  })
+
   it('starts background status refresh after the fast list render', async () => {
     const server = {
       name: 'deepwiki',

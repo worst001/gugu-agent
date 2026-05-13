@@ -30,17 +30,17 @@ describe('StartupErrorView', () => {
       <StartupErrorView error={'startup failed\n\nRecent server logs:\n[stderr] boom'} />,
     )
 
-    expect(screen.getByText('本地服务启动失败')).toBeInTheDocument()
+    expect(screen.getByText('Local server failed to start')).toBeInTheDocument()
     expect(screen.getByText('startup failed')).toBeInTheDocument()
     expect(screen.getByText('[stderr] boom')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '复制诊断信息' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy diagnostics' }))
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(
         'startup failed\n\nRecent server logs:\n[stderr] boom',
       )
     })
-    expect(screen.getByText('已复制')).toBeInTheDocument()
+    expect(screen.getByText('Copied')).toBeInTheDocument()
   })
 })

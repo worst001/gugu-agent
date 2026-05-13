@@ -1,9 +1,10 @@
-import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 import { skillsApi } from '../api/skills'
 import { mcpApi } from '../api/mcp'
+import { promptOptimizeApi } from '../api/promptOptimize'
 import { useUIStore } from '../stores/uiStore'
 
 vi.mock('../api/skills', () => ({
@@ -35,6 +36,12 @@ vi.mock('../api/mcp', () => ({
   },
 }))
 
+vi.mock('../api/promptOptimize', () => ({
+  promptOptimizeApi: {
+    optimize: vi.fn(),
+  },
+}))
+
 // Import all pages
 import { EmptySession } from '../pages/EmptySession'
 import { ActiveSession } from '../pages/ActiveSession'
@@ -48,6 +55,15 @@ import { UserMessage } from '../components/chat/UserMessage'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTabStore } from '../stores/tabStore'
+import { useSettingsStore } from '../stores/settingsStore'
+
+beforeEach(() => {
+  useSettingsStore.setState({ locale: 'en' })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 /**
  * Core rendering tests: content-only pages must render without crashing
@@ -523,6 +539,254 @@ describe('Content-only pages render without errors', () => {
     expect(container.innerHTML).toContain('edit_file')
     expect(container.innerHTML).toContain('Split')
     expect(container.innerHTML).toContain('Unified')
+  })
+})
+
+function seedPromptOptimizeSession(sessionId: string, sendMessage = vi.fn()) {
+  useTabStore.setState({
+    tabs: [{ sessionId, title: 'Prompt optimize', type: 'session' as const, status: 'idle' }],
+    activeTabId: sessionId,
+  })
+  useSessionStore.setState({
+    sessions: [{
+      id: sessionId,
+      title: 'Prompt optimize',
+      createdAt: '2026-04-10T00:00:00.000Z',
+      modifiedAt: '2026-04-10T00:00:00.000Z',
+      messageCount: 1,
+      projectPath: '/workspace/project',
+      workDir: '/workspace/project',
+      workDirExists: true,
+    }],
+    activeSessionId: sessionId,
+    isLoading: false,
+    error: null,
+  })
+  useChatStore.setState({
+    sessions: {
+      [sessionId]: {
+        messages: [{
+          id: 'msg-1',
+          type: 'user_text',
+          content: 'hello',
+          timestamp: Date.now(),
+        }],
+        chatState: 'idle',
+        connectionState: 'connected',
+        streamingText: '',
+        streamingToolInput: '',
+        activeToolUseId: null,
+        activeToolName: null,
+        activeThinkingId: null,
+        pendingPermission: null,
+        pendingComputerUsePermission: null,
+        tokenUsage: { input_tokens: 0, output_tokens: 0 },
+        elapsedSeconds: 0,
+        statusVerb: '',
+        slashCommands: [],
+        agentTaskNotifications: {},
+        elapsedTimer: null,
+      },
+    },
+    sendMessage,
+  })
+  return sendMessage
+}
+
+function resetPromptOptimizeSession() {
+  useTabStore.setState({ tabs: [], activeTabId: null })
+  useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+  useChatStore.setState({ sessions: {} })
+  vi.mocked(promptOptimizeApi.optimize).mockReset()
+}
+
+describe('Prompt optimization composer action', () => {
+  it('keeps the magic wand disabled while the input is empty', () => {
+    seedPromptOptimizeSession('prompt-optimize-empty')
+
+    render(<ActiveSession />)
+
+    expect(screen.getByRole('button', { name: 'Optimize prompt' })).toBeDisabled()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('shows a preview and can replace the composer without sending', async () => {
+    const sendMessage = seedPromptOptimizeSession('prompt-optimize-replace')
+    vi.mocked(promptOptimizeApi.optimize).mockResolvedValueOnce({
+      optimizedText: 'Create a simple website that lists Street Fighter characters.',
+      summary: 'Clarified the target output.',
+    })
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'make website', selectionStart: 12 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+
+    expect(await screen.findByText('Create a simple website that lists Street Fighter characters.')).toBeInTheDocument()
+    expect(promptOptimizeApi.optimize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'make website',
+        sessionId: 'prompt-optimize-replace',
+      }),
+      expect.objectContaining({ signal: expect.any(Object) }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace input' }))
+
+    expect(textarea).toHaveValue('Create a simple website that lists Street Fighter characters.')
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('shows progress while prompt optimization is waiting', async () => {
+    seedPromptOptimizeSession('prompt-optimize-progress')
+    let resolveOptimize!: (value: { optimizedText: string; summary: string }) => void
+    vi.mocked(promptOptimizeApi.optimize).mockReturnValueOnce(new Promise((resolve) => {
+      resolveOptimize = resolve
+    }))
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'make dashboard', selectionStart: 14 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+
+    const progressbar = await screen.findByRole('progressbar', { name: 'Optimizing prompt...' })
+    const progress = Number(progressbar.getAttribute('aria-valuenow'))
+    expect(progress).toBeGreaterThanOrEqual(6)
+    expect(progress).toBeLessThanOrEqual(95)
+    expect(screen.getByText(/Est\. \d+%/)).toBeInTheDocument()
+
+    await act(async () => {
+      resolveOptimize({
+        optimizedText: 'Create a dashboard with clear navigation and reporting.',
+        summary: 'Clarified the output.',
+      })
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByText('Create a dashboard with clear navigation and reporting.')).toBeInTheDocument()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('asks whether to keep waiting when prompt optimization is slow', async () => {
+    vi.useFakeTimers()
+    seedPromptOptimizeSession('prompt-optimize-slow')
+    let resolveOptimize!: (value: { optimizedText: string; summary: string }) => void
+    vi.mocked(promptOptimizeApi.optimize).mockReturnValueOnce(new Promise((resolve) => {
+      resolveOptimize = resolve
+    }))
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'make dashboard', selectionStart: 14 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    expect(screen.getByText('The model is responding slowly. Keep waiting for the optimized prompt?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep waiting' }))
+    expect(screen.getByText('Still waiting for the model to return the optimized prompt...')).toBeInTheDocument()
+
+    await act(async () => {
+      resolveOptimize({
+        optimizedText: 'Create a dashboard with clear navigation and reporting.',
+        summary: 'Clarified the output.',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('Create a dashboard with clear navigation and reporting.')).toBeInTheDocument()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('can cancel slow prompt optimization without changing the input', async () => {
+    vi.useFakeTimers()
+    seedPromptOptimizeSession('prompt-optimize-cancel')
+    vi.mocked(promptOptimizeApi.optimize).mockImplementationOnce((_input, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new Error('Request cancelled')), { once: true })
+    }))
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'make dashboard', selectionStart: 14 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(textarea).toHaveValue('make dashboard')
+    expect(screen.queryByRole('progressbar', { name: 'Optimizing prompt...' })).not.toBeInTheDocument()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('sends the optimized text through the existing send path', async () => {
+    const sendMessage = seedPromptOptimizeSession('prompt-optimize-send')
+    vi.mocked(promptOptimizeApi.optimize).mockResolvedValueOnce({
+      optimizedText: 'Implement the feature and add focused regression tests.',
+      summary: 'Made the request actionable.',
+    })
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'do feature', selectionStart: 10 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send optimized' }))
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'prompt-optimize-send',
+        expect.any(String),
+        [],
+        expect.objectContaining({
+          displayContent: 'Implement the feature and add focused regression tests.',
+        }),
+      )
+    })
+
+    resetPromptOptimizeSession()
+  })
+
+  it('keeps the input intact when optimization fails', async () => {
+    seedPromptOptimizeSession('prompt-optimize-fail')
+    vi.mocked(promptOptimizeApi.optimize).mockRejectedValueOnce(new Error('No active provider configured'))
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'keep my prompt', selectionStart: 14 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+
+    expect(await screen.findByText('No active provider configured')).toBeInTheDocument()
+    expect(textarea).toHaveValue('keep my prompt')
+
+    resetPromptOptimizeSession()
   })
 })
 

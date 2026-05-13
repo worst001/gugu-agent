@@ -125,6 +125,13 @@ describe('Sidebar', () => {
     ])
   })
 
+  it('does not render an external repository shortcut in the navigation header', () => {
+    const { container } = render(<Sidebar />)
+
+    expect(container.querySelector('a[href*="github.com"]')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('GitHub')).not.toBeInTheDocument()
+  })
+
   it('shows a toast when session creation fails', async () => {
     createSession.mockRejectedValue(new Error('boom'))
 

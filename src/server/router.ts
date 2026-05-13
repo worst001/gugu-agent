@@ -20,6 +20,7 @@ import { handleComputerUseApi } from './api/computer-use.js'
 import { handleHahaOAuthApi } from './api/haha-oauth.js'
 import { handleChatGPTOAuthApi } from './api/chatgpt-oauth.js'
 import { handleMcpApi } from './api/mcp.js'
+import { handlePromptOptimizeApi } from './api/prompt-optimize.js'
 
 export async function handleApiRequest(req: Request, url: URL): Promise<Response> {
   const path = url.pathname
@@ -90,6 +91,9 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
 
     case 'computer-use':
       return handleComputerUseApi(req, url, segments)
+
+    case 'prompt-optimize':
+      return handlePromptOptimizeApi(req, url, segments)
 
     case 'filesystem':
       return handleFilesystemRoute(url.pathname, url)

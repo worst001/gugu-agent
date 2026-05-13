@@ -1622,9 +1622,9 @@ function PluginSettings() {
 
 // ─── About Settings ──────────────────────────────────────
 
-const GITHUB_REPO = 'https://github.com/NanmiCoder/cc-haha'
-const GITHUB_ISSUES = `${GITHUB_REPO}/issues`
-const GITHUB_RELEASES = `${GITHUB_REPO}/releases`
+const CODE_REPO = 'https://gitee.com/xiyouwangluo/claude-code-gugu'
+const CODE_ISSUES = `${CODE_REPO}/issues`
+const CODE_RELEASES = `${CODE_REPO}/releases`
 const AUTHOR_GITHUB = 'https://github.com/NanmiCoder'
 const SOCIAL_LINKS = [
   { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/434377496', label: '程序员阿江-Relakkes' },
@@ -1711,7 +1711,7 @@ function AboutSettings() {
           <span>{t('settings.about.version')} {version}</span>
           <span className="text-[var(--color-border)]">·</span>
           <button
-            onClick={() => openUrl(GITHUB_RELEASES)}
+            onClick={() => openUrl(CODE_RELEASES)}
             className="rounded-[var(--radius-sm)] text-[var(--color-text-accent)] transition-colors hover:text-[var(--color-brand)] focus:outline-none focus:shadow-[var(--shadow-focus-ring)]"
           >
             {t('settings.about.changelog')}
@@ -1719,15 +1719,15 @@ function AboutSettings() {
         </div>
       )}
 
-      {/* GitHub Repo */}
+      {/* Code Repository */}
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(GITHUB_REPO)}
+          onClick={() => openUrl(CODE_REPO)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <img src="/icons/github.svg" alt="GitHub" className="w-5 h-5 opacity-70" />
+          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">source</span>
           <div className="flex-1 text-left">
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">NanmiCoder/cc-haha</div>
+            <div className="text-sm font-medium text-[var(--color-text-primary)]">xiyouwangluo/claude-code-gugu</div>
             <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.starHint')}</div>
           </div>
         </button>
@@ -1868,7 +1868,7 @@ function AboutSettings() {
 
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(GITHUB_ISSUES)}
+          onClick={() => openUrl(CODE_ISSUES)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
           <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">feedback</span>

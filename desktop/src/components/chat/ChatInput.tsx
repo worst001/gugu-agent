@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { WandSparkles } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useChatStore } from '../../stores/chatStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
@@ -7,6 +8,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi } from '../../api/sessions'
+import { promptOptimizeApi } from '../../api/promptOptimize'
 import { CeWorkflowRoleSelector } from '../controls/CeWorkflowRoleSelector'
 import { EffortSelector } from '../controls/EffortSelector'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
@@ -36,9 +38,21 @@ type Attachment = {
   data?: string
 }
 
+type PromptOptimizePreview = {
+  originalText: string
+  optimizedText: string
+  summary: string
+}
+
 type ChatInputProps = {
   variant?: 'default' | 'hero'
 }
+
+const PROMPT_OPTIMIZE_ESTIMATED_MS = 60_000
+const PROMPT_OPTIMIZE_INITIAL_PROGRESS = 6
+const PROMPT_OPTIMIZE_PROGRESS_CAP = 95
+const PROMPT_OPTIMIZE_PROGRESS_TICK_MS = 500
+const PROMPT_OPTIMIZE_SLOW_NOTICE_MS = 60_000
 
 export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const t = useTranslation()
@@ -52,15 +66,24 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const [atCursorPos, setAtCursorPos] = useState(-1)
   const [slashFilter, setSlashFilter] = useState('')
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [promptOptimizePreview, setPromptOptimizePreview] = useState<PromptOptimizePreview | null>(null)
+  const [isPromptOptimizing, setIsPromptOptimizing] = useState(false)
+  const [promptOptimizeStartedAt, setPromptOptimizeStartedAt] = useState<number | null>(null)
+  const [promptOptimizeProgress, setPromptOptimizeProgress] = useState(0)
+  const [showPromptOptimizeSlowNotice, setShowPromptOptimizeSlowNotice] = useState(false)
+  const [isPromptOptimizeContinuing, setIsPromptOptimizeContinuing] = useState(false)
+  const [promptOptimizeError, setPromptOptimizeError] = useState<string | null>(null)
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const promptOptimizeAbortRef = useRef<AbortController | null>(null)
   const plusMenuRef = useRef<HTMLDivElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
   const fileSearchRef = useRef<FileSearchMenuHandle>(null)
   const slashItemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const { sendMessage, stopGeneration } = useChatStore()
   const activeTabId = useTabStore((s) => s.activeTabId)
+  const runtimeSelection = useSessionRuntimeStore((s) => activeTabId ? s.selections[activeTabId] : undefined)
   const sessionState = useChatStore((s) => activeTabId ? s.sessions[activeTabId] : undefined)
   const chatState = sessionState?.chatState ?? 'idle'
   const slashCommands = sessionState?.slashCommands ?? []
@@ -74,12 +97,56 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const isActive = chatState !== 'idle'
   const isWorkspaceMissing = activeSession?.workDirExists === false
   const canSubmit = !isWorkspaceMissing && (input.trim().length > 0 || (!isMemberSession && attachments.length > 0))
+  const canOptimizePrompt = Boolean(
+    activeTabId &&
+    !isMemberSession &&
+    !isWorkspaceMissing &&
+    !isActive &&
+    !isPromptOptimizing &&
+    input.trim().length > 0,
+  )
   const isHeroComposer = variant === 'hero' && !isMemberSession
   const resolvedWorkDir = activeSession?.workDir || gitInfo?.workDir || undefined
+  const promptOptimizeProgressPercent = isPromptOptimizing
+    ? Math.max(PROMPT_OPTIMIZE_INITIAL_PROGRESS, promptOptimizeProgress)
+    : 0
 
   useEffect(() => {
     textareaRef.current?.focus()
   }, [isActive])
+
+  useEffect(() => {
+    if (!isPromptOptimizing || promptOptimizeStartedAt === null) return
+
+    const updateProgress = () => {
+      const elapsed = Date.now() - promptOptimizeStartedAt
+      const ratio = Math.min(elapsed / PROMPT_OPTIMIZE_ESTIMATED_MS, 1)
+      const easedRatio = 1 - Math.pow(1 - ratio, 2)
+      const nextProgress = Math.round(easedRatio * PROMPT_OPTIMIZE_PROGRESS_CAP)
+
+      setPromptOptimizeProgress(Math.min(
+        PROMPT_OPTIMIZE_PROGRESS_CAP,
+        Math.max(PROMPT_OPTIMIZE_INITIAL_PROGRESS, nextProgress),
+      ))
+    }
+
+    updateProgress()
+    const intervalId = window.setInterval(updateProgress, PROMPT_OPTIMIZE_PROGRESS_TICK_MS)
+
+    return () => window.clearInterval(intervalId)
+  }, [isPromptOptimizing, promptOptimizeStartedAt])
+
+  useEffect(() => {
+    if (!isPromptOptimizing || promptOptimizeStartedAt === null || isPromptOptimizeContinuing) return
+
+    const elapsed = Date.now() - promptOptimizeStartedAt
+    const delay = Math.max(0, PROMPT_OPTIMIZE_SLOW_NOTICE_MS - elapsed)
+    const timeoutId = window.setTimeout(() => {
+      setShowPromptOptimizeSlowNotice(true)
+    }, delay)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [isPromptOptimizing, promptOptimizeStartedAt, isPromptOptimizeContinuing])
 
   useEffect(() => {
     if (!composerPrefill) return
@@ -103,6 +170,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     setSlashFilter('')
     setAtFilter('')
     setAtCursorPos(-1)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
 
     requestAnimationFrame(() => {
       const el = textareaRef.current
@@ -279,6 +348,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
   const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
     if (isMemberSession) {
       setInput(value)
       return
@@ -302,11 +373,13 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     })
   }, [input])
 
-  const handleSubmit = () => {
-    const text = input.trim()
+  const handleSubmit = (overrideText?: string) => {
+    const text = (overrideText ?? input).trim()
     if ((!text && (!attachments.length || isMemberSession)) || isWorkspaceMissing) return
 
-    const slashUiAction = !isMemberSession && text.startsWith('/') ? resolveSlashUiAction(text.slice(1)) : null
+    const slashUiAction = overrideText === undefined && !isMemberSession && text.startsWith('/')
+      ? resolveSlashUiAction(text.slice(1))
+      : null
     if (slashUiAction?.type === 'panel') {
       setLocalSlashPanel(slashUiAction.command as LocalSlashCommandName)
       setInput('')
@@ -348,6 +421,82 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     setSlashMenuOpen(false)
     setFileSearchOpen(false)
     setLocalSlashPanel(null)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+  }
+
+  const handleOptimizePrompt = async () => {
+    if (!activeTabId || !canOptimizePrompt) return
+    const originalText = input.trim()
+    setIsPromptOptimizing(true)
+    setPromptOptimizeStartedAt(Date.now())
+    setPromptOptimizeProgress(PROMPT_OPTIMIZE_INITIAL_PROGRESS)
+    setShowPromptOptimizeSlowNotice(false)
+    setIsPromptOptimizeContinuing(false)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+    const controller = new AbortController()
+    promptOptimizeAbortRef.current = controller
+    try {
+      const result = await promptOptimizeApi.optimize({
+        text: originalText,
+        sessionId: activeTabId,
+        ...(runtimeSelection
+          ? {
+              providerId: runtimeSelection.providerId,
+            }
+          : {}),
+      }, {
+        signal: controller.signal,
+      })
+      setPromptOptimizePreview({
+        originalText,
+        optimizedText: result.optimizedText,
+        summary: result.summary,
+      })
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setPromptOptimizeError(error instanceof Error ? error.message : t('chat.promptOptimize.failed'))
+    } finally {
+      if (promptOptimizeAbortRef.current === controller) {
+        promptOptimizeAbortRef.current = null
+      }
+      setIsPromptOptimizing(false)
+      setPromptOptimizeStartedAt(null)
+      setPromptOptimizeProgress(0)
+      setShowPromptOptimizeSlowNotice(false)
+      setIsPromptOptimizeContinuing(false)
+    }
+  }
+
+  const continuePromptOptimization = () => {
+    setShowPromptOptimizeSlowNotice(false)
+    setIsPromptOptimizeContinuing(true)
+  }
+
+  const cancelPromptOptimization = () => {
+    promptOptimizeAbortRef.current?.abort()
+    promptOptimizeAbortRef.current = null
+    setIsPromptOptimizing(false)
+    setPromptOptimizeStartedAt(null)
+    setPromptOptimizeProgress(0)
+    setShowPromptOptimizeSlowNotice(false)
+    setIsPromptOptimizeContinuing(false)
+    setPromptOptimizeError(null)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const replaceWithOptimizedPrompt = () => {
+    if (!promptOptimizePreview) return
+    setInput(promptOptimizePreview.optimizedText)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const sendOptimizedPrompt = () => {
+    if (!promptOptimizePreview) return
+    handleSubmit(promptOptimizePreview.optimizedText)
   }
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -619,6 +768,122 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             )
           )}
 
+          {!isMemberSession && (isPromptOptimizing || promptOptimizePreview || promptOptimizeError) && (
+            <div className={isHeroComposer ? 'space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3' : 'mx-1 mb-3 space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3'}>
+              {isPromptOptimizing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <WandSparkles className="h-4 w-4 shrink-0 animate-pulse text-[var(--color-text-accent)]" />
+                      <span className="truncate">{t('chat.promptOptimize.loading')}</span>
+                    </div>
+                    <span className="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">
+                      {t('chat.promptOptimize.progress', { progress: promptOptimizeProgressPercent })}
+                    </span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label={t('chat.promptOptimize.loading')}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={promptOptimizeProgressPercent}
+                    className="h-1.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-border)_55%,transparent)]"
+                  >
+                    <div
+                      className="h-full rounded-full bg-[image:var(--gradient-btn-primary)] transition-[width] duration-500 ease-out"
+                      style={{ width: `${promptOptimizeProgressPercent}%` }}
+                    />
+                  </div>
+                  {showPromptOptimizeSlowNotice && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                      <span className="min-w-0 flex-1 leading-relaxed">
+                        {t('chat.promptOptimize.slowNotice')}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelPromptOptimization}
+                          className="rounded-md px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        >
+                          {t('chat.promptOptimize.cancelWait')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={continuePromptOptimization}
+                          className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        >
+                          {t('chat.promptOptimize.continueWait')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {isPromptOptimizeContinuing && (
+                    <div className="text-xs leading-relaxed text-[var(--color-text-tertiary)]">
+                      {t('chat.promptOptimize.continuing')}
+                    </div>
+                  )}
+                </div>
+              ) : promptOptimizePreview ? (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="min-w-0">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-tertiary)]">
+                        {t('chat.promptOptimize.original')}
+                      </div>
+                      <div className="max-h-[120px] overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--color-surface-container-lowest)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                        {promptOptimizePreview.originalText}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-tertiary)]">
+                        {t('chat.promptOptimize.optimized')}
+                      </div>
+                      <div className="max-h-[160px] overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--color-surface-container-lowest)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-primary)]">
+                        {promptOptimizePreview.optimizedText}
+                      </div>
+                    </div>
+                  </div>
+                  {promptOptimizePreview.summary && (
+                    <div className="text-xs leading-relaxed text-[var(--color-text-tertiary)]">
+                      <span className="font-semibold text-[var(--color-text-secondary)]">{t('chat.promptOptimize.summary')}</span>
+                      <span className="ml-2">{promptOptimizePreview.summary}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPromptOptimizePreview(null)
+                        setPromptOptimizeError(null)
+                      }}
+                      className="rounded-md px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                    >
+                      {t('chat.promptOptimize.cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={replaceWithOptimizedPrompt}
+                      className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                    >
+                      {t('chat.promptOptimize.replace')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={sendOptimizedPrompt}
+                      className="rounded-md bg-[image:var(--gradient-btn-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)] transition-all hover:brightness-105"
+                    >
+                      {t('chat.promptOptimize.send')}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                  {promptOptimizeError}
+                </div>
+              )}
+            </div>
+          )}
+
           {isHeroComposer ? (
             <div className="flex items-start gap-3">
               <textarea
@@ -689,6 +954,17 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     )}
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={handleOptimizePrompt}
+                    disabled={!canOptimizePrompt}
+                    title={isPromptOptimizing ? t('chat.promptOptimize.loading') : t('chat.promptOptimize.title')}
+                    aria-label={t('chat.promptOptimize.title')}
+                    className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <WandSparkles className={`h-[18px] w-[18px] ${isPromptOptimizing ? 'animate-pulse text-[var(--color-text-accent)]' : ''}`} />
+                  </button>
+
                   <PermissionModeSelector />
                 </>
               )}
@@ -702,7 +978,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 </>
               )}
               <button
-                onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : handleSubmit}
+                onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : () => handleSubmit()}
                 disabled={!isMemberSession && isActive ? false : !canSubmit}
                 title={!isMemberSession && isActive ? t('chat.stopTitle') : undefined}
                 className={`flex w-[112px] items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all hover:brightness-105 disabled:opacity-30 ${

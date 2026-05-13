@@ -14,6 +14,9 @@ Install root dependencies with `bun install`, then install desktop dependencies 
 - `cd desktop && bun run test`: run Vitest suites.
 - `cd desktop && bun run lint`: run TypeScript no-emit checks.
 
+## RTK Command Output Optimization
+RTK is available on this machine and should be used for high-volume shell output when it preserves the information needed for the task. Prefer `rtk git status`, `rtk git diff`, `rtk git log`, `rtk grep`, `rtk find`, `rtk test <command>`, `rtk vitest`, `rtk tsc`, and similar wrappers when inspecting broad output, test failures, diffs, logs, dependency trees, or repeated command results. Use the raw command instead when you need exact full output, machine-readable JSON, interactive behavior, or when RTK does not support the command. See `RTK.md` for the local policy.
+
 ## Desktop Release Workflow
 - Desktop releases are built remotely by GitHub Actions, not by uploading local build artifacts.
 - The release workflow is `.github/workflows/release-desktop.yml`; it triggers automatically on `push` of tags matching `v*.*.*`.

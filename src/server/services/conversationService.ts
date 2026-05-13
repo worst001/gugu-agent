@@ -792,6 +792,14 @@ export class ConversationService {
     if (exeBase === 'bun') {
       prepend.push(path.dirname(process.execPath))
     }
+    // Desktop-launched Windows apps often miss user-local CLI install dirs.
+    // RTK's Claude hook may invoke `rtk` by name, so keep common install
+    // locations available to child CLI/tool subprocesses even when the app was
+    // not started from an interactive shell.
+    prepend.push(
+      path.join(os.homedir(), '.local', 'bin'),
+      path.join(os.homedir(), '.cargo', 'bin'),
+    )
     const homeBun = path.join(os.homedir(), '.bun', 'bin')
     if (fs.existsSync(homeBun)) prepend.push(homeBun)
     const tail = (env.PATH ?? '').split(sep).filter(Boolean)

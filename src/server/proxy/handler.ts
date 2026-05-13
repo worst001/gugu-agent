@@ -35,6 +35,8 @@ type UpstreamFetchResult = {
   abort?: () => void
 }
 
+type RequestTimeoutOverride = number | null | undefined
+
 function getTimeoutMs(envName: string, fallback: number): number | undefined {
   const raw = process.env[envName]
   const value = raw === undefined ? fallback : Number(raw)
@@ -46,9 +48,12 @@ async function fetchUpstream(
   input: Parameters<typeof fetch>[0],
   init: RequestInit,
   isStream: boolean,
+  options: { requestTimeoutMs?: RequestTimeoutOverride } = {},
 ): Promise<UpstreamFetchResult> {
   if (!isStream) {
-    const timeoutMs = getTimeoutMs('CC_HAHA_PROXY_REQUEST_TIMEOUT_MS', DEFAULT_PROXY_REQUEST_TIMEOUT_MS)
+    const timeoutMs = options.requestTimeoutMs === undefined
+      ? getTimeoutMs('CC_HAHA_PROXY_REQUEST_TIMEOUT_MS', DEFAULT_PROXY_REQUEST_TIMEOUT_MS)
+      : options.requestTimeoutMs
     const response = await fetch(input, {
       ...init,
       ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
@@ -104,6 +109,14 @@ function getStreamPingIntervalMs(): number | undefined {
     'CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS',
     DEFAULT_PROXY_STREAM_PING_INTERVAL_MS,
   )
+}
+
+function getRequestTimeoutHeader(req: Request): RequestTimeoutOverride {
+  const raw = req.headers.get('x-cc-haha-proxy-request-timeout-ms')
+  if (raw === null) return undefined
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 0) return undefined
+  return value === 0 ? null : value
 }
 
 function wrapAnthropicSseStream(
@@ -257,6 +270,7 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
 
   const isStream = body.stream === true
   const baseUrl = config.baseUrl.replace(/\/+$/, '')
+  const requestTimeoutMs = getRequestTimeoutHeader(req)
 
   if (hasImageInput(body) && isKnownTextOnlyProvider(baseUrl, body.model)) {
     return Response.json(
@@ -273,15 +287,15 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
 
   try {
     if (config.apiFormat === 'anthropic') {
-      return await handleAnthropicPassThrough(req, body, baseUrl, config.apiKey, isStream)
+      return await handleAnthropicPassThrough(req, body, baseUrl, config.apiKey, isStream, requestTimeoutMs)
     }
     if (config.apiFormat === 'chatgpt_codex') {
-      return await handleChatGPTCodex(body, isStream)
+      return await handleChatGPTCodex(body, isStream, requestTimeoutMs)
     }
     if (config.apiFormat === 'openai_chat') {
-      return await handleOpenaiChat(body, baseUrl, config.apiKey, isStream)
+      return await handleOpenaiChat(body, baseUrl, config.apiKey, isStream, requestTimeoutMs)
     } else {
-      return await handleOpenaiResponses(body, baseUrl, config.apiKey, isStream)
+      return await handleOpenaiResponses(body, baseUrl, config.apiKey, isStream, requestTimeoutMs)
     }
   } catch (err) {
     console.error('[Proxy] Upstream request failed:', err)
@@ -328,6 +342,7 @@ async function handleAnthropicPassThrough(
   baseUrl: string,
   apiKey: string,
   isStream: boolean,
+  requestTimeoutMs?: RequestTimeoutOverride,
 ): Promise<Response> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -341,7 +356,7 @@ async function handleAnthropicPassThrough(
     method: 'POST',
     headers,
     body: JSON.stringify(body),
-  }, isStream)
+  }, isStream, { requestTimeoutMs })
 
   if (isStream) {
     if (!upstream.body) {
@@ -372,6 +387,7 @@ async function handleAnthropicPassThrough(
 async function handleChatGPTCodex(
   body: AnthropicRequest,
   isStream: boolean,
+  requestTimeoutMs?: RequestTimeoutOverride,
 ): Promise<Response> {
   const tokens = await chatgptAuthService.ensureFreshTokens()
   if (!tokens) {
@@ -400,7 +416,7 @@ async function handleChatGPTCodex(
       session_id: crypto.randomUUID(),
     },
     body: JSON.stringify(transformed),
-  }, isStream)
+  }, isStream, { requestTimeoutMs })
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
@@ -542,6 +558,7 @@ async function handleOpenaiChat(
   baseUrl: string,
   apiKey: string,
   isStream: boolean,
+  requestTimeoutMs?: RequestTimeoutOverride,
 ): Promise<Response> {
   const transformed = anthropicToOpenaiChat(body)
   const url = `${baseUrl}/v1/chat/completions`
@@ -553,7 +570,7 @@ async function handleOpenaiChat(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(transformed),
-  }, isStream)
+  }, isStream, { requestTimeoutMs })
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
@@ -598,6 +615,7 @@ async function handleOpenaiResponses(
   baseUrl: string,
   apiKey: string,
   isStream: boolean,
+  requestTimeoutMs?: RequestTimeoutOverride,
 ): Promise<Response> {
   const transformed = anthropicToOpenaiResponses(body)
   const url = `${baseUrl}/v1/responses`
@@ -609,7 +627,7 @@ async function handleOpenaiResponses(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(transformed),
-  }, isStream)
+  }, isStream, { requestTimeoutMs })
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
