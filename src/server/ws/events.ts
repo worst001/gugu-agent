@@ -10,7 +10,13 @@
 
 export type ClientMessage =
   | { type: 'prewarm_session' }
-  | { type: 'user_message'; content: string; attachments?: AttachmentRef[]; permissionMode?: string }
+  | {
+      type: 'user_message'
+      content: string
+      attachments?: AttachmentRef[]
+      permissionMode?: string
+      ceModelPreference?: 'fast' | 'strong'
+    }
   | {
       type: 'permission_response'
       requestId: string

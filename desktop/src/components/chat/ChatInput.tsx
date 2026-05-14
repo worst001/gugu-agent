@@ -26,6 +26,7 @@ import {
   replaceSlashToken,
   resolveSlashUiAction,
 } from './composerUtils'
+import { clearComposerDraft, loadComposerDraft, saveComposerDraft } from './composerDrafts'
 
 type GitInfo = { branch: string | null; repoName: string | null; workDir: string; changedFiles: number }
 
@@ -53,6 +54,8 @@ const PROMPT_OPTIMIZE_INITIAL_PROGRESS = 6
 const PROMPT_OPTIMIZE_PROGRESS_CAP = 95
 const PROMPT_OPTIMIZE_PROGRESS_TICK_MS = 500
 const PROMPT_OPTIMIZE_SLOW_NOTICE_MS = 60_000
+const COMPOSER_DRAFT_SAVE_DELAY_MS = 250
+const LONG_PASTE_TEXT_THRESHOLD = 12_000
 
 export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const t = useTranslation()
@@ -81,6 +84,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const slashMenuRef = useRef<HTMLDivElement>(null)
   const fileSearchRef = useRef<FileSearchMenuHandle>(null)
   const slashItemRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const inputRef = useRef(input)
   const { sendMessage, stopGeneration } = useChatStore()
   const activeTabId = useTabStore((s) => s.activeTabId)
   const runtimeSelection = useSessionRuntimeStore((s) => activeTabId ? s.selections[activeTabId] : undefined)
@@ -110,6 +114,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const promptOptimizeProgressPercent = isPromptOptimizing
     ? Math.max(PROMPT_OPTIMIZE_INITIAL_PROGRESS, promptOptimizeProgress)
     : 0
+
+  useEffect(() => {
+    inputRef.current = input
+  }, [input])
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -147,6 +155,49 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
     return () => window.clearTimeout(timeoutId)
   }, [isPromptOptimizing, promptOptimizeStartedAt, isPromptOptimizeContinuing])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) {
+      inputRef.current = ''
+      setInput('')
+      setAttachments([])
+      return
+    }
+
+    const draft = loadComposerDraft(activeTabId)
+    const draftText = draft?.text ?? ''
+    inputRef.current = draftText
+    setInput(draftText)
+    setAttachments([])
+    setPlusMenuOpen(false)
+    setSlashMenuOpen(false)
+    setFileSearchOpen(false)
+    setLocalSlashPanel(null)
+    setSlashFilter('')
+    setAtFilter('')
+    setAtCursorPos(-1)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+  }, [activeTabId, isMemberSession])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) return
+
+    const timeoutId = window.setTimeout(() => {
+      saveComposerDraft(activeTabId, input)
+    }, COMPOSER_DRAFT_SAVE_DELAY_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [activeTabId, input, isMemberSession])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) return
+    const sessionId = activeTabId
+
+    return () => {
+      saveComposerDraft(sessionId, inputRef.current)
+    }
+  }, [activeTabId, isMemberSession])
 
   useEffect(() => {
     if (!composerPrefill) return
@@ -382,6 +433,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       : null
     if (slashUiAction?.type === 'panel') {
       setLocalSlashPanel(slashUiAction.command as LocalSlashCommandName)
+      if (activeTabId) clearComposerDraft(activeTabId)
+      inputRef.current = ''
       setInput('')
       setSlashMenuOpen(false)
       setFileSearchOpen(false)
@@ -392,6 +445,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     if (slashUiAction?.type === 'settings') {
       useUIStore.getState().setPendingSettingsTab(slashUiAction.tab)
       useTabStore.getState().openTab(SETTINGS_TAB_ID, 'Settings', 'settings')
+      if (activeTabId) clearComposerDraft(activeTabId)
+      inputRef.current = ''
       setInput('')
       setSlashMenuOpen(false)
       setFileSearchOpen(false)
@@ -408,13 +463,16 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
     if (!isMemberSession) {
       const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId!]
-      const { wire } = buildCeWorkflowMessage(roleId, text)
+      const { wire, display, modelPreference } = buildCeWorkflowMessage(roleId, text)
       sendMessage(activeTabId!, wire, attachmentPayload, {
-        displayContent: text,
+        displayContent: display,
+        ceModelPreference: modelPreference,
       })
     } else {
       sendMessage(activeTabId!, text)
     }
+    if (activeTabId) clearComposerDraft(activeTabId)
+    inputRef.current = ''
     setInput('')
     setAttachments([])
     setPlusMenuOpen(false)
@@ -573,37 +631,63 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const handlePaste = (event: React.ClipboardEvent) => {
     if (isMemberSession) return
     const items = event.clipboardData?.items
-    if (!items) return
 
     let hasImage = false
-    for (let i = 0; i < items.length; i += 1) {
-      const item = items[i]
-      if (!item || !item.type.startsWith('image/')) continue
+    if (items) {
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i]
+        if (!item || !item.type.startsWith('image/')) continue
 
-      hasImage = true
-      event.preventDefault()
-      const file = item.getAsFile()
-      if (!file) continue
+        hasImage = true
+        event.preventDefault()
+        const file = item.getAsFile()
+        if (!file) continue
 
-      const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const reader = new FileReader()
-      reader.onload = () => {
-        setAttachments((prev) => [
-          ...prev,
-          {
-            id,
-            name: `pasted-image-${Date.now()}.png`,
-            type: 'image',
-            mimeType: file.type || 'image/png',
-            previewUrl: reader.result as string,
-            data: reader.result as string,
-          },
-        ])
+        const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        const reader = new FileReader()
+        reader.onload = () => {
+          setAttachments((prev) => [
+            ...prev,
+            {
+              id,
+              name: `pasted-image-${Date.now()}.png`,
+              type: 'image',
+              mimeType: file.type || 'image/png',
+              previewUrl: reader.result as string,
+              data: reader.result as string,
+            },
+          ])
+        }
+        reader.readAsDataURL(file)
       }
-      reader.readAsDataURL(file)
     }
 
-    if (!hasImage) return
+    if (hasImage) return
+
+    const text = event.clipboardData.getData('text/plain')
+    if (text.length < LONG_PASTE_TEXT_THRESHOLD) return
+
+    event.preventDefault()
+    const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const name = `pasted-text-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`
+    const reader = new FileReader()
+    reader.onload = () => {
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id,
+          name,
+          type: 'file',
+          mimeType: 'text/plain',
+          data: reader.result as string,
+        },
+      ])
+      useUIStore.getState().addToast({
+        type: 'info',
+        message: t('chat.longPasteConverted'),
+      })
+    }
+    reader.readAsDataURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {

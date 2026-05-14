@@ -19,6 +19,10 @@ vi.mock('../components/chat/SessionTaskBar', () => ({
   SessionTaskBar: () => <div data-testid="session-task-bar" />,
 }))
 
+vi.mock('../components/workbench/WorkbenchPanel', () => ({
+  WorkbenchPanel: () => <div data-testid="workbench-panel" />,
+}))
+
 import { ActiveSession } from './ActiveSession'
 import { useChatStore } from '../stores/chatStore'
 import { useCLITaskStore } from '../stores/cliTaskStore'

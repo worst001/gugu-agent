@@ -21,6 +21,7 @@ import { handleHahaOAuthApi } from './api/haha-oauth.js'
 import { handleChatGPTOAuthApi } from './api/chatgpt-oauth.js'
 import { handleMcpApi } from './api/mcp.js'
 import { handlePromptOptimizeApi } from './api/prompt-optimize.js'
+import { handleAttachmentParserApi } from './api/attachment-parser.js'
 
 export async function handleApiRequest(req: Request, url: URL): Promise<Response> {
   const path = url.pathname
@@ -94,6 +95,9 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
 
     case 'prompt-optimize':
       return handlePromptOptimizeApi(req, url, segments)
+
+    case 'attachment-parser':
+      return handleAttachmentParserApi(req, url, segments)
 
     case 'filesystem':
       return handleFilesystemRoute(url.pathname, url)

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildCeWorkflowMessage,
   buildCeAutomationInstructions,
+  extractCeWorkflowDisplayText,
   getCeWorkflowRole,
 } from './ceWorkflowRoles'
 
@@ -33,8 +34,9 @@ describe('buildCeAutomationInstructions', () => {
 
 describe('buildCeWorkflowMessage', () => {
   it('includes automation block and user text for standard role', () => {
-    const { wire, display } = buildCeWorkflowMessage('standard', 'Build feature X')
+    const { wire, display, modelPreference } = buildCeWorkflowMessage('standard', 'Build feature X')
     expect(display).toBe('Build feature X')
+    expect(modelPreference).toBe('strong')
     expect(wire).toContain('[Workflow: standard delivery]')
     expect(wire).toContain('CE automation (binding)')
     expect(wire).toContain('/ce-plan')
@@ -88,8 +90,19 @@ describe('buildCeWorkflowMessage', () => {
   })
 
   it('ship preset targets work phase', () => {
-    const { wire } = buildCeWorkflowMessage('ship', 'go')
+    const { wire, modelPreference } = buildCeWorkflowMessage('ship', 'go')
     expect(wire).toContain('/ce-work')
     expect(wire).not.toContain('skill "ce-work"')
+    expect(modelPreference).toBe('fast')
+  })
+
+  it('explicit CE slash commands can override the preset model preference', () => {
+    expect(buildCeWorkflowMessage('standard', '/ce-brainstorm product options').modelPreference).toBe('fast')
+    expect(buildCeWorkflowMessage('quick', '/ce-plan migration').modelPreference).toBe('strong')
+  })
+
+  it('extracts display text from hidden CE workflow wire prompts', () => {
+    const { wire } = buildCeWorkflowMessage('quick', '这是什么')
+    expect(extractCeWorkflowDisplayText(wire)).toBe('这是什么')
   })
 })

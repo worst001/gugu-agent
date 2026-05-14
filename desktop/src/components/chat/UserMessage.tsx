@@ -6,10 +6,17 @@ type Props = {
   content: string
   attachments?: UIAttachment[]
   onRewind?: () => void
+  onOpenAttachment?: (index: number) => void
   rewindLabel?: string
 }
 
-export function UserMessage({ content, attachments, onRewind, rewindLabel }: Props) {
+export function UserMessage({
+  content,
+  attachments,
+  onRewind,
+  onOpenAttachment,
+  rewindLabel,
+}: Props) {
   const hasText = content.trim().length > 0
 
   return (
@@ -19,7 +26,11 @@ export function UserMessage({ content, attachments, onRewind, rewindLabel }: Pro
         className="flex min-w-0 w-full max-w-[82%] flex-col items-end gap-2 sm:max-w-[78%] lg:max-w-[72%]"
       >
         {attachments && attachments.length > 0 && (
-          <AttachmentGallery attachments={attachments} variant="message" />
+          <AttachmentGallery
+            attachments={attachments}
+            variant="message"
+            onOpenAttachment={onOpenAttachment}
+          />
         )}
 
         {hasText && (

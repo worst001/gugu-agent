@@ -30,6 +30,7 @@ export type Toast = {
 
 export type SettingsTab =
   | 'providers'
+  | 'attachmentParser'
   | 'permissions'
   | 'general'
   | 'adapters'

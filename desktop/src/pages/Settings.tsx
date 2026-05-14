@@ -31,6 +31,8 @@ import { ChatGPTConnect } from '../components/settings/ChatGPTConnect'
 import { useUpdateStore } from '../stores/updateStore'
 import { formatBytes } from '../lib/formatBytes'
 import { isTauriRuntime } from '../lib/desktopRuntime'
+import { attachmentParserApi } from '../api/attachmentParser'
+import type { AttachmentParserConfig, AttachmentParserTestResult } from '../types/attachmentParser'
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -50,6 +52,7 @@ export function Settings() {
         <div className="w-[180px] border-r border-[var(--color-border)] py-3 flex-shrink-0 flex flex-col">
           <div className="flex-1">
             <TabButton icon="dns" label={t('settings.tab.providers')} active={activeTab === 'providers'} onClick={() => setActiveTab('providers')} />
+            <TabButton icon="document_scanner" label={t('settings.tab.attachmentParser')} active={activeTab === 'attachmentParser'} onClick={() => setActiveTab('attachmentParser')} />
             <TabButton icon="shield" label={t('settings.tab.permissions')} active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} />
             <TabButton icon="tune" label={t('settings.tab.general')} active={activeTab === 'general'} onClick={() => setActiveTab('general')} />
             <TabButton icon="chat" label={t('settings.tab.adapters')} active={activeTab === 'adapters'} onClick={() => setActiveTab('adapters')} />
@@ -68,6 +71,7 @@ export function Settings() {
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {activeTab === 'providers' && <ProviderSettings />}
+          {activeTab === 'attachmentParser' && <AttachmentParserSettings />}
           {activeTab === 'permissions' && <PermissionSettings />}
           {activeTab === 'general' && <GeneralSettings />}
           {activeTab === 'adapters' && <AdapterSettings />}
@@ -101,6 +105,221 @@ function TabButton({ icon, label, active, onClick }: { icon: string; label: stri
 }
 
 // ─── Provider Settings ──────────────────────────────────────
+
+type AttachmentParserFormState = {
+  enabled: boolean
+  apiKey: string
+  baseUrl: string
+  visionModel: string
+  ocrModel: string
+  summarizeModel: string
+}
+
+const DEFAULT_ATTACHMENT_PARSER_FORM: AttachmentParserFormState = {
+  enabled: false,
+  apiKey: '',
+  baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  visionModel: 'glm-5v-turbo',
+  ocrModel: 'glm-ocr',
+  summarizeModel: 'glm-5.1',
+}
+
+function AttachmentParserSettings() {
+  const t = useTranslation()
+  const [config, setConfig] = useState<AttachmentParserConfig | null>(null)
+  const [form, setForm] = useState<AttachmentParserFormState>(DEFAULT_ATTACHMENT_PARSER_FORM)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isTesting, setIsTesting] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [testResult, setTestResult] = useState<AttachmentParserTestResult | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    attachmentParserApi.getConfig()
+      .then(({ config }) => {
+        if (cancelled) return
+        setConfig(config)
+        setForm({
+          enabled: config.enabled,
+          apiKey: '',
+          baseUrl: config.baseUrl,
+          visionModel: config.visionModel,
+          ocrModel: config.ocrModel,
+          summarizeModel: config.summarizeModel,
+        })
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const updateForm = <K extends keyof AttachmentParserFormState>(
+    key: K,
+    value: AttachmentParserFormState[K],
+  ) => {
+    setForm((current) => ({ ...current, [key]: value }))
+    setMessage(null)
+    setTestResult(null)
+  }
+
+  const buildPayload = () => ({
+    enabled: form.enabled,
+    ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
+    ...(!config?.hasApiKey && !form.apiKey.trim() ? { apiKey: '' } : {}),
+    baseUrl: form.baseUrl.trim(),
+    visionModel: form.visionModel.trim(),
+    ocrModel: form.ocrModel.trim(),
+    summarizeModel: form.summarizeModel.trim(),
+  })
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    setMessage(null)
+    try {
+      const { config: next } = await attachmentParserApi.updateConfig(buildPayload())
+      setConfig(next)
+      setForm({
+        enabled: next.enabled,
+        apiKey: '',
+        baseUrl: next.baseUrl,
+        visionModel: next.visionModel,
+        ocrModel: next.ocrModel,
+        summarizeModel: next.summarizeModel,
+      })
+      setMessage({ type: 'success', text: t('settings.attachmentParser.saved') })
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleTest = async () => {
+    setIsTesting(true)
+    setMessage(null)
+    setTestResult(null)
+    try {
+      const { result } = await attachmentParserApi.test(buildPayload())
+      setTestResult(result)
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{t('settings.attachmentParser.title')}</h2>
+          <p className="mt-0.5 text-sm text-[var(--color-text-tertiary)]">{t('settings.attachmentParser.description')}</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={form.enabled}
+          onClick={() => updateForm('enabled', !form.enabled)}
+          disabled={isLoading}
+          className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors disabled:opacity-50 ${
+            form.enabled ? 'bg-[var(--color-brand)]' : 'bg-[var(--color-surface-container-high)]'
+          }`}
+        >
+          <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+            form.enabled ? 'translate-x-7' : 'translate-x-1'
+          }`} />
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-brand)] border-t-transparent" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Input
+              label={t('settings.attachmentParser.apiKey')}
+              type="password"
+              value={form.apiKey}
+              placeholder={config?.hasApiKey ? config.apiKey : t('settings.attachmentParser.apiKeyPlaceholder')}
+              onChange={(event) => updateForm('apiKey', event.target.value)}
+            />
+            <Input
+              label={t('settings.attachmentParser.baseUrl')}
+              value={form.baseUrl}
+              onChange={(event) => updateForm('baseUrl', event.target.value)}
+            />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Input
+                label={t('settings.attachmentParser.visionModel')}
+                value={form.visionModel}
+                onChange={(event) => updateForm('visionModel', event.target.value)}
+              />
+              <Input
+                label={t('settings.attachmentParser.ocrModel')}
+                value={form.ocrModel}
+                onChange={(event) => updateForm('ocrModel', event.target.value)}
+              />
+              <Input
+                label={t('settings.attachmentParser.summarizeModel')}
+                value={form.summarizeModel}
+                onChange={(event) => updateForm('summarizeModel', event.target.value)}
+              />
+            </div>
+
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+              {t('settings.attachmentParser.strategy')}
+            </div>
+
+            {testResult && (
+              <div className={`rounded-lg border px-3 py-2 text-xs ${
+                testResult.success
+                  ? 'border-[var(--color-success)]/30 text-[var(--color-success)]'
+                  : 'border-[var(--color-error)]/30 text-[var(--color-error)]'
+              }`}>
+                {testResult.success
+                  ? t('settings.attachmentParser.testOk', { latency: String(testResult.latencyMs) })
+                  : testResult.error || t('settings.attachmentParser.testFailed')}
+                <span className="ml-2 text-[var(--color-text-tertiary)]">{testResult.modelUsed}</span>
+              </div>
+            )}
+
+            {message && (
+              <div className={`rounded-lg border px-3 py-2 text-xs ${
+                message.type === 'success'
+                  ? 'border-[var(--color-success)]/30 text-[var(--color-success)]'
+                  : 'border-[var(--color-error)]/30 text-[var(--color-error)]'
+              }`}>
+                {message.text}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={handleTest} loading={isTesting}>
+                {t('settings.attachmentParser.test')}
+              </Button>
+              <Button onClick={handleSave} loading={isSaving}>
+                {t('common.save')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function ProviderSettings() {
   const {

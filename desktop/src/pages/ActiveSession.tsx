@@ -10,6 +10,7 @@ import { ChatInput } from '../components/chat/ChatInput'
 import { ComputerUsePermissionModal } from '../components/chat/ComputerUsePermissionModal'
 import { TeamStatusBar } from '../components/teams/TeamStatusBar'
 import { SessionTaskBar } from '../components/chat/SessionTaskBar'
+import { WorkbenchPanel } from '../components/workbench/WorkbenchPanel'
 
 const TASK_POLL_INTERVAL_MS = 1000
 
@@ -81,7 +82,8 @@ export function ActiveSession() {
   if (!activeTabId) return null
 
   return (
-    <div className="flex-1 flex flex-col relative overflow-hidden bg-background text-on-surface">
+    <div className="flex-1 flex min-h-0 overflow-hidden bg-background text-on-surface">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       {isMemberSession && (
         <div className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface-container)]">
           <div className="mx-auto max-w-[860px] flex items-center justify-between gap-4 px-8 py-2">
@@ -214,6 +216,11 @@ export function ActiveSession() {
           request={pendingComputerUsePermission?.request ?? null}
         />
       ) : null}
+      </div>
+
+      {!isMemberSession && (
+        <WorkbenchPanel sessionId={activeTabId} messages={messages} />
+      )}
     </div>
   )
 }

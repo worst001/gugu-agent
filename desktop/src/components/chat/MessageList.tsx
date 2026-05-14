@@ -5,6 +5,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useWorkbenchStore } from '../../stores/workbenchStore'
 import { useTranslation } from '../../i18n'
 import type { TranslationKey } from '../../i18n/locales/en'
 import { isUnsupportedAttachmentInputError } from '../../utils/attachmentErrors'
@@ -320,6 +321,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
           return (
             <MessageBlock
               key={msg.id}
+              sessionId={resolvedSessionId ?? undefined}
               message={msg}
               activeThinkingId={activeThinkingId}
               agentTaskNotifications={agentTaskNotifications}
@@ -482,6 +484,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
 }
 
 export const MessageBlock = memo(function MessageBlock({
+  sessionId,
   message,
   activeThinkingId,
   agentTaskNotifications,
@@ -489,6 +492,7 @@ export const MessageBlock = memo(function MessageBlock({
   rewindableUserIndex,
   onRequestRewind,
 }: {
+  sessionId?: string
   message: UIMessage
   activeThinkingId: string | null
   agentTaskNotifications: Record<string, AgentTaskNotification>
@@ -500,6 +504,7 @@ export const MessageBlock = memo(function MessageBlock({
   ) => void
 }) {
   const t = useTranslation()
+  const openWorkbench = useWorkbenchStore((s) => s.openWorkbench)
 
   switch (message.type) {
     case 'user_text':
@@ -507,6 +512,16 @@ export const MessageBlock = memo(function MessageBlock({
         <UserMessage
           content={message.content}
           attachments={message.attachments}
+          onOpenAttachment={
+            sessionId && message.attachments?.length
+              ? (index) => openWorkbench(sessionId, {
+                  activeTab: 'preview',
+                  selectedAttachmentId: `${message.id}:attachment-${index}`,
+                  selectedToolUseId: null,
+                  selectedFilePath: null,
+                })
+              : undefined
+          }
           onRewind={
             typeof rewindableUserIndex === 'number' && onRequestRewind
               ? () => onRequestRewind(message, rewindableUserIndex)
@@ -539,6 +554,7 @@ export const MessageBlock = memo(function MessageBlock({
       }
       return (
         <ToolCallBlock
+          toolUseId={message.toolUseId}
           toolName={message.toolName}
           input={message.input}
           result={toolResult}

@@ -418,6 +418,7 @@ function ToolCallTree({
   return (
     <div className={compact ? 'space-y-1' : ''}>
       <ToolCallBlock
+        toolUseId={toolCall.toolUseId}
         toolName={toolCall.toolName}
         input={toolCall.input}
         result={result ? { content: result.content, isError: result.isError } : null}

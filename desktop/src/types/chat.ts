@@ -7,7 +7,13 @@ import type { RuntimeSelection } from './runtime'
 
 export type ClientMessage =
   | { type: 'prewarm_session' }
-  | { type: 'user_message'; content: string; attachments?: AttachmentRef[]; permissionMode?: string }
+  | {
+      type: 'user_message'
+      content: string
+      attachments?: AttachmentRef[]
+      permissionMode?: string
+      ceModelPreference?: 'fast' | 'strong'
+    }
   | {
       type: 'permission_response'
       requestId: string
@@ -39,6 +45,21 @@ export type UIAttachment = {
   name: string
   data?: string
   mimeType?: string
+}
+
+export type AttachmentParserMethod = 'vision' | 'ocr' | 'file-parser'
+
+export type AttachmentParserPreviewResult = {
+  name: string
+  type: 'file' | 'image'
+  mimeType?: string
+  method: AttachmentParserMethod
+  markdown: string
+}
+
+export type AttachmentParserPreview = {
+  promptText: string
+  results: AttachmentParserPreviewResult[]
 }
 
 // ─── Server → Client ──────────────────────────────────────────────
@@ -158,7 +179,7 @@ export type TaskSummaryItem = {
 }
 
 export type UIMessage =
-  | { id: string; type: 'user_text'; content: string; timestamp: number; attachments?: UIAttachment[]; pending?: boolean }
+  | { id: string; type: 'user_text'; content: string; timestamp: number; attachments?: UIAttachment[]; attachmentParser?: AttachmentParserPreview; pending?: boolean }
   | { id: string; type: 'assistant_text'; content: string; timestamp: number; model?: string }
   | { id: string; type: 'thinking'; content: string; timestamp: number }
   | { id: string; type: 'tool_use'; toolName: string; toolUseId: string; input: unknown; timestamp: number; parentToolUseId?: string }

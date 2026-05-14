@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from '../../i18n'
 import { ImageGalleryModal } from './ImageGalleryModal'
 
 export type AttachmentPreview = {
@@ -14,10 +15,17 @@ type Props = {
   attachments: AttachmentPreview[]
   variant?: 'composer' | 'message'
   onRemove?: (id: string) => void
+  onOpenAttachment?: (index: number) => void
 }
 
-export function AttachmentGallery({ attachments, variant = 'message', onRemove }: Props) {
+export function AttachmentGallery({
+  attachments,
+  variant = 'message',
+  onRemove,
+  onOpenAttachment,
+}: Props) {
   const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null)
+  const t = useTranslation()
 
   const images = useMemo(
     () =>
@@ -43,7 +51,7 @@ export function AttachmentGallery({ attachments, variant = 'message', onRemove }
             return (
               <div
                 key={attachment.id || `${attachment.name}-${index}`}
-                className={isComposer ? 'group relative' : ''}
+                className={isComposer ? 'group relative' : 'relative'}
               >
                 <button
                   type="button"
@@ -74,6 +82,20 @@ export function AttachmentGallery({ attachments, variant = 'message', onRemove }
                     ×
                   </button>
                 )}
+                {!isComposer && onOpenAttachment && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onOpenAttachment(index)
+                    }}
+                    className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/90 text-[var(--color-text-secondary)] shadow-sm transition-colors hover:text-[var(--color-text-primary)]"
+                    aria-label={t('workbench.openTool')}
+                    title={t('workbench.openTool')}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">open_in_new</span>
+                  </button>
+                )}
               </div>
             )
           }
@@ -85,6 +107,17 @@ export function AttachmentGallery({ attachments, variant = 'message', onRemove }
             >
               <span className="material-symbols-outlined text-[14px]">attach_file</span>
               <span className="max-w-[220px] truncate">{attachment.name}</span>
+              {!isComposer && onOpenAttachment && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAttachment(index)}
+                  className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                  aria-label={t('workbench.openTool')}
+                  title={t('workbench.openTool')}
+                >
+                  <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                </button>
+              )}
               {onRemove && attachment.id && (
                 <button
                   type="button"

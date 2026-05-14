@@ -42,6 +42,10 @@ vi.mock('../api/promptOptimize', () => ({
   },
 }))
 
+vi.mock('../components/layout/CapabilityBar', () => ({
+  CapabilityBar: () => <div data-testid="capability-bar" />,
+}))
+
 // Import all pages
 import { EmptySession } from '../pages/EmptySession'
 import { ActiveSession } from '../pages/ActiveSession'
@@ -52,6 +56,7 @@ import { ToolInspection } from '../pages/ToolInspection'
 // Layout components (chrome is now here, not in pages)
 import { Sidebar } from '../components/layout/Sidebar'
 import { UserMessage } from '../components/chat/UserMessage'
+import { COMPOSER_DRAFTS_STORAGE_KEY } from '../components/chat/composerDrafts'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTabStore } from '../stores/tabStore'
@@ -59,6 +64,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 
 beforeEach(() => {
   useSettingsStore.setState({ locale: 'en' })
+  localStorage.removeItem(COMPOSER_DRAFTS_STORAGE_KEY)
 })
 
 afterEach(() => {
@@ -791,6 +797,111 @@ describe('Prompt optimization composer action', () => {
 })
 
 describe('Chat attachments', () => {
+  it('restores composer drafts per session tab', async () => {
+    const firstSession = 'draft-session-1'
+    const secondSession = 'draft-session-2'
+    seedPromptOptimizeSession(firstSession)
+    useTabStore.setState({
+      tabs: [
+        { sessionId: firstSession, title: 'First', type: 'session' as const, status: 'idle' },
+        { sessionId: secondSession, title: 'Second', type: 'session' as const, status: 'idle' },
+      ],
+      activeTabId: firstSession,
+    })
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: firstSession,
+          title: 'First',
+          createdAt: '2026-04-10T00:00:00.000Z',
+          modifiedAt: '2026-04-10T00:00:00.000Z',
+          messageCount: 1,
+          projectPath: '/workspace/project',
+          workDir: '/workspace/project',
+          workDirExists: true,
+        },
+        {
+          id: secondSession,
+          title: 'Second',
+          createdAt: '2026-04-10T00:00:00.000Z',
+          modifiedAt: '2026-04-10T00:00:00.000Z',
+          messageCount: 1,
+          projectPath: '/workspace/project',
+          workDir: '/workspace/project',
+          workDirExists: true,
+        },
+      ],
+    })
+    useChatStore.setState((state) => ({
+      sessions: {
+        ...state.sessions,
+        [secondSession]: {
+          ...state.sessions[firstSession]!,
+          messages: [{
+            id: 'msg-2',
+            type: 'user_text' as const,
+            content: 'second',
+            timestamp: Date.now(),
+          }],
+        },
+      },
+    }))
+
+    render(<ActiveSession />)
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'draft for first session', selectionStart: 23 },
+    })
+    await waitFor(() => {
+      const drafts = JSON.parse(localStorage.getItem(COMPOSER_DRAFTS_STORAGE_KEY) ?? '{}')
+      expect(drafts[firstSession]?.text).toBe('draft for first session')
+    })
+
+    act(() => {
+      useTabStore.setState({ activeTabId: secondSession })
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveValue('')
+    })
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'draft for second session', selectionStart: 24 },
+    })
+    await waitFor(() => {
+      const drafts = JSON.parse(localStorage.getItem(COMPOSER_DRAFTS_STORAGE_KEY) ?? '{}')
+      expect(drafts[secondSession]?.text).toBe('draft for second session')
+    })
+
+    act(() => {
+      useTabStore.setState({ activeTabId: firstSession })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox')).toHaveValue('draft for first session')
+    })
+
+    resetPromptOptimizeSession()
+  })
+
+  it('converts very long pasted text into a text attachment', async () => {
+    seedPromptOptimizeSession('long-paste-session')
+
+    render(<ActiveSession />)
+
+    const longText = 'a'.repeat(12_050)
+    fireEvent.paste(screen.getByRole('textbox'), {
+      clipboardData: {
+        items: [],
+        getData: (type: string) => type === 'text/plain' ? longText : '',
+      },
+    })
+
+    expect(await screen.findByText(/pasted-text-.*\.txt/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('')
+
+    resetPromptOptimizeSession()
+  })
+
   it('UserMessage opens image gallery when an attachment is clicked', () => {
     render(
       <UserMessage

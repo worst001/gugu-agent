@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 import { Settings } from '../pages/Settings'
@@ -12,6 +12,15 @@ import type { ProviderPreset } from '../types/providerPreset'
 const MOCK_DELETE_PROVIDER = vi.fn()
 const MOCK_GET_SETTINGS = vi.fn()
 const MOCK_UPDATE_SETTINGS = vi.fn()
+const {
+  MOCK_GET_ATTACHMENT_CONFIG,
+  MOCK_UPDATE_ATTACHMENT_CONFIG,
+  MOCK_TEST_ATTACHMENT_CONFIG,
+} = vi.hoisted(() => ({
+  MOCK_GET_ATTACHMENT_CONFIG: vi.fn(),
+  MOCK_UPDATE_ATTACHMENT_CONFIG: vi.fn(),
+  MOCK_TEST_ATTACHMENT_CONFIG: vi.fn(),
+}))
 const providerStoreState = {
   providers: [] as SavedProvider[],
   activeId: null as string | null,
@@ -44,6 +53,14 @@ vi.mock('../api/providers', () => ({
   providersApi: {
     getSettings: MOCK_GET_SETTINGS,
     updateSettings: MOCK_UPDATE_SETTINGS,
+  },
+}))
+
+vi.mock('../api/attachmentParser', () => ({
+  attachmentParserApi: {
+    getConfig: MOCK_GET_ATTACHMENT_CONFIG,
+    updateConfig: MOCK_UPDATE_ATTACHMENT_CONFIG,
+    test: MOCK_TEST_ATTACHMENT_CONFIG,
   },
 }))
 
@@ -83,6 +100,16 @@ vi.mock('../stores/skillStore', () => ({
 vi.mock('../components/chat/CodeViewer', () => ({
   CodeViewer: ({ code }: { code: string }) => <pre data-testid="code-viewer">{code}</pre>,
 }))
+
+const DEFAULT_ATTACHMENT_CONFIG = {
+  enabled: false,
+  apiKey: '',
+  hasApiKey: false,
+  baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  visionModel: 'glm-5v-turbo',
+  ocrModel: 'glm-ocr',
+  summarizeModel: 'glm-5.1',
+}
 
 describe('Settings > General tab', () => {
   beforeEach(() => {
@@ -284,6 +311,99 @@ describe('Settings > Providers tab', () => {
 
     expect(apiKeyInput).toHaveAttribute('type', 'text')
     expect(within(dialog).getByRole('button', { name: 'Hide API Key' })).toBeInTheDocument()
+  })
+})
+
+describe('Settings > Attachment parser tab', () => {
+  beforeEach(() => {
+    MOCK_GET_ATTACHMENT_CONFIG.mockReset()
+    MOCK_UPDATE_ATTACHMENT_CONFIG.mockReset()
+    MOCK_TEST_ATTACHMENT_CONFIG.mockReset()
+    MOCK_GET_ATTACHMENT_CONFIG.mockResolvedValue({ config: DEFAULT_ATTACHMENT_CONFIG })
+    MOCK_UPDATE_ATTACHMENT_CONFIG.mockResolvedValue({
+      config: {
+        ...DEFAULT_ATTACHMENT_CONFIG,
+        enabled: true,
+        hasApiKey: true,
+        apiKey: 'glm-...3456',
+      },
+    })
+    MOCK_TEST_ATTACHMENT_CONFIG.mockResolvedValue({
+      result: {
+        success: true,
+        latencyMs: 42,
+        modelUsed: 'glm-5.1',
+      },
+    })
+
+    providerStoreState.providers = []
+    providerStoreState.activeId = null
+    providerStoreState.hasLoadedProviders = true
+    providerStoreState.presets = []
+    providerStoreState.isLoading = false
+    providerStoreState.isPresetsLoading = false
+    providerStoreState.fetchProviders = vi.fn()
+    providerStoreState.fetchPresets = vi.fn()
+
+    useSettingsStore.setState({ locale: 'en' })
+    useUIStore.setState({ pendingSettingsTab: 'attachmentParser' })
+    useUpdateStore.setState({
+      status: 'idle',
+      availableVersion: null,
+      releaseNotes: null,
+      progressPercent: 0,
+      downloadedBytes: 0,
+      totalBytes: null,
+      error: null,
+      checkedAt: null,
+      shouldPrompt: false,
+      initialize: vi.fn().mockResolvedValue(undefined),
+      checkForUpdates: vi.fn().mockResolvedValue(null),
+      installUpdate: vi.fn().mockResolvedValue(undefined),
+      dismissPrompt: vi.fn(),
+    })
+  })
+
+  it('loads and saves GLM attachment parser settings', async () => {
+    render(<Settings />)
+
+    expect(await screen.findByText('GLM File & Image Parser')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.change(screen.getByLabelText('GLM API Key'), {
+      target: { value: 'glm-secret-123456' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(MOCK_UPDATE_ATTACHMENT_CONFIG).toHaveBeenCalledWith(expect.objectContaining({
+        enabled: true,
+        apiKey: 'glm-secret-123456',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        visionModel: 'glm-5v-turbo',
+        ocrModel: 'glm-ocr',
+        summarizeModel: 'glm-5.1',
+      }))
+    })
+    expect(await screen.findByText('GLM parser settings saved.')).toBeInTheDocument()
+  })
+
+  it('tests the GLM parser connection from the current form values', async () => {
+    render(<Settings />)
+
+    await screen.findByText('GLM File & Image Parser')
+    fireEvent.change(screen.getByLabelText('GLM API Key'), {
+      target: { value: 'glm-secret-123456' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }))
+
+    await waitFor(() => {
+      expect(MOCK_TEST_ATTACHMENT_CONFIG).toHaveBeenCalledWith(expect.objectContaining({
+        apiKey: 'glm-secret-123456',
+        summarizeModel: 'glm-5.1',
+      }))
+    })
+    expect(await screen.findAllByText('GLM parser connected (42ms)')).toHaveLength(1)
   })
 })
 

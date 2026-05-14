@@ -6,6 +6,10 @@ vi.mock('./ProjectFilter', () => ({
   ProjectFilter: () => <div data-testid="project-filter" />,
 }))
 
+vi.mock('./CapabilityBar', () => ({
+  CapabilityBar: () => <div data-testid="capability-bar" />,
+}))
+
 vi.mock('../../i18n', () => ({
   useTranslation: () => (key: string) => {
     const translations: Record<string, string> = {

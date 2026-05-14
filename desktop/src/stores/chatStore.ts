@@ -9,10 +9,12 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import { t } from '../i18n'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
 import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
+import { extractCeWorkflowDisplayText, type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
 import type { MessageEntry } from '../types/session'
 import type { EffortLevel, PermissionMode } from '../types/settings'
 import type {
   AgentTaskNotification,
+  AttachmentParserPreview,
   AttachmentRef,
   ChatState,
   ComputerUsePermissionRequest,
@@ -92,7 +94,11 @@ type ChatStore = {
     sessionId: string,
     content: string,
     attachments?: AttachmentRef[],
-    options?: { displayContent?: string; displayAttachments?: AttachmentRef[] },
+    options?: {
+      displayContent?: string
+      displayAttachments?: AttachmentRef[]
+      ceModelPreference?: CeWorkflowModelPreference
+    },
   ) => void
   respondToPermission: (
     sessionId: string,
@@ -241,6 +247,84 @@ function appendSystemMessage(
   const last = messages[messages.length - 1]
   if (last?.type === 'system' && last.content === content) return messages
   return [...messages, { id: nextId(), type: 'system', content, timestamp }]
+}
+
+function getStringField(input: Record<string, unknown>, key: string): string {
+  const value = input[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function extractAttachmentParserPreview(data: unknown): AttachmentParserPreview | null {
+  if (!data || typeof data !== 'object') return null
+  const payload = data as Record<string, unknown>
+  if (payload.status !== 'parsed') return null
+  const preview = payload.preview
+  if (!preview || typeof preview !== 'object') return null
+  const previewRecord = preview as Record<string, unknown>
+  const promptText = getStringField(previewRecord, 'promptText')
+  const results = Array.isArray(previewRecord.results)
+    ? previewRecord.results
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const record = item as Record<string, unknown>
+          const name = getStringField(record, 'name')
+          const type = record.type === 'image' ? 'image' : record.type === 'file' ? 'file' : null
+          const method =
+            record.method === 'vision' ||
+            record.method === 'ocr' ||
+            record.method === 'file-parser'
+              ? record.method
+              : null
+          const markdown = getStringField(record, 'markdown')
+          if (!name || !type || !method || !markdown) return null
+          return {
+            name,
+            type,
+            method,
+            markdown,
+            ...(typeof record.mimeType === 'string' ? { mimeType: record.mimeType } : {}),
+          }
+        })
+        .filter((item): item is AttachmentParserPreview['results'][number] => item !== null)
+    : []
+
+  if (!promptText || results.length === 0) return null
+  return { promptText, results }
+}
+
+function attachParserPreviewToLatestUserMessage(
+  messages: UIMessage[],
+  preview: AttachmentParserPreview,
+): UIMessage[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.type !== 'user_text' || !message.attachments?.length) continue
+    return [
+      ...messages.slice(0, index),
+      { ...message, attachmentParser: preview },
+      ...messages.slice(index + 1),
+    ]
+  }
+  return messages
+}
+
+function extractAttachmentParserDisplayText(content: string): string | null {
+  if (!content.includes('<附件解析结果>') || !content.includes('<用户正文>')) {
+    return null
+  }
+  const match = content.match(/<用户正文>\s*([\s\S]*?)\s*<\/用户正文>/)
+  return match?.[1] ?? null
+}
+
+function stripHiddenUserPromptScaffolding(content: string): string {
+  let stripped = content
+  for (let i = 0; i < 3; i += 1) {
+    const next = extractCeWorkflowDisplayText(stripped)
+      ?? extractAttachmentParserDisplayText(stripped)
+    if (next === null || next === stripped) return stripped
+    stripped = next
+  }
+  return stripped
 }
 
 /** Helper: immutably update a specific session within the sessions record */
@@ -435,7 +519,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       return
     }
 
-    wsManager.send(sessionId, { type: 'user_message', content, attachments })
+    wsManager.send(sessionId, {
+      type: 'user_message',
+      content,
+      attachments,
+      ...(options?.ceModelPreference ? { ceModelPreference: options.ceModelPreference } : {}),
+    })
   },
 
   respondToPermission: (sessionId, requestId, allowed, options) => {
@@ -912,6 +1001,33 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }))
           useTabStore.getState().updateTabStatus(sessionId, 'idle')
         }
+        if (msg.subtype === 'attachment_parser') {
+          const preview = extractAttachmentParserPreview(msg.data)
+          if (preview) {
+            update((session) => ({
+              messages: attachParserPreviewToLatestUserMessage(session.messages, preview),
+            }))
+          } else {
+            const session = get().sessions[sessionId]
+            if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
+            update((session) => ({
+              messages: appendSystemMessage(
+                session.messages,
+                typeof msg.message === 'string' && msg.message.trim()
+                  ? msg.message
+                  : t('chat.attachmentParser.failed'),
+                Date.now(),
+              ),
+              chatState: 'idle',
+              streamingText: '',
+              activeThinkingId: null,
+              pendingPermission: null,
+              pendingComputerUsePermission: null,
+              elapsedTimer: null,
+            }))
+            useTabStore.getState().updateTabStatus(sessionId, 'idle')
+          }
+        }
         if (msg.subtype === 'task_notification' && msg.data && typeof msg.data === 'object') {
           const data = msg.data as Record<string, unknown>
           const toolUseId =
@@ -1118,7 +1234,12 @@ export function mapHistoryMessagesToUiMessages(
         })
         continue
       }
-      uiMessages.push({ id: msg.id || nextId(), type: 'user_text', content: msg.content, timestamp })
+      uiMessages.push({
+        id: msg.id || nextId(),
+        type: 'user_text',
+        content: stripHiddenUserPromptScaffolding(msg.content),
+        timestamp,
+      })
       continue
     }
     if (msg.type === 'assistant' && typeof msg.content === 'string') {
@@ -1141,7 +1262,7 @@ export function mapHistoryMessagesToUiMessages(
           if (!includeTeammateMessages) continue
           textParts.push(...extractVisibleTeammateMessageContents(block.text))
         } else if (block.type === 'text' && block.text) {
-          textParts.push(block.text)
+          textParts.push(stripHiddenUserPromptScaffolding(block.text))
         }
         else if (block.type === 'image') {
           const mimeType = block.mimeType || block.media_type || block.source?.media_type

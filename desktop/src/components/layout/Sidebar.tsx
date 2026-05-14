@@ -3,6 +3,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation } from '../../i18n'
 import { ProjectFilter } from './ProjectFilter'
+import { CapabilityBar } from './CapabilityBar'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 import type { SessionListItem } from '../../types/session'
 import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
@@ -323,6 +324,8 @@ export function Sidebar() {
       ) : (
         <div className="flex-1" aria-hidden="true" />
       )}
+
+      <CapabilityBar />
 
       <div className={`border-t border-[var(--color-border)] p-3 ${sidebarOpen ? '' : 'flex justify-center'}`}>
         <NavItem

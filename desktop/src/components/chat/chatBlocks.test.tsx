@@ -5,11 +5,13 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { PermissionDialog } from './PermissionDialog'
 import { useChatStore } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
+import { useWorkbenchStore } from '../../stores/workbenchStore'
 
 describe('chat blocks', () => {
   beforeEach(() => {
     useTabStore.setState({ activeTabId: 'active-tab', tabs: [{ sessionId: 'active-tab', title: 'Test', type: 'session' as const, status: 'idle' }] })
     useChatStore.setState({ sessions: {} })
+    useWorkbenchStore.setState({ sessions: {} })
   })
 
   it('expands active thinking by default so partial reasoning is visible while streaming', () => {
@@ -74,6 +76,26 @@ describe('chat blocks', () => {
 
     expect(container.textContent).toContain('Bash')
     expect(container.textContent).toContain('fatal: unrecognized argument: --no-stat')
+  })
+
+  it('opens a tool call in the right-side workbench', () => {
+    render(
+      <ToolCallBlock
+        toolUseId="write-1"
+        toolName="Write"
+        input={{ file_path: '/tmp/example.ts', content: 'const answer = 42' }}
+        result={{ content: 'created', isError: false }}
+      />,
+    )
+
+    fireEvent.click(screen.getByLabelText(/Open in workbench|打开/i))
+
+    expect(useWorkbenchStore.getState().sessions['active-tab']).toMatchObject({
+      isOpen: true,
+      activeTab: 'diff',
+      selectedToolUseId: 'write-1',
+      selectedFilePath: '/tmp/example.ts',
+    })
   })
 
   it('expands tool errors so full Computer Use gate messages are readable', () => {

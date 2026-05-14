@@ -4,6 +4,7 @@
  * Human-readable titles use i18n keys `ceWorkflow.role.*` in the desktop app.
  */
 export type CeWorkflowComplexity = 'light' | 'medium' | 'heavy' | 'full'
+export type CeWorkflowModelPreference = 'fast' | 'strong'
 
 /** Which CE phase must come before Bash/Write/Edit on substantive tasks */
 export type CeAutomationPhase = 'plan' | 'work' | 'doc_review'
@@ -23,6 +24,8 @@ export type CeWorkflowRole = {
    * Use phases instead of bare skill ids — registered names differ (symlink vs plugin-qualified).
    */
   enforceFirstPhase: CeEnforceFirstPhase
+  /** Preferred model tier when a provider exposes fast/strong model slots. */
+  modelPreference: CeWorkflowModelPreference
 }
 
 export const CE_WORKFLOW_DEFAULT_ROLE_ID = 'standard'
@@ -91,6 +94,7 @@ export const CE_WORKFLOW_ROLES: CeWorkflowRole[] = [
     preamble: `[Workflow: quick iteration]
 Use a lightweight cadence. Prefer /ce-debug for errors and failing tests, /ce-simplify-code for localized cleanup, /ce-commit when changes are ready. Avoid over-planning unless the user asks.`,
     enforceFirstPhase: false,
+    modelPreference: 'fast',
   },
   {
     id: 'standard',
@@ -99,6 +103,7 @@ Use a lightweight cadence. Prefer /ce-debug for errors and failing tests, /ce-si
     preamble: `[Workflow: standard delivery]
 When scope is unclear, use /ce-brainstorm or /ce-plan first. Implement with /ce-work, then /ce-code-review before treating work as done.`,
     enforceFirstPhase: 'plan',
+    modelPreference: 'strong',
   },
   {
     id: 'deep',
@@ -107,6 +112,7 @@ When scope is unclear, use /ce-brainstorm or /ce-plan first. Implement with /ce-
     preamble: `[Workflow: deep engineering]
 If requirements or direction are unclear, use /ce-brainstorm before /ce-plan. Otherwise break down with /ce-plan, implement with /ce-work, use /ce-debug for failures, validate with /ce-test-browser where UI is involved, and finish with /ce-code-review. After review passes, use /ce-compound only for durable learnings or patterns that should be available to future sessions.`,
     enforceFirstPhase: 'plan',
+    modelPreference: 'strong',
   },
   {
     id: 'compound_delivery',
@@ -115,6 +121,7 @@ If requirements or direction are unclear, use /ce-brainstorm before /ce-plan. Ot
     preamble: `[Workflow: compound delivery]
 Plan with /ce-plan, implement with /ce-work, validate with /ce-code-review, then use /ce-compound when the completed work produced reusable lessons, debugging paths, architecture decisions, or project conventions worth preserving. Skip /ce-compound for purely mechanical, cosmetic, or one-off changes.`,
     enforceFirstPhase: 'plan',
+    modelPreference: 'strong',
   },
   {
     id: 'architecture',
@@ -123,6 +130,7 @@ Plan with /ce-plan, implement with /ce-work, validate with /ce-code-review, then
     preamble: `[Workflow: architecture & agents]
 Ground direction with /ce-strategy where useful. For agent/MCP-heavy designs use /ce-agent-native-architecture, then /ce-plan and /ce-work for execution.`,
     enforceFirstPhase: 'plan',
+    modelPreference: 'strong',
   },
   {
     id: 'ship',
@@ -131,6 +139,7 @@ Ground direction with /ce-strategy where useful. For agent/MCP-heavy designs use
     preamble: `[Workflow: ship]
 Drive implementation with /ce-work, open PR with /ce-commit-push-pr when appropriate, use /ce-release-notes for user-facing summaries.`,
     enforceFirstPhase: 'work',
+    modelPreference: 'fast',
   },
   {
     id: 'doc',
@@ -139,6 +148,7 @@ Drive implementation with /ce-work, open PR with /ce-commit-push-pr when appropr
     preamble: `[Workflow: documentation]
 Improve specs and plans with /ce-doc-review; use /ce-proof for collaborative review; use /ce-brainstorm when requirements are fuzzy.`,
     enforceFirstPhase: 'doc_review',
+    modelPreference: 'strong',
   },
   {
     id: 'hands_off',
@@ -147,6 +157,7 @@ Improve specs and plans with /ce-doc-review; use /ce-proof for collaborative rev
     preamble: `[Workflow: hands-off pipeline]
 Minimize questions unless blocked. Prefer /ce-plan then /ce-work; use /lfg only when the user explicitly wants an autonomous end-to-end pipeline. Always /ce-code-review before merge-quality completion.`,
     enforceFirstPhase: 'plan',
+    modelPreference: 'strong',
   },
 ]
 
@@ -155,24 +166,77 @@ export function getCeWorkflowRole(roleId: string | undefined): CeWorkflowRole {
   return found ?? CE_WORKFLOW_ROLES.find((r) => r.id === CE_WORKFLOW_DEFAULT_ROLE_ID)!
 }
 
+const STRONG_CE_SLASHES = [
+  '/ce-plan',
+  '/ce-code-review',
+  '/ce-review',
+  '/ce-doc-review',
+  '/ce-proof',
+  '/ce-agent-native-architecture',
+  '/ce-strategy',
+  '/ce-compound',
+  '/lfg',
+]
+
+const FAST_CE_SLASHES = [
+  '/ce-brainstorm',
+  '/ce-work',
+  '/ce-debug',
+  '/ce-simplify-code',
+  '/ce-commit',
+  '/ce-release-notes',
+]
+
+export function resolveCeWorkflowModelPreference(
+  role: CeWorkflowRole,
+  userText: string,
+): CeWorkflowModelPreference {
+  const lower = userText.toLowerCase()
+  if (STRONG_CE_SLASHES.some((slash) => lower.includes(slash))) return 'strong'
+  if (FAST_CE_SLASHES.some((slash) => lower.includes(slash))) return 'fast'
+  return role.modelPreference
+}
+
 /**
  * @returns wire = full message to LLM, display = what the chat bubble should show
  */
 export function buildCeWorkflowMessage(roleId: string | undefined, userText: string): {
   wire: string
   display: string
+  modelPreference: CeWorkflowModelPreference
 } {
   const role = getCeWorkflowRole(roleId)
   const automation = buildCeAutomationInstructions(role)
   const text = userText.trim()
+  const modelPreference = resolveCeWorkflowModelPreference(role, text)
   if (!text) {
     return {
       wire: `${role.preamble}\n\n${automation}\n\n(User sent attachments only — infer intent from files/images.)`,
       display: userText,
+      modelPreference,
     }
   }
   return {
     wire: `${role.preamble}\n\n${automation}\n\nUser message:\n${userText}`,
     display: userText,
+    modelPreference,
   }
+}
+
+export function extractCeWorkflowDisplayText(content: string): string | null {
+  if (!content.startsWith('[Workflow:') || !content.includes('CE automation (binding)')) {
+    return null
+  }
+
+  const marker = '\n\nUser message:\n'
+  const markerIndex = content.lastIndexOf(marker)
+  if (markerIndex !== -1) {
+    return content.slice(markerIndex + marker.length)
+  }
+
+  if (content.includes('User sent attachments only')) {
+    return ''
+  }
+
+  return null
 }

@@ -97,6 +97,7 @@ vi.mock('./cliTaskStore', () => ({
 }))
 
 import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } from './chatStore'
+import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
 
 const TEST_SESSION_ID = 'test-session-1'
 const initialState = useChatStore.getState()
@@ -621,6 +622,177 @@ describe('chatStore history mapping', () => {
         content: '模型长时间没有返回内容，已中止本轮以恢复会话。',
       },
     ])
+  })
+
+  it('strips hidden CE workflow preamble when restoring user transcript history', () => {
+    const { wire } = buildCeWorkflowMessage('quick', '这是什么')
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-ce-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: wire,
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-ce-1',
+        type: 'user_text',
+        content: '这是什么',
+      },
+    ])
+  })
+
+  it('shows only the original prompt when restoring GLM attachment parser transcript text', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-glm-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [
+          '用户上传了附件。以下“附件解析结果”由 GLM 根据附件生成。',
+          '',
+          '<附件解析结果>',
+          '## 附件 1: screen.png',
+          '一张应用截图',
+          '</附件解析结果>',
+          '',
+          '<用户正文>',
+          '这是什么',
+          '</用户正文>',
+        ].join('\n'),
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-glm-1',
+        type: 'user_text',
+        content: '这是什么',
+      },
+    ])
+  })
+
+  it('strips nested GLM and CE workflow scaffolding from restored transcript text', () => {
+    const { wire } = buildCeWorkflowMessage('quick', '这是什么')
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-nested-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [
+          '用户上传了附件。以下“附件解析结果”由 GLM 根据附件生成。',
+          '',
+          '<附件解析结果>',
+          '## 附件 1: screen.png',
+          '一张应用截图',
+          '</附件解析结果>',
+          '',
+          '<用户正文>',
+          wire,
+          '</用户正文>',
+        ].join('\n'),
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-nested-1',
+        type: 'user_text',
+        content: '这是什么',
+      },
+    ])
+  })
+
+  it('renders attachment parser failures as neutral system messages and unlocks input', () => {
+    seedSession({
+      chatState: 'thinking',
+      streamingText: 'partial answer',
+      activeThinkingId: 'thinking-1',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'attachment_parser',
+      message: 'Please configure GLM API Key before parsing attachments.',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.streamingText).toBe('')
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: 'Please configure GLM API Key before parsing attachments.',
+      },
+    ])
+  })
+
+  it('attaches successful parser previews to the visible user message without adding a chat bubble', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '这是什么',
+          timestamp: 1,
+          attachments: [
+            {
+              type: 'image',
+              name: 'screen.png',
+              data: 'data:image/png;base64,abc123',
+              mimeType: 'image/png',
+            },
+          ],
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'attachment_parser',
+      data: {
+        status: 'parsed',
+        preview: {
+          promptText: '<附件解析结果>\n# 截图\n</附件解析结果>',
+          results: [
+            {
+              name: 'screen.png',
+              type: 'image',
+              mimeType: 'image/png',
+              method: 'vision',
+              markdown: '# 截图\n一个应用界面。',
+            },
+          ],
+        },
+      },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.messages).toHaveLength(1)
+    expect(session?.messages[0]).toMatchObject({
+      type: 'user_text',
+      content: '这是什么',
+      attachmentParser: {
+        promptText: '<附件解析结果>\n# 截图\n</附件解析结果>',
+        results: [
+          {
+            name: 'screen.png',
+            method: 'vision',
+            markdown: '# 截图\n一个应用界面。',
+          },
+        ],
+      },
+    })
   })
 
   it('turns recoverable agent timeout errors into neutral system messages', () => {

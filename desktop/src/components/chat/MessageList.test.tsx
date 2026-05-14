@@ -5,6 +5,7 @@ import { sessionsApi } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
+import { useWorkbenchStore } from '../../stores/workbenchStore'
 import type { UIMessage } from '../../types/chat'
 import type { PerSessionState } from '../../stores/chatStore'
 
@@ -39,6 +40,44 @@ describe('MessageList nested tool calls', () => {
     useSettingsStore.setState({ locale: 'en' })
     useTabStore.setState({ activeTabId: ACTIVE_TAB, tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' }] })
     useChatStore.setState({ sessions: { [ACTIVE_TAB]: makeSessionState() } })
+    useWorkbenchStore.setState({ sessions: {} })
+  })
+
+  it('opens user attachments in the workbench preview tab', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-attachment',
+              type: 'user_text',
+              content: '这是什么',
+              timestamp: 1,
+              attachments: [
+                {
+                  type: 'image',
+                  name: 'screen.png',
+                  data: 'data:image/png;base64,abc123',
+                  mimeType: 'image/png',
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    fireEvent.click(screen.getByLabelText('Open in workbench'))
+
+    expect(useWorkbenchStore.getState().sessions[ACTIVE_TAB]).toMatchObject({
+      isOpen: true,
+      activeTab: 'preview',
+      selectedAttachmentId: 'user-attachment:attachment-0',
+      selectedToolUseId: null,
+      selectedFilePath: null,
+    })
   })
 
   it('renders sub-agent tool calls inline beneath the parent agent tool call', () => {

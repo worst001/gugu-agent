@@ -21,6 +21,10 @@ import {
   isProviderModelId,
   resolveProviderModelId,
 } from '../services/providerService.js'
+import {
+  AttachmentParserError,
+  attachmentParserService,
+} from '../services/attachmentParserService.js'
 import { deriveTitle, generateTitle, saveAiTitle } from '../services/titleService.js'
 import { parseSlashCommand } from '../../utils/slashCommandParsing.js'
 import {
@@ -62,9 +66,15 @@ const runtimeOverrides = new Map<string, {
   providerId: string | null
   modelId: string
 }>()
+const sessionStartupRuntime = new Map<string, {
+  providerId?: string | null
+  model?: string
+}>()
 
 type SessionStartupOverrides = {
   permissionMode?: string
+  model?: string
+  providerId?: string | null
 }
 
 const ALLOWED_STARTUP_PERMISSION_MODES = new Set([
@@ -483,7 +493,7 @@ async function handleUserMessage(
   message: Extract<ClientMessage, { type: 'user_message' }>
 ) {
   const { sessionId } = ws.data
-  const startupOverrides = getUserMessageRuntimeOverrides(message)
+  const startupOverrides = await getUserMessageRuntimeOverrides(message)
 
   // Clear any stale stop flag from a previous turn
   sessionStopRequested.delete(sessionId)
@@ -526,6 +536,43 @@ async function handleUserMessage(
   }
 
   // 启动 CLI 子进程（如果还没有）
+  let cliContent = message.content
+  let cliAttachments = message.attachments
+  if (message.attachments?.length) {
+    try {
+      sendMessage(ws, { type: 'status', state: 'thinking', verb: '正在解析附件' })
+      const prepared = await attachmentParserService.prepareMessageContent(
+        message.content,
+        sessionId,
+        message.attachments,
+      )
+      if (prepared.usedParser) {
+        cliContent = prepared.content
+        cliAttachments = prepared.attachments
+        sendMessage(ws, {
+          type: 'system_notification',
+          subtype: 'attachment_parser',
+          data: {
+            status: 'parsed',
+            preview: prepared.preview,
+          },
+        })
+      }
+    } catch (err) {
+      const messageText = err instanceof AttachmentParserError
+        ? err.message
+        : '附件解析失败，请检查 GLM 配置后重试。'
+      console.warn(`[WS] Attachment parsing failed for ${sessionId}: ${messageText}`)
+      sendMessage(ws, {
+        type: 'system_notification',
+        subtype: 'attachment_parser',
+        message: messageText,
+      })
+      sendMessage(ws, { type: 'status', state: 'idle' })
+      return
+    }
+  }
+
   try {
     await restartSessionForStartupOverrides(ws, sessionId, startupOverrides)
     await ensureCliSessionStarted(ws, sessionId, 'user_message', startupOverrides)
@@ -569,8 +616,8 @@ async function handleUserMessage(
   startTurnMonitor(sessionId)
   const sent = conversationService.sendMessage(
     sessionId,
-    message.content,
-    message.attachments
+    cliContent,
+    cliAttachments
   )
   if (!sent) {
     stopTurnMonitor(sessionId)
@@ -817,6 +864,7 @@ async function restartSessionWithPermissionMode(
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    rememberSessionRuntime(sessionId, runtimeSettings)
 
     sendMessage(ws, { type: 'status', state: 'idle' })
     console.log(`[WS] Restarted CLI for ${sessionId} with permission mode: ${mode}`)
@@ -854,6 +902,7 @@ async function restartSessionWithRuntimeConfig(
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    rememberSessionRuntime(sessionId, runtimeSettings)
 
     sendMessage(ws, { type: 'status', state: 'idle' })
     console.log(`[WS] Restarted CLI for ${sessionId} with ${reason}`)
@@ -1028,6 +1077,7 @@ function cleanupSessionRuntimeState(sessionId: string) {
   sessionSlashCommands.delete(sessionId)
   sessionTitleState.delete(sessionId)
   runtimeOverrides.delete(sessionId)
+  sessionStartupRuntime.delete(sessionId)
   runtimeTransitionPromises.delete(sessionId)
   sessionStartupPromises.delete(sessionId)
   clearPrewarmState(sessionId)
@@ -1118,13 +1168,43 @@ async function resolveSessionWorkDir(sessionId: string, fallback = os.homedir())
   return workDir
 }
 
-function getUserMessageRuntimeOverrides(
+async function getUserMessageRuntimeOverrides(
   message: Extract<ClientMessage, { type: 'user_message' }>,
-): SessionStartupOverrides | undefined {
+): Promise<SessionStartupOverrides | undefined> {
   const mode = typeof message.permissionMode === 'string' ? message.permissionMode : undefined
-  if (!mode) return undefined
-  if (!ALLOWED_STARTUP_PERMISSION_MODES.has(mode)) return undefined
-  return { permissionMode: mode }
+  const overrides: SessionStartupOverrides = {}
+  if (mode && ALLOWED_STARTUP_PERMISSION_MODES.has(mode)) {
+    overrides.permissionMode = mode
+  }
+
+  const ceRuntime = await resolveCeModelStartupOverride(message.ceModelPreference)
+  if (ceRuntime) {
+    overrides.providerId = ceRuntime.providerId
+    overrides.model = ceRuntime.model
+  }
+
+  return Object.keys(overrides).length > 0 ? overrides : undefined
+}
+
+async function resolveCeModelStartupOverride(
+  preference: Extract<ClientMessage, { type: 'user_message' }>['ceModelPreference'],
+): Promise<{ providerId: string; model: string } | null> {
+  if (preference !== 'fast' && preference !== 'strong') return null
+  try {
+    const { providers, activeId } = await providerService.listProviders()
+    const provider = activeId ? providers.find((item) => item.id === activeId) : null
+    if (!provider) return null
+
+    const model = preference === 'fast'
+      ? provider.models.haiku || provider.models.main
+      : provider.models.opus || provider.models.sonnet || provider.models.main
+    const trimmed = typeof model === 'string' ? model.trim() : ''
+    if (!trimmed) return null
+    return { providerId: provider.id, model: trimmed }
+  } catch (error) {
+    console.warn('[WS] Failed to resolve CE model preference:', error)
+    return null
+  }
 }
 
 async function restartSessionForStartupOverrides(
@@ -1133,10 +1213,22 @@ async function restartSessionForStartupOverrides(
   startupOverrides?: SessionStartupOverrides,
 ): Promise<void> {
   const requestedMode = startupOverrides?.permissionMode
-  if (!requestedMode || !conversationService.hasSession(sessionId)) return
+  const requestedRuntime = startupOverrides?.model
+    ? { providerId: startupOverrides.providerId, model: startupOverrides.model }
+    : undefined
+  if ((!requestedMode && !requestedRuntime) || !conversationService.hasSession(sessionId)) return
 
-  const currentMode = conversationService.getSessionPermissionMode(sessionId)
-  if (currentMode === requestedMode) return
+  const currentMode = requestedMode ? conversationService.getSessionPermissionMode(sessionId) : undefined
+  const currentRuntime = sessionStartupRuntime.get(sessionId)
+  const needsPermissionRestart = Boolean(requestedMode && currentMode !== requestedMode)
+  const needsRuntimeRestart = Boolean(
+    requestedRuntime &&
+    (
+      currentRuntime?.providerId !== requestedRuntime.providerId ||
+      currentRuntime?.model !== requestedRuntime.model
+    ),
+  )
+  if (!needsPermissionRestart && !needsRuntimeRestart) return
 
   const workDir = conversationService.getSessionWorkDir(sessionId)
   conversationService.stopSession(sessionId)
@@ -1148,7 +1240,22 @@ async function restartSessionForStartupOverrides(
     ...startupOverrides,
   }
   await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
-  console.log(`[WS] Restarted CLI for ${sessionId} with startup permission mode: ${requestedMode}`)
+  rememberSessionRuntime(sessionId, runtimeSettings)
+  console.log(`[WS] Restarted CLI for ${sessionId} with startup overrides: ${JSON.stringify({
+    permissionMode: startupOverrides?.permissionMode,
+    model: startupOverrides?.model,
+    providerId: startupOverrides?.providerId,
+  })}`)
+}
+
+function rememberSessionRuntime(
+  sessionId: string,
+  runtimeSettings: { providerId?: string | null; model?: string },
+): void {
+  sessionStartupRuntime.set(sessionId, {
+    providerId: runtimeSettings.providerId,
+    model: runtimeSettings.model,
+  })
 }
 
 async function ensureCliSessionStarted(
@@ -1177,6 +1284,7 @@ async function ensureCliSessionStarted(
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     console.log(`[WS] Starting CLI for ${sessionId} due to ${reason}`)
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    rememberSessionRuntime(sessionId, runtimeSettings)
   })()
 
   sessionStartupPromises.set(sessionId, startup)

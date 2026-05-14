@@ -6,9 +6,12 @@ import { CopyButton } from '../shared/CopyButton'
 import { useTranslation } from '../../i18n'
 import type { TranslationKey } from '../../i18n'
 import { InlineImageGallery } from './InlineImageGallery'
+import { useTabStore } from '../../stores/tabStore'
+import { useWorkbenchStore, type WorkbenchTab } from '../../stores/workbenchStore'
 import type { AgentTaskNotification } from '../../types/chat'
 
 type Props = {
+  toolUseId?: string
   toolName: string
   input: unknown
   result?: { content: unknown; isError: boolean } | null
@@ -30,12 +33,14 @@ const TOOL_ICONS: Record<string, string> = {
   Skill: 'auto_awesome',
 }
 
-export function ToolCallBlock({ toolName, input, result, compact = false }: Props) {
+export function ToolCallBlock({ toolUseId, toolName, input, result, compact = false }: Props) {
   const [expanded, setExpanded] = useState(false)
   const t = useTranslation()
+  const activeTabId = useTabStore((s) => s.activeTabId)
+  const openWorkbench = useWorkbenchStore((s) => s.openWorkbench)
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
   const icon = TOOL_ICONS[toolName] || 'build'
-  const filePath = typeof obj.file_path === 'string' ? obj.file_path : ''
+  const filePath = getToolFilePath(obj)
   const summary = getToolSummary(toolName, obj, t)
   const outputSummary = getToolResultSummary(
     toolName,
@@ -48,55 +53,80 @@ export function ToolCallBlock({ toolName, input, result, compact = false }: Prop
   const details = useMemo(() => renderDetails(toolName, obj, t), [obj, toolName, t])
   const hasResultDetails = Boolean(result && extractTextContent(result.content))
   const expandable = toolName === 'Edit' || toolName === 'Write' || hasResultDetails
+  const canOpenWorkbench = Boolean(activeTabId && toolUseId)
+  const workbenchTab: WorkbenchTab =
+    toolName === 'Edit' || toolName === 'Write' || toolName === 'MultiEdit'
+      ? 'diff'
+      : 'preview'
 
   return (
     <div className={`overflow-hidden rounded-lg border border-[var(--color-border)]/50 bg-[var(--color-surface-container-lowest)] ${
       compact ? 'mb-0' : 'mb-2'
     }`}>
-      <button
-        type="button"
-        onClick={() => {
-          if (expandable) {
-            setExpanded((value) => !value)
-          }
-        }}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]/50"
-      >
-        <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">{icon}</span>
-        <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
-          {toolName}
-        </span>
-        {filePath ? (
-          <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
-            {filePath.split('/').pop()}
+      <div className="flex w-full items-center gap-1 px-2 py-1.5 transition-colors hover:bg-[var(--color-surface-hover)]/50">
+        <button
+          type="button"
+          onClick={() => {
+            if (expandable) {
+              setExpanded((value) => !value)
+            }
+          }}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+        >
+          <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">{icon}</span>
+          <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
+            {toolName}
           </span>
-        ) : summary ? (
-          <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
-            {summary}
-          </span>
-        ) : (
-          <span className="flex-1" />
-        )}
-        {result && outputSummary && (
-          <span
-            className={`shrink-0 text-[10px] ${
-              result.isError
-                ? 'text-[var(--color-error)]'
-                : 'text-[var(--color-outline)]'
-            }`}
+          {filePath ? (
+            <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
+              {leafName(filePath)}
+            </span>
+          ) : summary ? (
+            <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
+              {summary}
+            </span>
+          ) : (
+            <span className="flex-1" />
+          )}
+          {result && outputSummary && (
+            <span
+              className={`shrink-0 text-[10px] ${
+                result.isError
+                  ? 'text-[var(--color-error)]'
+                  : 'text-[var(--color-outline)]'
+              }`}
+            >
+              {outputSummary}
+            </span>
+          )}
+          {result?.isError && (
+            <span className="material-symbols-outlined shrink-0 text-[14px] text-[var(--color-error)]">error</span>
+          )}
+          {expandable && (
+            <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">
+              {expanded ? 'expand_less' : 'expand_more'}
+            </span>
+          )}
+        </button>
+        {canOpenWorkbench && (
+          <button
+            type="button"
+            onClick={() => {
+              openWorkbench(activeTabId!, {
+                activeTab: workbenchTab,
+                selectedToolUseId: toolUseId!,
+                selectedAttachmentId: null,
+                ...(filePath ? { selectedFilePath: filePath } : {}),
+              })
+            }}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-container-high)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+            aria-label={t('workbench.openTool')}
+            title={t('workbench.openTool')}
           >
-            {outputSummary}
-          </span>
+            <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+          </button>
         )}
-        {result?.isError && (
-          <span className="material-symbols-outlined shrink-0 text-[14px] text-[var(--color-error)]">error</span>
-        )}
-        {expandable && (
-          <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">
-            {expanded ? 'expand_less' : 'expand_more'}
-          </span>
-        )}
-      </button>
+      </div>
 
       {expandable && expanded && (
         <div className="space-y-2.5 border-t border-[var(--color-border)]/60 px-3 py-3">
@@ -223,6 +253,18 @@ function getToolResultSummary(
 
 function stripAnsi(value: string): string {
   return value.replace(/\x1B\[[0-9;]*m/g, '')
+}
+
+function getToolFilePath(input: Record<string, unknown>): string {
+  return (
+    (typeof input.file_path === 'string' ? input.file_path : '') ||
+    (typeof input.path === 'string' ? input.path : '') ||
+    (typeof input.notebook_path === 'string' ? input.notebook_path : '')
+  )
+}
+
+function leafName(filePath: string): string {
+  return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
 }
 
 function getToolSummary(toolName: string, obj: Record<string, unknown>, t?: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
