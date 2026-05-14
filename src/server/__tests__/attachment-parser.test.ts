@@ -96,7 +96,7 @@ describe('AttachmentParserService', () => {
     const calls: Array<{ url: string; body: unknown }> = []
     const service = new AttachmentParserService(async (url, init) => {
       calls.push({ url: String(url), body: init?.body })
-      return jsonResponse({ md_results: [{ content: '# PDF OCR\n正文' }] })
+      return jsonResponse({ md_results: '# PDF OCR\n正文' })
     })
     await service.updateConfig({ enabled: true, apiKey: 'glm-key' })
 
@@ -111,6 +111,25 @@ describe('AttachmentParserService', () => {
     expect(calls[0]!.url).toEndWith('/layout_parsing')
     const body = JSON.parse(String(calls[0]!.body)) as Record<string, unknown>
     expect(body.model).toBe('glm-ocr')
+  })
+
+  test('parses nested glm-ocr markdown results', async () => {
+    const service = new AttachmentParserService(async () => jsonResponse({
+      data: {
+        md_results: '# Nested PDF OCR\n正文',
+      },
+    }))
+    await service.updateConfig({ enabled: true, apiKey: 'glm-key' })
+
+    const result = await service.prepareMessageContent('看这个 PDF', 'session-1', [{
+      type: 'file',
+      name: 'nested.pdf',
+      data: Buffer.from('%PDF').toString('base64'),
+      mimeType: 'application/pdf',
+    }])
+
+    expect(result.content).toContain('# Nested PDF OCR')
+    expect(result.preview?.results[0]?.method).toBe('ocr')
   })
 
   test('parses office and text files with the GLM sync file parser', async () => {

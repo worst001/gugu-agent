@@ -588,7 +588,7 @@ function extractMarkdownFromAny(body: unknown): string {
   if (!body || typeof body !== 'object') return ''
 
   const record = body as Record<string, unknown>
-  for (const key of ['markdown', 'content', 'text', 'result', 'output_text']) {
+  for (const key of ['md_results', 'markdown', 'content', 'text', 'result', 'output_text']) {
     const value = record[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
   }
@@ -609,6 +609,8 @@ function extractMarkdownFromAny(body: unknown): string {
 }
 
 function extractMarkdownCollection(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+
   if (Array.isArray(value)) {
     return value
       .map((item) => extractMarkdownFromAny(item))
@@ -618,7 +620,7 @@ function extractMarkdownCollection(value: unknown): string {
   }
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
-    for (const key of ['md', 'markdown', 'content', 'text']) {
+    for (const key of ['md_results', 'md', 'markdown', 'content', 'text']) {
       const candidate = record[key]
       if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
     }

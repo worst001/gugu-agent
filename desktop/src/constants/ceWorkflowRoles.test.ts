@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildCeWorkflowMessage,
   buildCeAutomationInstructions,
+  buildCeLanguageInstructions,
   extractCeWorkflowDisplayText,
   getCeWorkflowRole,
 } from './ceWorkflowRoles'
@@ -99,6 +100,21 @@ describe('buildCeWorkflowMessage', () => {
   it('explicit CE slash commands can override the preset model preference', () => {
     expect(buildCeWorkflowMessage('standard', '/ce-brainstorm product options').modelPreference).toBe('fast')
     expect(buildCeWorkflowMessage('quick', '/ce-plan migration').modelPreference).toBe('strong')
+  })
+
+  it('keeps visible thinking and replies in Chinese for Chinese user text', () => {
+    const { wire, display } = buildCeWorkflowMessage('quick', '这是什么')
+    expect(display).toBe('这是什么')
+    expect(wire).toContain('用户可见语言要求')
+    expect(wire).toContain('思考过程')
+    expect(wire).toContain('必须使用中文')
+    expect(extractCeWorkflowDisplayText(wire)).toBe('这是什么')
+  })
+
+  it('uses a same-language instruction for non-Chinese user text', () => {
+    const instructions = buildCeLanguageInstructions('What is this?')
+    expect(instructions).toContain('same language as the user')
+    expect(instructions).toContain('visible thinking')
   })
 
   it('extracts display text from hidden CE workflow wire prompts', () => {

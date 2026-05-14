@@ -287,6 +287,7 @@ export function EmptySession() {
       const { wire } = buildCeWorkflowMessage(draftRole, text)
       sendMessage(sessionId, wire, attachmentPayload, {
         displayContent: text,
+        displayAttachments: attachmentPayload,
       })
       setInput('')
       setAttachments([])

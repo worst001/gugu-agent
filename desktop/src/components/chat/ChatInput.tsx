@@ -462,6 +462,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   }, [input])
 
   const handleSubmit = (overrideText?: string) => {
+    if (!activeTabId) return
     if (!isMemberSession && isActive) return
     const text = (overrideText ?? input).trim()
     if ((!text && (!attachments.length || isMemberSession)) || isWorkspaceMissing) return
@@ -500,14 +501,15 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     }))
 
     if (!isMemberSession) {
-      const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId!]
+      const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId]
       const { wire, display, modelPreference } = buildCeWorkflowMessage(roleId, text)
-      sendMessage(activeTabId!, wire, attachmentPayload, {
+      sendMessage(activeTabId, wire, attachmentPayload, {
         displayContent: display,
+        displayAttachments: attachmentPayload,
         ceModelPreference: modelPreference,
       })
     } else {
-      sendMessage(activeTabId!, text)
+      sendMessage(activeTabId, text)
     }
     if (activeTabId) clearComposerDraft(activeTabId)
     inputRef.current = ''

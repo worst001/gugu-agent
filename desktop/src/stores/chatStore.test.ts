@@ -98,6 +98,7 @@ vi.mock('./cliTaskStore', () => ({
 
 import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } from './chatStore'
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
+import { sessionsApi } from '../api/sessions'
 
 const TEST_SESSION_ID = 'test-session-1'
 const initialState = useChatStore.getState()
@@ -257,6 +258,52 @@ describe('chatStore history mapping', () => {
         attachments: [{ type: 'file', name: 'report.md' }],
       },
     ])
+  })
+
+  it('restores a locally submitted image when attachment parser history no longer contains the raw image block', async () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(
+      TEST_SESSION_ID,
+      'parsed wire prompt',
+      [{ type: 'image', name: 'whale.png', data: 'data:image/png;base64,aW1hZ2U=', mimeType: 'image/png' }],
+      {
+        displayContent: '',
+        displayAttachments: [
+          { type: 'image', name: 'whale.png', data: 'data:image/png;base64,aW1hZ2U=', mimeType: 'image/png' },
+        ],
+      },
+    )
+
+    seedSession()
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'history-user-with-parser-output',
+          type: 'user',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: [
+            {
+              type: 'text',
+              text: '<闄勪欢瑙ｆ瀽缁撴灉>\nimage markdown\n</闄勭欢瑙ｆ瀽缁撴灉>\n\n<鐢ㄦ埛姝ｆ枃>\n\n</鐢ㄦ埛姝ｆ枃>',
+            },
+          ],
+        },
+      ],
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(
+      useChatStore.getState().sessions[TEST_SESSION_ID]?.messages.some((message) =>
+        message.type === 'user_text' &&
+        message.attachments?.some((attachment) =>
+          attachment.type === 'image' &&
+          attachment.name === 'whale.png' &&
+          attachment.data === 'data:image/png;base64,aW1hZ2U='
+        )
+      ),
+    ).toBe(true)
   })
 
   it('keeps parent tool linkage for live tool events', () => {

@@ -94,8 +94,9 @@ describe('ActiveSession task polling', () => {
       },
     })
 
-    const { unmount } = render(<ActiveSession />)
+    const { queryByTestId, unmount } = render(<ActiveSession />)
 
+    expect(queryByTestId('message-list')).toBeInTheDocument()
     expect(fetchSessionTasks).toHaveBeenCalledWith(sessionId)
 
     await act(async () => {

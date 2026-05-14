@@ -84,6 +84,127 @@ function createDefaultSessionState(): PerSessionState {
   return { ...DEFAULT_SESSION_STATE, messages: [], tokenUsage: { input_tokens: 0, output_tokens: 0 } }
 }
 
+type LocalUserEcho = Extract<UIMessage, { type: 'user_text' }>
+
+type StoredLocalUserEcho = {
+  sessionId: string
+  createdAt: number
+  message: LocalUserEcho
+}
+
+const LOCAL_USER_ECHO_STORAGE_KEY = 'gugu-agent-local-user-echoes-v1'
+const LOCAL_USER_ECHO_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const LOCAL_USER_ECHO_MAX_PER_SESSION = 12
+
+function nowMs() {
+  return Date.now()
+}
+
+function getLocalEchoStorage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+
+function readLocalUserEchoes(): StoredLocalUserEcho[] {
+  const storage = getLocalEchoStorage()
+  if (!storage) return []
+  try {
+    const raw = storage.getItem(LOCAL_USER_ECHO_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const cutoff = nowMs() - LOCAL_USER_ECHO_MAX_AGE_MS
+    return parsed.filter((item): item is StoredLocalUserEcho => {
+      if (!item || typeof item !== 'object') return false
+      const record = item as StoredLocalUserEcho
+      return (
+        typeof record.sessionId === 'string' &&
+        typeof record.createdAt === 'number' &&
+        record.createdAt >= cutoff &&
+        record.message?.type === 'user_text'
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+function writeLocalUserEchoes(echoes: StoredLocalUserEcho[]) {
+  const storage = getLocalEchoStorage()
+  if (!storage) return
+  try {
+    storage.setItem(LOCAL_USER_ECHO_STORAGE_KEY, JSON.stringify(echoes))
+  } catch {
+    // Large images can exceed localStorage quota. The in-memory optimistic
+    // message is still present for the current turn; persistence is best effort.
+  }
+}
+
+function rememberLocalUserEcho(sessionId: string, message: LocalUserEcho) {
+  if (!message.attachments?.length && !message.content.trim()) return
+  const cutoff = nowMs() - LOCAL_USER_ECHO_MAX_AGE_MS
+  const others = readLocalUserEchoes()
+    .filter((echo) => echo.createdAt >= cutoff && echo.sessionId !== sessionId)
+  const current = readLocalUserEchoes()
+    .filter((echo) => echo.createdAt >= cutoff && echo.sessionId === sessionId && echo.message.id !== message.id)
+    .slice(-LOCAL_USER_ECHO_MAX_PER_SESSION + 1)
+  writeLocalUserEchoes([
+    ...others,
+    ...current,
+    { sessionId, createdAt: nowMs(), message },
+  ])
+}
+
+function sameUserEcho(a: LocalUserEcho, b: LocalUserEcho): boolean {
+  const aContent = a.content.trim()
+  const bContent = b.content.trim()
+  if (aContent || bContent) return aContent === bContent
+  const aNames = (a.attachments ?? []).map((item) => item.name).join('\n')
+  const bNames = (b.attachments ?? []).map((item) => item.name).join('\n')
+  if (!aNames || !bNames) return true
+  return Boolean(aNames && aNames === bNames)
+}
+
+function mergeLocalUserEchoes(sessionId: string, messages: UIMessage[]): UIMessage[] {
+  const echoes = readLocalUserEchoes()
+    .filter((echo) => echo.sessionId === sessionId)
+    .map((echo) => echo.message)
+
+  if (echoes.length === 0) return messages
+
+  const merged = [...messages]
+  for (const echo of echoes) {
+    const existingIndex = merged.findIndex((message) =>
+      message.type === 'user_text' && sameUserEcho(message, echo)
+    )
+
+    if (existingIndex >= 0) {
+      const existing = merged[existingIndex] as LocalUserEcho
+      merged[existingIndex] = {
+        ...existing,
+        content: existing.content.trim() ? existing.content : echo.content,
+        attachments:
+          existing.attachments && existing.attachments.length > 0
+            ? existing.attachments
+            : echo.attachments,
+      }
+      continue
+    }
+
+    const insertIndex = merged.findIndex((message) => message.timestamp > echo.timestamp)
+    if (insertIndex === -1) {
+      merged.push(echo)
+    } else {
+      merged.splice(insertIndex, 0, echo)
+    }
+  }
+
+  return merged
+}
+
 type ChatStore = {
   sessions: Record<string, PerSessionState>
 
@@ -358,7 +479,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     void useCLITaskStore.getState().fetchSessionTasks(sessionId)
 
     const existing = get().sessions[sessionId]
-    if (existing && existing.connectionState !== 'disconnected') return
+    if (existing && existing.connectionState !== 'disconnected') {
+      const mergedMessages = mergeLocalUserEchoes(sessionId, existing.messages)
+      if (mergedMessages !== existing.messages) {
+        set((s) => ({
+          sessions: updateSessionIn(s.sessions, sessionId, () => ({
+            messages: mergedMessages,
+          })),
+        }))
+      }
+      return
+    }
 
     set((s) => ({
       sessions: {
@@ -366,7 +497,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         [sessionId]: {
           ...createDefaultSessionState(),
           connectionState: 'connecting',
-          messages: existing?.messages ?? [],
+          messages: mergeLocalUserEchoes(sessionId, existing?.messages ?? []),
         },
       },
     }))
@@ -443,6 +574,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       void taskStore.resetCompletedTasks()
     }
 
+    const localUserMessage: LocalUserEcho = {
+      id: nextId(),
+      type: 'user_text',
+      content: userFacingContent,
+      attachments: isMemberSession ? undefined : uiAttachments,
+      timestamp: nowMs(),
+      ...(isMemberSession ? { pending: true } : {}),
+    }
+
     set((s) => {
       const session = s.sessions[sessionId] ?? createDefaultSessionState()
       if (flushTimer) {
@@ -463,14 +603,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           timestamp: Date.now(),
         })
       }
-      newMessages.push({
-        id: nextId(),
-        type: 'user_text',
-        content: userFacingContent,
-        attachments: isMemberSession ? undefined : uiAttachments,
-        timestamp: Date.now(),
-        ...(isMemberSession ? { pending: true } : {}),
-      })
+      newMessages.push(localUserMessage)
 
       if (!isMemberSession && session.elapsedTimer) clearInterval(session.elapsedTimer)
 
@@ -496,6 +629,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         },
       }
     })
+
+    if (!isMemberSession) {
+      rememberLocalUserEcho(sessionId, localUserMessage)
+    }
 
     if (isMemberSession) {
       void useTeamStore.getState().sendMessageToMember(sessionId, userFacingContent)
@@ -600,7 +737,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const session = state.sessions[sessionId]
         if (!session || session.messages.length > 0) return state
         return { sessions: updateSessionIn(state.sessions, sessionId, (s) => ({
-          messages: uiMessages,
+          messages: mergeLocalUserEchoes(sessionId, uiMessages),
           agentTaskNotifications: { ...s.agentTaskNotifications, ...restoredNotifications },
         })) }
       })
@@ -633,7 +770,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (session.elapsedTimer) clearInterval(session.elapsedTimer)
         return {
           sessions: updateSessionIn(state.sessions, sessionId, () => ({
-            messages: uiMessages,
+            messages: mergeLocalUserEchoes(sessionId, uiMessages),
             agentTaskNotifications: restoredNotifications,
             chatState: 'idle',
             activeThinkingId: null,

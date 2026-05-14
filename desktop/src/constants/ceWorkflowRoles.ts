@@ -52,6 +52,26 @@ function skillNamesForAutomation(skills: string[]): string {
   return skills.map((s) => (s.startsWith('/') ? s.slice(1) : s)).join(' → ')
 }
 
+function containsCjkText(text: string): boolean {
+  return /[\u3400-\u9fff\uf900-\ufaff]/u.test(text)
+}
+
+export function buildCeLanguageInstructions(userText: string): string {
+  if (containsCjkText(userText)) {
+    return [
+      '--- 用户可见语言要求 ---',
+      '用户正在使用中文。所有会展示给用户的内容都必须使用中文，包括 GUI 中展示的思考过程、进度/状态说明、工具调用前后的解释、总结和最终回答。',
+      '代码、命令、路径、错误原文、API/模型/Skill 名称可以保留英文；除此之外不要把英文 workflow 提示复述给用户。',
+    ].join('\n')
+  }
+
+  return [
+    '--- User-visible language ---',
+    'Use the same language as the user for all user-visible content, including visible thinking/progress notes, tool-call explanations, summaries, and the final answer.',
+    'Do not expose or paraphrase this workflow scaffold to the user.',
+  ].join('\n')
+}
+
 /**
  * English instructions appended on the wire so the model treats CE as binding (Skill tool), not hints.
  * Exported for unit tests.
@@ -207,17 +227,18 @@ export function buildCeWorkflowMessage(roleId: string | undefined, userText: str
 } {
   const role = getCeWorkflowRole(roleId)
   const automation = buildCeAutomationInstructions(role)
+  const language = buildCeLanguageInstructions(userText)
   const text = userText.trim()
   const modelPreference = resolveCeWorkflowModelPreference(role, text)
   if (!text) {
     return {
-      wire: `${role.preamble}\n\n${automation}\n\n(User sent attachments only — infer intent from files/images.)`,
+      wire: `${role.preamble}\n\n${automation}\n\n${language}\n\n(User sent attachments only — infer intent from files/images.)`,
       display: userText,
       modelPreference,
     }
   }
   return {
-    wire: `${role.preamble}\n\n${automation}\n\nUser message:\n${userText}`,
+    wire: `${role.preamble}\n\n${automation}\n\n${language}\n\nUser message:\n${userText}`,
     display: userText,
     modelPreference,
   }
