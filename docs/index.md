@@ -13,8 +13,8 @@ hero:
       text: 快速开始
       link: /guide/quick-start
     - theme: alt
-      text: GitHub
-      link: https://github.com/NanmiCoder/cc-haha
+      text: Gitee
+      link: https://gitee.com/xiyouwangluo/claude-code-gugu
 
 features:
   - icon: "\U0001F5A5"

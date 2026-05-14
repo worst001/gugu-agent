@@ -98,7 +98,7 @@ export function CeWorkflowRoleSelector({ sessionKey, disabled = false }: Props) 
         type="button"
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
-        className="flex max-w-[280px] items-center gap-2 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]/72 px-3.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] shadow-[0_1px_0_rgba(255,255,255,0.55)] transition-[background-color,border-color,box-shadow] hover:border-[var(--color-brand)]/28 hover:bg-[var(--color-surface-container-lowest)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex max-w-[280px] items-center gap-2 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]/72 px-3.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-[background-color,border-color] hover:border-[var(--color-brand)]/28 hover:bg-[var(--color-surface-container-lowest)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--color-text-primary)]">
@@ -112,7 +112,7 @@ export function CeWorkflowRoleSelector({ sessionKey, disabled = false }: Props) 
       </button>
 
       {open && (
-        <div className="absolute right-0 bottom-full z-50 mb-2 w-[372px] overflow-hidden rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)] shadow-[var(--shadow-dropdown)]">
+        <div className="absolute right-0 bottom-full z-50 mb-2 w-[372px] overflow-hidden rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]">
           <div className="max-h-[420px] overflow-y-auto p-3.5">
             <div className="mb-2 px-1 text-[10px] font-bold text-[var(--color-outline)]">
               {t('ceWorkflow.panelTitle')}
@@ -129,9 +129,9 @@ export function CeWorkflowRoleSelector({ sessionKey, disabled = false }: Props) 
                     type="button"
                     onClick={() => pick(role)}
                     className={`
-                      w-full rounded-xl border px-3.5 py-3 text-left transition-[background-color,border-color,box-shadow]
+                      w-full rounded-xl border px-3.5 py-3 text-left transition-[background-color,border-color]
                       ${isSelected
-                        ? 'border-[var(--color-model-option-selected-border)] bg-[var(--color-model-option-selected-bg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]'
+                        ? 'border-[var(--color-model-option-selected-border)] bg-[var(--color-model-option-selected-bg)]'
                         : 'border-transparent hover:bg-[var(--color-surface-hover)]'
                       }
                     `}

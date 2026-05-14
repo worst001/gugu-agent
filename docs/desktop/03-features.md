@@ -252,7 +252,7 @@
 
 ### 自动更新
 
-`UpdateChecker` 组件：启动后检查 GitHub Releases，有新版本时弹出更新提示，支持自动下载安装重启。
+`UpdateChecker` 组件：启动后检查 Gitee Releases，有新版本时弹出更新提示，支持自动下载安装重启。
 
 ---
 

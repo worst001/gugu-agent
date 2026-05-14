@@ -113,9 +113,9 @@ All illustrations use a dark background (#1a1a2e) + Anthropic brand copper-orang
 
 ## Related Resources
 
-- [Claude Code GuGu Home](/en/)
-- [Memory system source code](https://github.com/NanmiCoder/cc-haha/tree/main/src/memdir/)
-- [Auto-extraction service](https://github.com/NanmiCoder/cc-haha/tree/main/src/services/extractMemories/)
-- [AutoDream service](https://github.com/NanmiCoder/cc-haha/tree/main/src/services/autoDream/)
-- [DreamTask](https://github.com/NanmiCoder/cc-haha/tree/main/src/tasks/DreamTask/)
-- [GitHub Issues](https://github.com/NanmiCoder/cc-haha/issues)
+- [Gugu Agent Home](/en/)
+- [Memory system source code](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/memdir/)
+- [Auto-extraction service](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/services/extractMemories/)
+- [AutoDream service](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/services/autoDream/)
+- [DreamTask](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/tasks/DreamTask/)
+- [Gitee Issues](https://gitee.com/xiyouwangluo/claude-code-gugu/issues)

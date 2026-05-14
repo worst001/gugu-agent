@@ -2041,16 +2041,218 @@ function PluginSettings() {
   )
 }
 
+// ─── Billing Settings ──────────────────────────────────────
+
+const BILLING_STATUS_LABEL_KEYS: Record<BillingStatus, TranslationKey> = {
+  not_configured: 'settings.billing.status.notConfigured',
+  inactive: 'settings.billing.status.inactive',
+  active: 'settings.billing.status.active',
+  expired: 'settings.billing.status.expired',
+  check_failed: 'settings.billing.status.checkFailed',
+}
+
+const BILLING_STATUS_ICON: Record<BillingStatus, string> = {
+  not_configured: 'pending',
+  inactive: 'workspace_premium',
+  active: 'verified',
+  expired: 'event_busy',
+  check_failed: 'sync_problem',
+}
+
+const BILLING_STATUS_TONE: Record<BillingStatus, string> = {
+  not_configured: 'border-[var(--color-border)] text-[var(--color-text-secondary)]',
+  inactive: 'border-[var(--color-border)] text-[var(--color-text-secondary)]',
+  active: 'border-[var(--color-success)]/40 text-[var(--color-success)]',
+  expired: 'border-[var(--color-warning)]/40 text-[var(--color-warning)]',
+  check_failed: 'border-[var(--color-error)]/40 text-[var(--color-error)]',
+}
+
+function BillingSettings() {
+  const t = useTranslation()
+  const status = useBillingStore((s) => s.status)
+  const config = useBillingStore((s) => s.config)
+  const isLoading = useBillingStore((s) => s.isLoading)
+  const isSaving = useBillingStore((s) => s.isSaving)
+  const error = useBillingStore((s) => s.error)
+  const message = useBillingStore((s) => s.message)
+  const fetchBilling = useBillingStore((s) => s.fetchBilling)
+  const activateLicense = useBillingStore((s) => s.activateLicense)
+  const refresh = useBillingStore((s) => s.refresh)
+  const clearLicense = useBillingStore((s) => s.clearLicense)
+  const [licenseKey, setLicenseKey] = useState('')
+
+  useEffect(() => {
+    void fetchBilling()
+  }, [fetchBilling])
+
+  const currentStatus = status?.status ?? 'not_configured'
+  const purchaseUrl = status?.purchaseUrl ?? config?.purchaseUrl ?? null
+  const verifyConfigured = Boolean(config?.verifyUrlConfigured)
+  const lastCheckedAt = status?.lastCheckedAt ? formatBillingDate(status.lastCheckedAt) : null
+  const canActivate = verifyConfigured && licenseKey.trim().length > 0 && !isSaving
+
+  const handleActivate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!canActivate) return
+    await activateLicense(licenseKey)
+    setLicenseKey('')
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <div className="mb-5">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{t('settings.billing.title')}</h2>
+        <p className="mt-0.5 text-sm text-[var(--color-text-tertiary)]">{t('settings.billing.description')}</p>
+      </div>
+
+      <div className="space-y-4">
+        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+          {isLoading && !status ? (
+            <div className="flex justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-brand)] border-t-transparent" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.14em] text-[var(--color-text-tertiary)]">
+                    {t('settings.billing.currentStatus')}
+                  </div>
+                  <div className={`mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${BILLING_STATUS_TONE[currentStatus]}`}>
+                    <span className="material-symbols-outlined text-[17px]">{BILLING_STATUS_ICON[currentStatus]}</span>
+                    {t(BILLING_STATUS_LABEL_KEYS[currentStatus])}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void refresh()}
+                    loading={isSaving}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">sync</span>
+                    {t('settings.billing.refresh')}
+                  </Button>
+                  {status?.maskedLicenseKey && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void clearLicense()}
+                      loading={isSaving}
+                    >
+                      {t('settings.billing.clear')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <BillingDetail label={t('settings.billing.plan')} value={status?.plan || t('settings.billing.planFree')} />
+                <BillingDetail label={t('settings.billing.expiresAt')} value={status?.expiresAt ? formatBillingDate(status.expiresAt) : t('settings.billing.noExpiry')} />
+                <BillingDetail label={t('settings.billing.license')} value={status?.maskedLicenseKey || t('settings.billing.noLicense')} />
+              </div>
+
+              <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
+                {message || status?.message || t('settings.billing.defaultMessage')}
+              </p>
+
+              {lastCheckedAt && (
+                <p className="text-xs text-[var(--color-text-tertiary)]">
+                  {t('settings.billing.lastCheckedAt', { time: lastCheckedAt })}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.purchaseTitle')}</h3>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+                {purchaseUrl ? t('settings.billing.purchaseReady') : t('settings.billing.purchaseComingSoon')}
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={!purchaseUrl}
+              onClick={() => purchaseUrl && openExternalUrl(purchaseUrl)}
+            >
+              <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+              {t('settings.billing.purchase')}
+            </Button>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+          <form onSubmit={handleActivate} className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.activationTitle')}</h3>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+                {verifyConfigured ? t('settings.billing.activationReady') : t('settings.billing.activationUnavailable')}
+              </p>
+            </div>
+
+            <Input
+              label={t('settings.billing.licenseInput')}
+              type="password"
+              value={licenseKey}
+              placeholder={t('settings.billing.licensePlaceholder')}
+              onChange={(event) => setLicenseKey(event.target.value)}
+              disabled={!verifyConfigured || isSaving}
+            />
+
+            {error && (
+              <div className="rounded-lg border border-[var(--color-error)]/30 px-3 py-2 text-xs text-[var(--color-error)]">
+                {error}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" loading={isSaving} disabled={!canActivate}>
+                {t('settings.billing.activate')}
+              </Button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function BillingDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 min-w-0">
+      <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-text-tertiary)] truncate">{label}</div>
+      <div className="mt-1 text-sm font-medium text-[var(--color-text-primary)] truncate">{value}</div>
+    </div>
+  )
+}
+
+function formatBillingDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 // ─── About Settings ──────────────────────────────────────
 
 const CODE_REPO = 'https://gitee.com/xiyouwangluo/claude-code-gugu'
 const CODE_ISSUES = `${CODE_REPO}/issues`
 const CODE_RELEASES = `${CODE_REPO}/releases`
-const AUTHOR_GITHUB = 'https://github.com/NanmiCoder'
+const STUDIO_NAME = '谷星曜工作室'
+const AUTHOR_PROFILE = 'https://gitee.com/xiyouwangluo'
 const SOCIAL_LINKS = [
-  { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/434377496', label: '程序员阿江-Relakkes' },
-  { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAATJPY7LAlaa5X-c8uNdWkvz0jUGgpw4eeXIwu_8BhvqE', label: '程序员阿江-Relakkes' },
-  { name: 'Xiaohongshu', icon: '/icons/xiaohongshu.svg', url: 'https://www.xiaohongshu.com/user/profile/5f58bd990000000001003753', label: '程序员阿江-Relakkes' },
+  { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/434377496', label: STUDIO_NAME },
+  { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAATJPY7LAlaa5X-c8uNdWkvz0jUGgpw4eeXIwu_8BhvqE', label: STUDIO_NAME },
+  { name: 'Xiaohongshu', icon: '/icons/xiaohongshu.svg', url: 'https://www.xiaohongshu.com/user/profile/5f58bd990000000001003753', label: STUDIO_NAME },
 ] as const
 
 function AboutSettings() {
@@ -2260,12 +2462,12 @@ function AboutSettings() {
       <div className="w-full">
         <h3 className="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider mb-3">{t('settings.about.author')}</h3>
         <button
-          onClick={() => openUrl(AUTHOR_GITHUB)}
+          onClick={() => openUrl(AUTHOR_PROFILE)}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <img src="/icons/github.svg" alt="GitHub" className="w-4 h-4 opacity-60" />
-          <span className="text-sm text-[var(--color-text-primary)]">程序员阿江-Relakkes</span>
-          <span className="text-xs text-[var(--color-text-tertiary)] ml-auto">GitHub</span>
+          <span className="material-symbols-outlined text-[18px] text-[var(--color-text-tertiary)]">business_center</span>
+          <span className="text-sm text-[var(--color-text-primary)]">{STUDIO_NAME}</span>
+          <span className="text-xs text-[var(--color-text-tertiary)] ml-auto">Gitee</span>
         </button>
       </div>
 

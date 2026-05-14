@@ -1,23 +1,22 @@
-# Claude Code GuGu
+# Gugu Agent
 
 <p align="center">
-  <img src="docs/images/app-icon.svg" alt="Claude Code GuGu" width="240">
+  <img src="docs/images/app-icon.svg" alt="Gugu Agent" width="240">
 </p>
 
 <div align="center">
 
-[![GitHub Stars](https://img.shields.io/github/stars/NanmiCoder/cc-haha?style=social)](https://github.com/NanmiCoder/cc-haha/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/NanmiCoder/cc-haha?style=social)](https://github.com/NanmiCoder/cc-haha/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/NanmiCoder/cc-haha)](https://github.com/NanmiCoder/cc-haha/issues)
-[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/NanmiCoder/cc-haha)](https://github.com/NanmiCoder/cc-haha/pulls)
-[![License](https://img.shields.io/github/license/NanmiCoder/cc-haha)](https://github.com/NanmiCoder/cc-haha/blob/main/LICENSE)
+[![Gitee Stars](https://gitee.com/xiyouwangluo/claude-code-gugu/badge/star.svg)](https://gitee.com/xiyouwangluo/claude-code-gugu/stargazers)
+[![Gitee Forks](https://gitee.com/xiyouwangluo/claude-code-gugu/badge/fork.svg)](https://gitee.com/xiyouwangluo/claude-code-gugu/members)
+[![Gitee Issues](https://img.shields.io/badge/Gitee-Issues-C71D23?logo=gitee)](https://gitee.com/xiyouwangluo/claude-code-gugu/issues)
+[![Releases](https://img.shields.io/badge/Releases-Gitee-C71D23?logo=gitee)](https://gitee.com/xiyouwangluo/claude-code-gugu/releases)
 [![中文](https://img.shields.io/badge/🇨🇳_中文-当前-blue)](README.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-Available-green)](README.en.md)
 [![Docs](https://img.shields.io/badge/📖_文档站点-Visit-D97757)](https://claudecode-haha.relakkesyang.org)
 
 </div>
 
-基于 Claude Code 泄露源码修复的**本地可运行版本**，支持接入任意 Anthropic 兼容 API（MiniMax、OpenRouter 等）。在完整 TUI 之外，还补全了 Computer Use（macOS / Windows）、打造了图形化**桌面端**，并支持通过 Telegram / 飞书**完整远程驱动**。
+Gugu Agent 是由谷星曜工作室维护的 Claude Code 本地可运行版本，支持接入任意 Anthropic 兼容 API（MiniMax、OpenRouter 等）。在完整 TUI 之外，还补全了 Computer Use（macOS / Windows）、打造了图形化**桌面端**，并支持通过 Telegram / 飞书**完整远程驱动**。
 
 <p align="center">
   <a href="#功能">功能</a> · <a href="#桌面端预览">桌面端</a> · <a href="#架构概览">架构概览</a> · <a href="#快速开始">快速开始</a> · <a href="docs/guide/env-vars.md">环境变量</a> · <a href="docs/guide/faq.md">FAQ</a> · <a href="docs/guide/global-usage.md">全局使用</a> · <a href="#更多文档">更多文档</a>
@@ -63,7 +62,7 @@
 ## 桌面端预览
 
 <p align="center">
-  <a href="https://github.com/NanmiCoder/cc-haha/releases"><img src="https://img.shields.io/badge/⬇_下载桌面端-macOS_%7C_Windows-D97757?style=for-the-badge" alt="下载桌面端"></a>
+  <a href="https://gitee.com/xiyouwangluo/claude-code-gugu/releases"><img src="https://img.shields.io/badge/⬇_下载桌面端-macOS_%7C_Windows-D97757?style=for-the-badge" alt="下载桌面端"></a>
   &nbsp;
   <a href="docs/desktop/04-installation.md"><img src="https://img.shields.io/badge/📖_安装指南-Guide-gray?style=for-the-badge" alt="安装指南"></a>
 </p>
@@ -248,9 +247,9 @@ http://127.0.0.1:2024
 
 ---
 
-## ☕ 请作者喝杯咖啡
+## ☕ 支持谷星曜工作室
 
-如果这个项目对您有帮助，欢迎打赏支持，您的每一份支持都是我持续更新的动力 ❤️
+如果这个项目对您有帮助，欢迎打赏支持，您的每一份支持都是谷星曜工作室持续更新的动力 ❤️
 
 <table>
 <tr>
@@ -285,15 +284,13 @@ http://127.0.0.1:2024
 
 ## ⭐ Star 趋势图
 
-如果这个项目对您有帮助，请给个 ⭐ Star 支持一下，让更多的人看到 Claude Code GuGu！
+如果这个项目对您有帮助，请在 Gitee 给个 ⭐ Star 支持一下，让更多的人看到 Gugu Agent！
 
-<a href="https://www.star-history.com/#NanmiCoder/cc-haha&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date" />
-  </picture>
-</a>
+<p align="center">
+  <a href="https://gitee.com/xiyouwangluo/claude-code-gugu/stargazers">
+    <img src="https://gitee.com/xiyouwangluo/claude-code-gugu/badge/star.svg" alt="Gitee Stars">
+  </a>
+</p>
 
 ---
 

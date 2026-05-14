@@ -121,9 +121,9 @@
 
 ## 🔗 相关资源
 
-- [Claude Code GuGu 主页](/)
+- [Gugu Agent 主页](/)
 - [记忆系统文档](/memory/01-usage-guide)
-- [Agent Tool 源码](https://github.com/NanmiCoder/cc-haha/tree/main/src/tools/AgentTool/)
-- [Swarm 基础设施](https://github.com/NanmiCoder/cc-haha/tree/main/src/utils/swarm/)
-- [任务管理系统](https://github.com/NanmiCoder/cc-haha/tree/main/src/tasks/)
-- [GitHub Issues](https://github.com/NanmiCoder/cc-haha/issues)
+- [Agent Tool 源码](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/tools/AgentTool/)
+- [Swarm 基础设施](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/utils/swarm/)
+- [任务管理系统](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/tasks/)
+- [Gitee Issues](https://gitee.com/xiyouwangluo/claude-code-gugu/issues)

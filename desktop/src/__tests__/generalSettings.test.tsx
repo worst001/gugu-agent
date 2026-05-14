@@ -44,6 +44,26 @@ const providerStoreState = {
   updateProvider: vi.fn(),
   testConfig: vi.fn(),
 }
+const billingStoreState = {
+  status: null as {
+    status: 'not_configured' | 'inactive' | 'active' | 'expired' | 'check_failed'
+    plan: string | null
+    expiresAt: string | null
+    maskedLicenseKey: string | null
+    purchaseUrl: string | null
+    lastCheckedAt: string | null
+    message: string
+  } | null,
+  config: null as { purchaseUrl: string | null; verifyUrlConfigured: boolean } | null,
+  isLoading: false,
+  isSaving: false,
+  error: null as string | null,
+  message: null as string | null,
+  fetchBilling: vi.fn(),
+  activateLicense: vi.fn(),
+  refresh: vi.fn(),
+  clearLicense: vi.fn(),
+}
 
 vi.mock('../api/agents', () => ({
   agentsApi: {
@@ -53,6 +73,10 @@ vi.mock('../api/agents', () => ({
 
 vi.mock('../stores/providerStore', () => ({
   useProviderStore: () => providerStoreState,
+}))
+
+vi.mock('../stores/billingStore', () => ({
+  useBillingStore: (selector: (state: typeof billingStoreState) => unknown) => selector(billingStoreState),
 }))
 
 vi.mock('../api/providers', () => ({
@@ -641,6 +665,99 @@ describe('Settings > Config backup tab', () => {
       }), true)
     })
     expect(await screen.findByText('Configuration import applied.')).toBeInTheDocument()
+  })
+})
+
+describe('Settings > Billing tab', () => {
+  beforeEach(() => {
+    billingStoreState.status = {
+      status: 'not_configured',
+      plan: null,
+      expiresAt: null,
+      maskedLicenseKey: null,
+      purchaseUrl: null,
+      lastCheckedAt: null,
+      message: 'Subscription is coming soon.',
+    }
+    billingStoreState.config = {
+      purchaseUrl: null,
+      verifyUrlConfigured: false,
+    }
+    billingStoreState.isLoading = false
+    billingStoreState.isSaving = false
+    billingStoreState.error = null
+    billingStoreState.message = null
+    billingStoreState.fetchBilling = vi.fn().mockResolvedValue(undefined)
+    billingStoreState.activateLicense = vi.fn().mockResolvedValue(undefined)
+    billingStoreState.refresh = vi.fn().mockResolvedValue(undefined)
+    billingStoreState.clearLicense = vi.fn().mockResolvedValue(undefined)
+
+    useSettingsStore.setState({ locale: 'en' })
+    useUIStore.setState({ pendingSettingsTab: 'billing' })
+    useUpdateStore.setState({
+      status: 'idle',
+      availableVersion: null,
+      releaseNotes: null,
+      progressPercent: 0,
+      downloadedBytes: 0,
+      totalBytes: null,
+      error: null,
+      checkedAt: null,
+      shouldPrompt: false,
+      initialize: vi.fn().mockResolvedValue(undefined),
+      checkForUpdates: vi.fn().mockResolvedValue(null),
+      installUpdate: vi.fn().mockResolvedValue(undefined),
+      dismissPrompt: vi.fn(),
+    })
+  })
+
+  it('shows disabled purchase and activation controls when URLs are not configured', async () => {
+    render(<Settings />)
+
+    expect(await screen.findByRole('heading', { name: 'Subscription' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Purchase/i })).toBeDisabled()
+    expect(screen.getByLabelText('Activation code')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled()
+    expect(screen.getByText('Activation service is not configured yet.')).toBeInTheDocument()
+  })
+
+  it('opens the configured purchase URL from the purchase button', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    billingStoreState.status = {
+      ...billingStoreState.status!,
+      purchaseUrl: 'https://billing.example.com/gugu',
+    }
+    billingStoreState.config = {
+      purchaseUrl: 'https://billing.example.com/gugu',
+      verifyUrlConfigured: false,
+    }
+
+    render(<Settings />)
+
+    await screen.findByRole('heading', { name: 'Subscription' })
+    fireEvent.click(screen.getByRole('button', { name: /Purchase/i }))
+
+    expect(openSpy).toHaveBeenCalledWith('https://billing.example.com/gugu', '_blank', 'noopener,noreferrer')
+    openSpy.mockRestore()
+  })
+
+  it('submits activation codes only when verification is configured', async () => {
+    billingStoreState.config = {
+      purchaseUrl: null,
+      verifyUrlConfigured: true,
+    }
+
+    render(<Settings />)
+
+    await screen.findByRole('heading', { name: 'Subscription' })
+    fireEvent.change(screen.getByLabelText('Activation code'), {
+      target: { value: 'license-123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+
+    await waitFor(() => {
+      expect(billingStoreState.activateLicense).toHaveBeenCalledWith('license-123')
+    })
   })
 })
 
