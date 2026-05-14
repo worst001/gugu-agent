@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     collections::{HashMap, VecDeque},
     io::{Error as IoError, ErrorKind, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
@@ -50,7 +50,7 @@ struct AppExitState {
 
 /// 与 ServerState 平级的 adapter 子进程状态。
 ///
-/// adapter sidecar（claude-sidecar adapters --feishu --telegram）的生命周期
+/// adapter sidecar（claude-sidecar adapters --feishu --telegram --dingtalk --wecom --qq）的生命周期
 /// 跟 server 不同：它没有 HTTP 端口可探活，没配凭据时会自己干净退出，
 /// 而且需要支持运行时热重启 —— 用户在设置页保存飞书 / Telegram 凭据后，
 /// 前端会通过 invoke('restart_adapters_sidecar') 来重启它，让新凭据生效。
@@ -167,13 +167,13 @@ fn show_main_window(app: &AppHandle) {
 
 fn setup_system_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
-        .text(TRAY_SHOW_ID, "Show Claude Code GuGu")
+        .text(TRAY_SHOW_ID, "Show Gugu Agent")
         .separator()
-        .text(TRAY_QUIT_ID, "Quit Claude Code GuGu")
+        .text(TRAY_QUIT_ID, "Quit Gugu Agent")
         .build()?;
 
     let mut tray = TrayIconBuilder::with_id("main-tray")
-        .tooltip("Claude Code GuGu")
+        .tooltip("Gugu Agent")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -797,6 +797,9 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
         &app_root_arg,
         "--feishu",
         "--telegram",
+        "--dingtalk",
+        "--wecom",
+        "--qq",
     ]);
 
     let (mut rx, child) = sidecar
@@ -986,12 +989,12 @@ pub fn run() {
     let builder = builder
         .menu(|app| {
             let about_item =
-                MenuItemBuilder::with_id("nav_about", "关于 Claude Code GuGu").build(app)?;
+                MenuItemBuilder::with_id("nav_about", "关于 Gugu Agent").build(app)?;
             let settings_item = MenuItemBuilder::with_id("nav_settings", "设置...")
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
 
-            let app_submenu = SubmenuBuilder::new(app, "Claude Code GuGu")
+            let app_submenu = SubmenuBuilder::new(app, "Gugu Agent")
                 .item(&about_item)
                 .separator()
                 .item(&settings_item)

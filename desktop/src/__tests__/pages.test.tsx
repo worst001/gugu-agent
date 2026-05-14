@@ -69,6 +69,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  Object.defineProperty(window, 'SpeechRecognition', { configurable: true, value: undefined })
+  Object.defineProperty(window, 'webkitSpeechRecognition', { configurable: true, value: undefined })
 })
 
 /**
@@ -791,6 +793,78 @@ describe('Prompt optimization composer action', () => {
 
     expect(await screen.findByText('No active provider configured')).toBeInTheDocument()
     expect(textarea).toHaveValue('keep my prompt')
+
+    resetPromptOptimizeSession()
+  })
+})
+
+describe('Voice input composer action', () => {
+  it('keeps voice input disabled when speech recognition is unavailable', () => {
+    seedPromptOptimizeSession('voice-unavailable')
+
+    render(<ActiveSession />)
+
+    expect(screen.getByRole('button', { name: 'Start voice input' })).toBeDisabled()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('writes speech recognition results into the composer without sending', async () => {
+    class FakeSpeechRecognition extends EventTarget {
+      static current: FakeSpeechRecognition | null = null
+      lang = ''
+      continuous = false
+      interimResults = false
+      onresult: ((event: any) => void) | null = null
+      onerror: ((event: any) => void) | null = null
+      onend: (() => void) | null = null
+      start = vi.fn()
+      stop = vi.fn(() => this.onend?.())
+      abort = vi.fn(() => this.onend?.())
+
+      constructor() {
+        super()
+        FakeSpeechRecognition.current = this
+      }
+    }
+
+    Object.defineProperty(window, 'SpeechRecognition', {
+      configurable: true,
+      value: FakeSpeechRecognition,
+    })
+    const sendMessage = seedPromptOptimizeSession('voice-transcript')
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'existing prompt', selectionStart: 15 },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start voice input' })).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start voice input' }))
+
+    expect(FakeSpeechRecognition.current?.start).toHaveBeenCalled()
+
+    act(() => {
+      FakeSpeechRecognition.current?.onresult?.({
+        results: {
+          length: 1,
+          0: {
+            0: { transcript: 'voice note' },
+            isFinal: true,
+          },
+        },
+      })
+    })
+
+    expect(textarea).toHaveValue('existing prompt\nvoice note')
+    expect(sendMessage).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop voice input' }))
+    expect(FakeSpeechRecognition.current?.stop).toHaveBeenCalled()
 
     resetPromptOptimizeSession()
   })

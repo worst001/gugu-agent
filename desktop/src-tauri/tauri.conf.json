@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/tauri-schema-v2.json",
-  "productName": "Claude Code GuGu",
+  "productName": "Gugu Agent",
   "version": "0.1.8",
   "identifier": "com.claude-code-gugu.desktop",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Claude Code GuGu",
+        "title": "Gugu Agent",
         "width": 1440,
         "height": 960,
         "minWidth": 960,

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { WandSparkles } from 'lucide-react'
+import { Mic, MicOff, WandSparkles } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useChatStore } from '../../stores/chatStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
@@ -10,7 +10,6 @@ import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi } from '../../api/sessions'
 import { promptOptimizeApi } from '../../api/promptOptimize'
 import { CeWorkflowRoleSelector } from '../controls/CeWorkflowRoleSelector'
-import { EffortSelector } from '../controls/EffortSelector'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
 import { buildCeWorkflowMessage } from '../../constants/ceWorkflowRoles'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
@@ -19,6 +18,13 @@ import { ProjectContextChip } from '../shared/ProjectContextChip'
 import { DirectoryPicker } from '../shared/DirectoryPicker'
 import { FileSearchMenu, type FileSearchMenuHandle } from './FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from './LocalSlashCommandPanel'
+import {
+  appendVoiceTranscript,
+  getSpeechRecognitionConstructor,
+  isSpeechRecognitionAvailable,
+  type BrowserSpeechRecognition,
+  type BrowserSpeechRecognitionEvent,
+} from './speechRecognition'
 import {
   FALLBACK_SLASH_COMMANDS,
   findSlashTrigger,
@@ -76,10 +82,14 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const [showPromptOptimizeSlowNotice, setShowPromptOptimizeSlowNotice] = useState(false)
   const [isPromptOptimizeContinuing, setIsPromptOptimizeContinuing] = useState(false)
   const [promptOptimizeError, setPromptOptimizeError] = useState<string | null>(null)
+  const [voiceSupported, setVoiceSupported] = useState(false)
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false)
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const promptOptimizeAbortRef = useRef<AbortController | null>(null)
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
+  const voiceBaseInputRef = useRef('')
   const plusMenuRef = useRef<HTMLDivElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
   const fileSearchRef = useRef<FileSearchMenuHandle>(null)
@@ -109,6 +119,13 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     !isPromptOptimizing &&
     input.trim().length > 0,
   )
+  const canStartVoiceInput = Boolean(
+    activeTabId &&
+    !isMemberSession &&
+    !isWorkspaceMissing &&
+    !isActive &&
+    voiceSupported,
+  )
   const isHeroComposer = variant === 'hero' && !isMemberSession
   const resolvedWorkDir = activeSession?.workDir || gitInfo?.workDir || undefined
   const promptOptimizeProgressPercent = isPromptOptimizing
@@ -122,6 +139,26 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   useEffect(() => {
     textareaRef.current?.focus()
   }, [isActive])
+
+  useEffect(() => {
+    if (!isActive) return
+    setPlusMenuOpen(false)
+    setSlashMenuOpen(false)
+    setFileSearchOpen(false)
+    setLocalSlashPanel(null)
+  }, [isActive])
+
+  useEffect(() => {
+    setVoiceSupported(isSpeechRecognitionAvailable())
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      speechRecognitionRef.current?.abort()
+      speechRecognitionRef.current = null
+      setIsVoiceRecording(false)
+    }
+  }, [activeTabId])
 
   useEffect(() => {
     if (!isPromptOptimizing || promptOptimizeStartedAt === null) return
@@ -425,6 +462,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   }, [input])
 
   const handleSubmit = (overrideText?: string) => {
+    if (!isMemberSession && isActive) return
     const text = (overrideText ?? input).trim()
     if ((!text && (!attachments.length || isMemberSession)) || isWorkspaceMissing) return
 
@@ -747,6 +785,72 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     })
   }
 
+  const stopVoiceInput = () => {
+    const recognition = speechRecognitionRef.current
+    speechRecognitionRef.current = null
+    recognition?.stop()
+    setIsVoiceRecording(false)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const handleVoiceInput = () => {
+    if (isVoiceRecording) {
+      stopVoiceInput()
+      return
+    }
+
+    const SpeechRecognition = getSpeechRecognitionConstructor()
+    if (!SpeechRecognition) {
+      useUIStore.getState().addToast({
+        type: 'info',
+        message: t('chat.voice.unavailable'),
+      })
+      setVoiceSupported(false)
+      return
+    }
+
+    if (!canStartVoiceInput) return
+
+    try {
+      const recognition = new SpeechRecognition()
+      recognition.lang = window.navigator.language || 'zh-CN'
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
+        let transcript = ''
+        for (let index = 0; index < event.results.length; index += 1) {
+          transcript += event.results[index]?.[0]?.transcript ?? ''
+        }
+        setInput(appendVoiceTranscript(voiceBaseInputRef.current, transcript))
+      }
+      recognition.onerror = (event) => {
+        const message = event.error === 'not-allowed' || event.error === 'service-not-allowed'
+          ? t('chat.voice.permissionDenied')
+          : t('chat.voice.failed')
+        useUIStore.getState().addToast({ type: 'error', message })
+        speechRecognitionRef.current = null
+        setIsVoiceRecording(false)
+      }
+      recognition.onend = () => {
+        speechRecognitionRef.current = null
+        setIsVoiceRecording(false)
+        requestAnimationFrame(() => textareaRef.current?.focus())
+      }
+
+      voiceBaseInputRef.current = input
+      speechRecognitionRef.current = recognition
+      setIsVoiceRecording(true)
+      recognition.start()
+    } catch {
+      speechRecognitionRef.current = null
+      setIsVoiceRecording(false)
+      useUIStore.getState().addToast({
+        type: 'error',
+        message: t('chat.voice.failed'),
+      })
+    }
+  }
+
   const composerPlaceholder =
     isHeroComposer
       ? t('empty.placeholder')
@@ -758,6 +862,11 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
   const addFilesLabel = isHeroComposer ? t('empty.addFiles') : t('chat.addFiles')
   const slashCommandsLabel = isHeroComposer ? t('empty.slashCommands') : t('chat.slashCommands')
+  const voiceButtonTitle = !voiceSupported
+    ? t('chat.voice.unavailable')
+    : isVoiceRecording
+      ? t('chat.voice.stop')
+      : t('chat.voice.start')
 
   return (
     <div className={isHeroComposer ? 'bg-[var(--color-surface)] px-8 pb-4' : 'bg-[var(--color-surface)] px-4 py-4'}>
@@ -850,6 +959,13 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 <AttachmentGallery attachments={attachments} variant="composer" onRemove={removeAttachment} />
               </div>
             )
+          )}
+
+          {!isMemberSession && isVoiceRecording && (
+            <div className={isHeroComposer ? 'flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]' : 'mx-1 mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]'}>
+              <Mic className="h-4 w-4 animate-pulse text-[var(--color-text-accent)]" />
+              <span>{t('chat.voice.listening')}</span>
+            </div>
           )}
 
           {!isMemberSession && (isPromptOptimizing || promptOptimizePreview || promptOptimizeError) && (
@@ -1008,9 +1124,11 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 <>
                   <div ref={plusMenuRef} className="relative">
                     <button
+                      type="button"
                       onClick={() => setPlusMenuOpen((value) => !value)}
+                      disabled={isActive || isWorkspaceMissing}
                       aria-label="Open composer tools"
-                      className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                      className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <span className="material-symbols-outlined text-[18px]">add</span>
                     </button>
@@ -1049,6 +1167,22 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     <WandSparkles className={`h-[18px] w-[18px] ${isPromptOptimizing ? 'animate-pulse text-[var(--color-text-accent)]' : ''}`} />
                   </button>
 
+                  <button
+                    type="button"
+                    onClick={handleVoiceInput}
+                    disabled={!isVoiceRecording && !canStartVoiceInput}
+                    title={voiceButtonTitle}
+                    aria-label={isVoiceRecording ? t('chat.voice.stop') : t('chat.voice.start')}
+                    aria-pressed={isVoiceRecording}
+                    className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    {isVoiceRecording ? (
+                      <MicOff className="h-[18px] w-[18px] text-[var(--color-text-accent)]" />
+                    ) : (
+                      <Mic className="h-[18px] w-[18px]" />
+                    )}
+                  </button>
+
                   <PermissionModeSelector />
                 </>
               )}
@@ -1056,10 +1190,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
             <div className="flex items-center gap-2">
               {!isMemberSession && activeTabId && (
-                <>
-                  <CeWorkflowRoleSelector sessionKey={activeTabId} disabled={isWorkspaceMissing} />
-                  <EffortSelector disabled={isWorkspaceMissing || isActive} />
-                </>
+                <CeWorkflowRoleSelector sessionKey={activeTabId} disabled={isWorkspaceMissing} />
               )}
               <button
                 onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : () => handleSubmit()}

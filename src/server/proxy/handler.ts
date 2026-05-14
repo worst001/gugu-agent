@@ -17,6 +17,7 @@ import { openaiChatToAnthropic } from './transform/openaiChatToAnthropic.js'
 import { openaiResponsesToAnthropic } from './transform/openaiResponsesToAnthropic.js'
 import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthropic.js'
 import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
+import { buildOpenAIEndpoint } from './openaiEndpoint.js'
 import type { AnthropicContentBlock, AnthropicRequest, AnthropicResponse } from './transform/types.js'
 import {
   CHATGPT_CODEX_API_ENDPOINT,
@@ -561,7 +562,7 @@ async function handleOpenaiChat(
   requestTimeoutMs?: RequestTimeoutOverride,
 ): Promise<Response> {
   const transformed = anthropicToOpenaiChat(body)
-  const url = `${baseUrl}/v1/chat/completions`
+  const url = buildOpenAIEndpoint(baseUrl, 'chat/completions')
 
   const { response: upstream, abort: abortUpstream } = await fetchUpstream(url, {
     method: 'POST',
@@ -618,7 +619,7 @@ async function handleOpenaiResponses(
   requestTimeoutMs?: RequestTimeoutOverride,
 ): Promise<Response> {
   const transformed = anthropicToOpenaiResponses(body)
-  const url = `${baseUrl}/v1/responses`
+  const url = buildOpenAIEndpoint(baseUrl, 'responses')
 
   const { response: upstream, abort: abortUpstream } = await fetchUpstream(url, {
     method: 'POST',

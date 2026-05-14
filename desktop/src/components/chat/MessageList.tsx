@@ -1,7 +1,8 @@
 import { useRef, useEffect, useMemo, memo, useState, useCallback } from 'react'
 import { ApiError } from '../../api/client'
-import { sessionsApi, type SessionRewindResponse } from '../../api/sessions'
+import { sessionsApi, type SessionCheckpoint, type SessionRewindResponse } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
+import { useSessionStore } from '../../stores/sessionStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -121,6 +122,7 @@ function isNearScrollBottom(element: HTMLElement) {
 
 export function MessageList({ sessionId }: MessageListProps = {}) {
   const activeTabId = useTabStore((s) => s.activeTabId)
+  const openTab = useTabStore((s) => s.openTab)
   const resolvedSessionId = sessionId ?? activeTabId
   const sessionState = useChatStore((s) =>
     resolvedSessionId ? s.sessions[resolvedSessionId] : undefined,
@@ -128,6 +130,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const reloadHistory = useChatStore((s) => s.reloadHistory)
   const queueComposerPrefill = useChatStore((s) => s.queueComposerPrefill)
+  const forkSession = useSessionStore((s) => s.forkSession)
   const isMemberSession = useTeamStore((s) =>
     resolvedSessionId ? Boolean(s.getMemberBySessionId(resolvedSessionId)) : false,
   )
@@ -152,6 +155,15 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const [rewindError, setRewindError] = useState<string | null>(null)
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [isExecutingRewind, setIsExecutingRewind] = useState(false)
+  const [forkTarget, setForkTarget] = useState<{
+    messageId: string
+    userMessageIndex: number
+    content: string
+  } | null>(null)
+  const [checkpoints, setCheckpoints] = useState<SessionCheckpoint[]>([])
+  const [forkError, setForkError] = useState<string | null>(null)
+  const [isLoadingCheckpoints, setIsLoadingCheckpoints] = useState(false)
+  const [isExecutingFork, setIsExecutingFork] = useState(false)
 
   const updateAutoScrollState = useCallback(() => {
     const container = scrollContainerRef.current
@@ -213,6 +225,44 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     }
   }, [resolvedSessionId, rewindTarget])
 
+  useEffect(() => {
+    if (!resolvedSessionId || !forkTarget) return
+
+    let cancelled = false
+    setIsLoadingCheckpoints(true)
+    setCheckpoints([])
+    setForkError(null)
+
+    void sessionsApi
+      .getCheckpoints(resolvedSessionId)
+      .then((result) => {
+        if (!cancelled) {
+          setCheckpoints(result.checkpoints)
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        const message =
+          error instanceof ApiError
+            ? typeof error.body === 'object' && error.body && 'message' in error.body
+              ? String((error.body as { message: unknown }).message)
+              : error.message
+            : error instanceof Error
+              ? error.message
+              : String(error)
+        setForkError(message)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingCheckpoints(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [resolvedSessionId, forkTarget])
+
   const { toolResultMap, childToolCallsByParent, renderItems } = useMemo(
     () => buildRenderModel(messages),
     [messages],
@@ -225,6 +275,14 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     setRewindError(null)
     setIsLoadingPreview(false)
   }, [isExecutingRewind])
+
+  const closeForkModal = useCallback(() => {
+    if (isExecutingFork) return
+    setForkTarget(null)
+    setCheckpoints([])
+    setForkError(null)
+    setIsLoadingCheckpoints(false)
+  }, [isExecutingFork])
 
   const handleConfirmRewind = useCallback(async () => {
     if (!resolvedSessionId || !rewindTarget || isExecutingRewind) return
@@ -287,6 +345,48 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     t,
   ])
 
+  const handleConfirmFork = useCallback(async () => {
+    if (!resolvedSessionId || !forkTarget || isExecutingFork) return
+
+    setIsExecutingFork(true)
+    setForkError(null)
+
+    try {
+      const result = await forkSession(resolvedSessionId, {
+        targetUserMessageId: forkTarget.messageId,
+        userMessageIndex: forkTarget.userMessageIndex,
+        expectedContent: forkTarget.content,
+      })
+      openTab(result.sessionId, result.title)
+      addToast({
+        type: 'success',
+        message: t('chat.forkSuccess'),
+      })
+      setForkTarget(null)
+      setCheckpoints([])
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? typeof error.body === 'object' && error.body && 'message' in error.body
+            ? String((error.body as { message: unknown }).message)
+            : error.message
+          : error instanceof Error
+            ? error.message
+            : String(error)
+      setForkError(message)
+    } finally {
+      setIsExecutingFork(false)
+    }
+  }, [
+    addToast,
+    forkSession,
+    forkTarget,
+    isExecutingFork,
+    openTab,
+    resolvedSessionId,
+    t,
+  ])
+
   let visibleUserMessageIndex = -1
 
   return (
@@ -342,6 +442,17 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
                         userMessageIndex,
                         content: message.content,
                         attachments: message.attachments,
+                      })
+                    }
+                  : undefined
+              }
+              onRequestFork={
+                !isMemberSession
+                  ? (message, userMessageIndex) => {
+                      setForkTarget({
+                        messageId: message.id,
+                        userMessageIndex,
+                        content: message.content,
                       })
                     }
                   : undefined
@@ -479,6 +590,128 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
           )}
         </div>
       </Modal>
+
+      <Modal
+        open={Boolean(forkTarget)}
+        onClose={closeForkModal}
+        title={t('chat.forkModalTitle')}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={closeForkModal}
+              disabled={isExecutingFork}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => {
+                void handleConfirmFork()
+              }}
+              loading={isExecutingFork}
+              disabled={isLoadingCheckpoints || Boolean(forkError)}
+              icon={
+                !isExecutingFork ? (
+                  <span className="material-symbols-outlined text-[16px]">fork_right</span>
+                ) : undefined
+              }
+            >
+              {t('chat.forkConfirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--color-text-tertiary)]">
+              {t('chat.forkPromptLabel')}
+            </div>
+            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--color-text-primary)]">
+              {forkTarget?.content || t('chat.forkAttachmentOnly')}
+            </div>
+          </div>
+
+          <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
+              <span className="material-symbols-outlined text-[16px] text-[var(--color-brand)]">fork_right</span>
+              {t('chat.forkConversationCardTitle')}
+            </div>
+            <p className="text-sm leading-relaxed text-[var(--color-text-secondary)]">
+              {t('chat.forkConversationCardBody')}
+            </p>
+          </div>
+
+          <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-[var(--color-text-primary)]">
+                {t('chat.forkTimelineTitle')}
+              </div>
+              {checkpoints.length > 0 && (
+                <div className="text-xs text-[var(--color-text-tertiary)]">
+                  {checkpoints.length}
+                </div>
+              )}
+            </div>
+
+            {isLoadingCheckpoints && (
+              <div className="text-sm text-[var(--color-text-secondary)]">
+                {t('chat.forkLoading')}
+              </div>
+            )}
+
+            {!isLoadingCheckpoints && checkpoints.length === 0 && !forkError && (
+              <div className="text-sm text-[var(--color-text-secondary)]">
+                {t('chat.forkTimelineEmpty')}
+              </div>
+            )}
+
+            {!isLoadingCheckpoints && checkpoints.length > 0 && (
+              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                {checkpoints.map((checkpoint) => {
+                  const selected = checkpoint.messageId === forkTarget?.messageId
+                  return (
+                    <div
+                      key={checkpoint.id}
+                      data-selected={selected ? 'true' : 'false'}
+                      className={`rounded-[var(--radius-md)] border px-3 py-2 ${
+                        selected
+                          ? 'border-[var(--color-brand)]/45 bg-[var(--color-brand)]/10'
+                          : 'border-[var(--color-border)] bg-[var(--color-surface)]'
+                      }`}
+                    >
+                      <div className="line-clamp-2 text-sm font-medium text-[var(--color-text-primary)]">
+                        {checkpoint.title}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--color-text-tertiary)]">
+                        <span>
+                          {t('chat.forkTimelineCheckpoint', {
+                            index: checkpoint.userMessageIndex + 1,
+                            count: checkpoint.messagesIncluded,
+                          })}
+                        </span>
+                        <span>{new Date(checkpoint.timestamp).toLocaleString()}</span>
+                        {checkpoint.trackedFileCount > 0 && (
+                          <span>
+                            {t('chat.forkTimelineFiles', {
+                              count: checkpoint.trackedFileCount,
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {forkError && (
+            <div className="rounded-[var(--radius-lg)] border border-[var(--color-error)]/30 bg-[var(--color-error-container)]/22 px-4 py-3 text-sm text-[var(--color-error)]">
+              {forkError}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -491,6 +724,7 @@ export const MessageBlock = memo(function MessageBlock({
   toolResult,
   rewindableUserIndex,
   onRequestRewind,
+  onRequestFork,
 }: {
   sessionId?: string
   message: UIMessage
@@ -499,6 +733,10 @@ export const MessageBlock = memo(function MessageBlock({
   toolResult?: { content: unknown; isError: boolean } | null
   rewindableUserIndex?: number | null
   onRequestRewind?: (
+    message: Extract<UIMessage, { type: 'user_text' }>,
+    userMessageIndex: number,
+  ) => void
+  onRequestFork?: (
     message: Extract<UIMessage, { type: 'user_text' }>,
     userMessageIndex: number,
   ) => void
@@ -512,6 +750,7 @@ export const MessageBlock = memo(function MessageBlock({
         <UserMessage
           content={message.content}
           attachments={message.attachments}
+          attachmentParser={message.attachmentParser}
           onOpenAttachment={
             sessionId && message.attachments?.length
               ? (index) => openWorkbench(sessionId, {
@@ -527,7 +766,13 @@ export const MessageBlock = memo(function MessageBlock({
               ? () => onRequestRewind(message, rewindableUserIndex)
               : undefined
           }
+          onFork={
+            typeof rewindableUserIndex === 'number' && onRequestFork
+              ? () => onRequestFork(message, rewindableUserIndex)
+              : undefined
+          }
           rewindLabel={t('chat.rewindAction')}
+          forkLabel={t('chat.forkAction')}
         />
       )
     case 'assistant_text':

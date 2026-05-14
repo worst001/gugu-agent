@@ -11,7 +11,10 @@
       "opus": ""
     },
     "needsApiKey": false,
-    "websiteUrl": "https://www.anthropic.com/claude-code"
+    "websiteUrl": "https://www.anthropic.com/claude-code",
+    "category": "official",
+    "protocol": "anthropic_native",
+    "agentCompatible": true
   },
   {
     "id": "chatgpt",
@@ -25,7 +28,15 @@
       "opus": "gpt-5.4"
     },
     "needsApiKey": false,
-    "websiteUrl": "https://chatgpt.com"
+    "websiteUrl": "https://chatgpt.com",
+    "category": "official",
+    "protocol": "chatgpt_codex",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "main",
+      "pro": "opus"
+    }
   },
   {
     "id": "deepseek",
@@ -40,6 +51,14 @@
     },
     "needsApiKey": true,
     "websiteUrl": "https://platform.deepseek.com",
+    "category": "domestic",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "main",
+      "pro": "sonnet"
+    },
     "apiKeyUrl": "https://platform.deepseek.com/api_keys"
   },
   {
@@ -55,6 +74,14 @@
     },
     "needsApiKey": true,
     "websiteUrl": "https://open.bigmodel.cn",
+    "category": "domestic",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "sonnet",
+      "pro": "opus"
+    },
     "apiKeyUrl": "https://www.bigmodel.cn/invite?icode=d41B2qi8Z5xNwTGLNPPF3OZLO2QH3C0EBTSr%2BArzMw4%3D",
     "promoText": "智谱 GLM 为 cc-haha 用户准备了专属邀请福利，使用此链接注册后可领取新用户权益。"
   },
@@ -71,6 +98,14 @@
     },
     "needsApiKey": true,
     "websiteUrl": "https://platform.moonshot.cn",
+    "category": "domestic-coding",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "main",
+      "pro": "opus"
+    },
     "apiKeyUrl": "https://platform.kimi.com/console/api-keys"
   },
   {
@@ -86,7 +121,61 @@
     },
     "needsApiKey": true,
     "websiteUrl": "https://platform.minimaxi.com",
+    "category": "domestic",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "main",
+      "pro": "opus"
+    },
     "apiKeyUrl": "https://platform.minimaxi.com/subscribe/token-plan?code=1TG2Cseab2&source=link"
+  },
+  {
+    "id": "qwen-dashscope",
+    "name": "Qwen / DashScope",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "apiFormat": "openai_chat",
+    "defaultModels": {
+      "main": "qwen3.6-plus",
+      "haiku": "qwen3.6-flash",
+      "sonnet": "qwen3.6-plus",
+      "opus": "qwen3.6-max-preview"
+    },
+    "needsApiKey": true,
+    "websiteUrl": "https://help.aliyun.com/zh/model-studio/",
+    "category": "domestic",
+    "protocol": "openai_chat_proxy",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "sonnet",
+      "pro": "opus"
+    },
+    "apiKeyUrl": "https://bailian.console.aliyun.com/?apiKey=1#/api-key"
+  },
+  {
+    "id": "doubao-ark",
+    "name": "Doubao / Volcano Ark",
+    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+    "apiFormat": "openai_chat",
+    "defaultModels": {
+      "main": "doubao-seed-1-6-250615",
+      "haiku": "doubao-seed-1-6-flash-250615",
+      "sonnet": "doubao-seed-1-6-250615",
+      "opus": "doubao-seed-1-6-thinking-250615"
+    },
+    "needsApiKey": true,
+    "websiteUrl": "https://www.volcengine.com/product/ark",
+    "category": "domestic",
+    "protocol": "openai_chat_proxy",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "sonnet",
+      "pro": "opus"
+    },
+    "apiKeyUrl": "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey"
   },
   {
     "id": "jiekouai",
@@ -101,6 +190,14 @@
     },
     "needsApiKey": true,
     "websiteUrl": "https://jiekou.ai",
+    "category": "aggregator",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "sonnet",
+      "pro": "opus"
+    },
     "apiKeyUrl": "https://jiekou.ai/referral?invited_code=OBNU3K",
     "promoText": "接口AI为 cc-haha 的用户提供官方资源与稳定高性能体验，订阅包价格为官方 8 折；绑定 GitHub 后还可领取 3 美元优惠券。",
     "featured": true,
@@ -121,6 +218,14 @@
     },
     "needsApiKey": true,
     "websiteUrl": "https://www.shengsuanyun.com",
+    "category": "aggregator",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "sonnet",
+      "pro": "opus"
+    },
     "apiKeyUrl": "https://www.shengsuanyun.com/?from=CH_LEJ88KWR",
     "promoText": "胜算云为 cc-haha 的用户提供了特别福利，使用此链接注册的新用户可获 10 元模力及首充 10% 赠送！",
     "featured": true,
@@ -143,6 +248,14 @@
     },
     "needsApiKey": false,
     "websiteUrl": "https://lmstudio.ai/docs/integrations/claude-code",
+    "category": "local",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "main",
+      "pro": "opus"
+    },
     "promoText": "LM Studio 使用 Anthropic 兼容协议，Base URL 填 http://localhost:1234，不要追加 /v1。Claude Code 的提示词、工具和 Skill 会占用较多上下文，请在本地模型设置里把 Context Window 调大，建议至少 200K。",
     "defaultEnv": {
       "ANTHROPIC_AUTH_TOKEN": "lmstudio"
@@ -161,6 +274,14 @@
     },
     "needsApiKey": false,
     "websiteUrl": "https://docs.ollama.com/integrations/claude-code",
+    "category": "local",
+    "protocol": "anthropic_compatible",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "main",
+      "pro": "opus"
+    },
     "promoText": "Ollama 使用 Anthropic 兼容协议，Base URL 填 http://localhost:11434，不要追加 /v1。Claude Code 的提示词、工具和 Skill 会占用较多上下文，请在本地模型设置里把 Context Window 调大，建议至少 200K。",
     "defaultEnv": {
       "ANTHROPIC_AUTH_TOKEN": "ollama"
@@ -178,6 +299,7 @@
       "opus": ""
     },
     "needsApiKey": true,
-    "websiteUrl": ""
+    "websiteUrl": "",
+    "category": "custom"
   }
 ]

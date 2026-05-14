@@ -42,7 +42,7 @@ export default function SessionControls() {
       <header className="bg-[#FAF9F5] font-headline font-semibold tracking-wide text-sm fixed top-0 left-0 right-0 flex justify-between items-center px-6 h-12 z-40">
         <div className="flex items-center gap-6">
           <span className="text-sm font-bold text-[#1B1C1A] uppercase tracking-tighter">
-            Claude Code GuGu
+            Gugu Agent
           </span>
           <nav className="hidden md:flex gap-4">
             <a className="text-[#1B1C1A] border-b-2 border-[#8F482F] pb-1 cursor-pointer active:opacity-70">

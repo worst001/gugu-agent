@@ -77,7 +77,7 @@ export function ScheduledTasksList() {
         {/* TopAppBar */}
         <header className="bg-[#FAF9F5] h-12 w-full flex justify-between items-center px-6 z-30">
           <div className="flex items-center gap-8">
-            <div className="font-[Manrope,sans-serif] font-bold text-[#1B1C1A] uppercase tracking-tighter text-sm">Claude Code GuGu</div>
+            <div className="font-[Manrope,sans-serif] font-bold text-[#1B1C1A] uppercase tracking-tighter text-sm">Gugu Agent</div>
             <nav className="flex items-center gap-6 font-[Manrope,sans-serif] font-semibold tracking-wide text-sm">
               <a className="text-[#87736D] hover:text-[#8F482F] transition-colors" href="#">{t('titlebar.code')}</a>
               <a className="text-[#87736D] hover:text-[#8F482F] transition-colors" href="#">{t('titlebar.terminal')}</a>

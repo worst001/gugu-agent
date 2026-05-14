@@ -1,9 +1,9 @@
-# Compound Engineering 斜杠命令（`/ce-*`）速查
+﻿# Compound Engineering 斜杠命令（`/ce-*`）速查
 
 本文档说明本项目通过 **Compound Engineering** 插件挂载的 Skills（斜杠命令）。这些命令对应 `.claude/skills/` 下指向 `third-party/compound-engineering-plugin/plugins/compound-engineering/skills/` 的符号链接。
 
 > **注意**：没有单独的 `/ce` 命令；均以 `/ce-…` 前缀区分功能，另有 `/lfg` 表示端到端流水线。  
-> 若在 TUI 中看不到命令，请确认符号链接存在，并重启 `./bin/claude-gugu`。
+> 若在 TUI 中看不到命令，请确认符号链接存在，并重启 `./bin/cc-gugu`。
 
 ---
 

@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: Claude Code GuGu
-  text: Locally Runnable Claude Code
+  name: Gugu Agent
+  text: Locally Runnable Agent
   tagline: Repaired from leaked source, supports any Anthropic-compatible API endpoint (MiniMax, OpenRouter, etc.)
   image:
     src: /images/logo-horizontal.svg
-    alt: Claude Code GuGu
+    alt: Gugu Agent
   actions:
     - theme: brand
       text: Quick Start

@@ -25,7 +25,7 @@ export default function NewTaskModal() {
       <header className="bg-[#FAF9F5] flex justify-between items-center px-6 h-12 w-full z-40">
         <div className="flex items-center gap-6">
           <span className="text-sm font-bold text-[#1B1C1A] uppercase tracking-tighter font-[var(--font-headline)]">
-            Claude Code GuGu
+            Gugu Agent
           </span>
           <nav className="hidden md:flex gap-4 font-[var(--font-headline)] font-semibold tracking-wide text-sm">
             <a className="text-[#87736D] hover:text-[#8F482F] transition-colors cursor-pointer">Code</a>

@@ -146,7 +146,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ### 5. Start and Verify
 
 ```bash
-./bin/claude-gugu
+./bin/cc-gugu
 ```
 
 If everything is configured correctly, you should see the normal chat interface, with your configured target model handling the requests.

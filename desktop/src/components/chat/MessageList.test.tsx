@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MessageList, buildRenderModel } from './MessageList'
 import { sessionsApi } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
+import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
@@ -39,6 +40,7 @@ describe('MessageList nested tool calls', () => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ locale: 'en' })
     useTabStore.setState({ activeTabId: ACTIVE_TAB, tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' }] })
+    useSessionStore.setState({ sessions: [], activeSessionId: ACTIVE_TAB, isLoading: false, error: null, selectedProjects: [], availableProjects: [] })
     useChatStore.setState({ sessions: { [ACTIVE_TAB]: makeSessionState() } })
     useWorkbenchStore.setState({ sessions: {} })
   })
@@ -719,6 +721,86 @@ describe('MessageList nested tool calls', () => {
       text: '第二段',
       attachments: undefined,
     })
+  })
+
+  it('forks a user message into a new session without mutating the current chat', async () => {
+    vi.spyOn(sessionsApi, 'getCheckpoints').mockResolvedValue({
+      checkpoints: [
+        {
+          id: 'user-1',
+          kind: 'user_turn',
+          messageId: 'user-1',
+          title: 'Build a website',
+          timestamp: '2026-01-01T00:01:00.000Z',
+          userMessageIndex: 0,
+          messagesIncluded: 2,
+          trackedFileCount: 1,
+        },
+      ],
+    })
+    vi.spyOn(sessionsApi, 'fork').mockResolvedValue({
+      sessionId: 'forked-session',
+      sourceSessionId: ACTIVE_TAB,
+      targetUserMessageId: 'user-1',
+      userMessageIndex: 0,
+      title: 'Build a website (fork)',
+      workDir: 'D:\\Projects\\app',
+      messagesCopied: 2,
+    })
+    vi.spyOn(sessionsApi, 'list').mockResolvedValue({ sessions: [], total: 0 })
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: 'Build a website',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: 'Done',
+              timestamp: 2,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Fork Conversation')).toBeTruthy()
+    expect(within(dialog).getByText('Checkpoint timeline')).toBeTruthy()
+
+    await waitFor(() => {
+      expect(sessionsApi.getCheckpoints).toHaveBeenCalledWith(ACTIVE_TAB)
+      expect(within(dialog).getAllByText('Build a website').length).toBeGreaterThan(0)
+      expect(within(dialog).getByText('1 tracked files')).toBeTruthy()
+    })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Fork session/ }))
+
+    await waitFor(() => {
+      expect(sessionsApi.fork).toHaveBeenCalledWith(ACTIVE_TAB, {
+        targetUserMessageId: 'user-1',
+        userMessageIndex: 0,
+        expectedContent: 'Build a website',
+      })
+    })
+    expect(useTabStore.getState().activeTabId).toBe('forked-session')
+    expect(useTabStore.getState().tabs).toContainEqual(
+      expect.objectContaining({
+        sessionId: 'forked-session',
+        title: 'Build a website (fork)',
+      }),
+    )
+    expect(useChatStore.getState().sessions[ACTIVE_TAB]?.messages).toHaveLength(2)
   })
 
   it('renders unsupported attachment errors as assistant guidance instead of error panels', () => {

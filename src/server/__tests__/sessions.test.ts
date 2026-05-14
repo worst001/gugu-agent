@@ -1122,6 +1122,134 @@ describe('Sessions API', () => {
     ])
   })
 
+  it('GET /api/sessions/:id/checkpoints should return user turn metadata', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-111111111111'
+    const firstUserId = crypto.randomUUID()
+    const firstAssistantId = crypto.randomUUID()
+    const secondUserId = crypto.randomUUID()
+
+    await writeSessionFile('-tmp-api-checkpoints', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry('first prompt', firstUserId),
+      makeFileHistorySnapshotEntry(firstUserId, {
+        'src/example.ts': { backupFileName: 'backup-1', version: 1 },
+      }),
+      {
+        ...makeAssistantEntry('first reply', firstUserId),
+        uuid: firstAssistantId,
+      },
+      makeUserEntry('second prompt', secondUserId),
+    ])
+
+    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/checkpoints`)
+    expect(res.status).toBe(200)
+
+    const body = await res.json() as {
+      checkpoints: Array<{
+        messageId: string
+        title: string
+        userMessageIndex: number
+        messagesIncluded: number
+        trackedFileCount: number
+      }>
+    }
+    expect(body.checkpoints).toHaveLength(2)
+    expect(body.checkpoints[0]).toMatchObject({
+      messageId: firstUserId,
+      title: 'first prompt',
+      userMessageIndex: 0,
+      messagesIncluded: 2,
+      trackedFileCount: 1,
+    })
+    expect(body.checkpoints[1]).toMatchObject({
+      messageId: secondUserId,
+      title: 'second prompt',
+      userMessageIndex: 1,
+      messagesIncluded: 3,
+      trackedFileCount: 0,
+    })
+  })
+
+  it('POST /api/sessions/:id/fork should create a new conversation-only session', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-222222222222'
+    const workDir = path.join(tmpDir, 'workspace', 'fork-app')
+    const firstUserId = crypto.randomUUID()
+    const firstAssistantId = crypto.randomUUID()
+    const secondUserId = crypto.randomUUID()
+    const secondAssistantId = crypto.randomUUID()
+
+    await fs.mkdir(workDir, { recursive: true })
+    await writeSessionFile('-tmp-api-fork-source', sessionId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry(workDir),
+      makeUserEntry('first prompt', firstUserId),
+      makeFileHistorySnapshotEntry(firstUserId, {
+        'src/example.ts': { backupFileName: 'backup-1', version: 1 },
+      }),
+      {
+        ...makeAssistantEntry('first reply', firstUserId),
+        uuid: firstAssistantId,
+      },
+      makeUserEntry('second prompt', secondUserId),
+      {
+        ...makeAssistantEntry('second reply', secondUserId),
+        uuid: secondAssistantId,
+      },
+    ])
+
+    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/fork`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetUserMessageId: firstUserId,
+        userMessageIndex: 0,
+        expectedContent: 'first prompt',
+      }),
+    })
+    expect(res.status).toBe(201)
+
+    const body = await res.json() as {
+      sessionId: string
+      sourceSessionId: string
+      targetUserMessageId: string
+      userMessageIndex: number
+      title: string
+      workDir: string
+      messagesCopied: number
+    }
+    expect(body.sourceSessionId).toBe(sessionId)
+    expect(body.targetUserMessageId).toBe(firstUserId)
+    expect(body.userMessageIndex).toBe(0)
+    expect(body.title).toBe('first prompt (fork)')
+    expect(body.workDir).toBe(workDir)
+    expect(body.messagesCopied).toBe(2)
+
+    const sourceMessages = await service.getSessionMessages(sessionId)
+    expect(sourceMessages.map((message) => message.id)).toEqual([
+      firstUserId,
+      firstAssistantId,
+      secondUserId,
+      secondAssistantId,
+    ])
+
+    const forkMessages = await service.getSessionMessages(body.sessionId)
+    expect(forkMessages.map((message) => message.id)).toEqual([
+      firstUserId,
+      firstAssistantId,
+    ])
+
+    const forkFile = await service.findSessionFile(body.sessionId)
+    expect(forkFile).not.toBeNull()
+    const forkEntries = (await fs.readFile(forkFile!.filePath, 'utf-8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(forkEntries.some((entry) => entry.type === 'session-fork' && entry.sourceSessionId === sessionId)).toBe(true)
+    const snapshots = forkEntries.filter((entry) => entry.type === 'file-history-snapshot')
+    expect(snapshots).toHaveLength(1)
+    expect(Object.keys((snapshots[0]!.snapshot as { trackedFileBackups: Record<string, unknown> }).trackedFileBackups)).toHaveLength(0)
+  })
+
   it('POST /api/sessions/:id/rewind should restore a single edited file', async () => {
     const sessionId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
     const workDir = path.join(tmpDir, 'single-file-fixture')

@@ -22,6 +22,8 @@ export type PairingState = {
   createdAt?: number | null
 }
 
+export type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq'
+
 export type AdapterFileConfig = {
   serverUrl?: string
   defaultProjectDir?: string
@@ -42,6 +44,56 @@ export type AdapterFileConfig = {
     defaultWorkDir?: string
     streamingCard?: boolean
   }
+  dingtalk?: {
+    clientId?: string
+    clientSecret?: string
+    robotCode?: string
+    webhookUrl?: string
+    webhookSecret?: string
+    allowedUsers?: string[]
+    pairedUsers?: PairedUser[]
+    defaultWorkDir?: string
+  }
+  wecom?: {
+    corpId?: string
+    agentId?: string
+    secret?: string
+    token?: string
+    encodingAesKey?: string
+    webhookUrl?: string
+    allowedUsers?: string[]
+    pairedUsers?: PairedUser[]
+    defaultWorkDir?: string
+  }
+  qq?: {
+    appId?: string
+    token?: string
+    appSecret?: string
+    sandbox?: boolean
+    oneBotUrl?: string
+    oneBotAccessToken?: string
+    allowedUsers?: string[]
+    pairedUsers?: PairedUser[]
+    defaultWorkDir?: string
+  }
+}
+
+export type AdapterChannelStatus = {
+  platform: AdapterPlatform
+  status: 'ready' | 'needs_credentials' | 'not_configured'
+  credentialsReady: boolean
+  missingCredentials: string[]
+  allowedUsersCount: number
+  pairedUsersCount: number
+}
+
+export type AdapterDiagnostics = {
+  configLocation: string
+  defaultProjectConfigured: boolean
+  pairingActive: boolean
+  pairingExpiresAt: number | null
+  channels: AdapterChannelStatus[]
+  notes: string[]
 }
 
 function getConfigPath(): string {
@@ -57,6 +109,40 @@ function maskSecret(value: string | undefined): string | undefined {
 
 function isMasked(value: string | undefined): boolean {
   return !!value && value.startsWith('****')
+}
+
+function hasValue(value: string | undefined): boolean {
+  return Boolean(value?.trim())
+}
+
+function resolveStatus(
+  configuredFields: string[],
+  missingCredentials: string[],
+): AdapterChannelStatus['status'] {
+  if (configuredFields.length === 0) return 'not_configured'
+  if (missingCredentials.length > 0) return 'needs_credentials'
+  return 'ready'
+}
+
+function textFields(config: Record<string, unknown>, fields: string[]): string[] {
+  return fields.filter((field) => hasValue(config[field] as string | undefined))
+}
+
+function withCounts(
+  platform: AdapterPlatform,
+  configuredFields: string[],
+  missingCredentials: string[],
+  allowedUsersCount: number,
+  pairedUsersCount: number,
+): AdapterChannelStatus {
+  return {
+    platform,
+    status: resolveStatus(configuredFields, missingCredentials),
+    credentialsReady: missingCredentials.length === 0,
+    missingCredentials,
+    allowedUsersCount,
+    pairedUsersCount,
+  }
 }
 
 class AdapterService {
@@ -84,10 +170,126 @@ class AdapterService {
       if (config.feishu.encryptKey) config.feishu.encryptKey = maskSecret(config.feishu.encryptKey)
       if (config.feishu.verificationToken) config.feishu.verificationToken = maskSecret(config.feishu.verificationToken)
     }
+    if (config.dingtalk) {
+      if (config.dingtalk.clientSecret) config.dingtalk.clientSecret = maskSecret(config.dingtalk.clientSecret)
+      if (config.dingtalk.webhookUrl) config.dingtalk.webhookUrl = maskSecret(config.dingtalk.webhookUrl)
+      if (config.dingtalk.webhookSecret) config.dingtalk.webhookSecret = maskSecret(config.dingtalk.webhookSecret)
+    }
+    if (config.wecom) {
+      if (config.wecom.secret) config.wecom.secret = maskSecret(config.wecom.secret)
+      if (config.wecom.token) config.wecom.token = maskSecret(config.wecom.token)
+      if (config.wecom.encodingAesKey) config.wecom.encodingAesKey = maskSecret(config.wecom.encodingAesKey)
+      if (config.wecom.webhookUrl) config.wecom.webhookUrl = maskSecret(config.wecom.webhookUrl)
+    }
+    if (config.qq) {
+      if (config.qq.token) config.qq.token = maskSecret(config.qq.token)
+      if (config.qq.appSecret) config.qq.appSecret = maskSecret(config.qq.appSecret)
+      if (config.qq.oneBotAccessToken) config.qq.oneBotAccessToken = maskSecret(config.qq.oneBotAccessToken)
+    }
     if (config.pairing?.code) {
       config.pairing.code = '******'
     }
     return config
+  }
+
+  async getDiagnostics(): Promise<AdapterDiagnostics> {
+    const config = await this.getRawConfig()
+    const telegram = config.telegram ?? {}
+    const feishu = config.feishu ?? {}
+    const dingtalk = config.dingtalk ?? {}
+    const wecom = config.wecom ?? {}
+    const qq = config.qq ?? {}
+    const pairingExpiresAt = config.pairing?.expiresAt ?? null
+    const now = Date.now()
+
+    const telegramMissing = hasValue(telegram.botToken) ? [] : ['botToken']
+    const feishuMissing = [
+      ...(hasValue(feishu.appId) ? [] : ['appId']),
+      ...(hasValue(feishu.appSecret) ? [] : ['appSecret']),
+    ]
+    const dingtalkHasApp = hasValue(dingtalk.clientId) && hasValue(dingtalk.clientSecret)
+    const dingtalkHasWebhook = hasValue(dingtalk.webhookUrl)
+    const dingtalkMissing = dingtalkHasApp || dingtalkHasWebhook
+      ? []
+      : ['clientId/clientSecret or webhookUrl']
+    const wecomHasApp = hasValue(wecom.corpId) && hasValue(wecom.agentId) && hasValue(wecom.secret)
+    const wecomHasWebhook = hasValue(wecom.webhookUrl)
+    const wecomMissing = wecomHasApp || wecomHasWebhook
+      ? []
+      : ['corpId/agentId/secret or webhookUrl']
+    const qqHasBot = hasValue(qq.appId) && hasValue(qq.token)
+    const qqHasOneBot = hasValue(qq.oneBotUrl)
+    const qqMissing = qqHasBot || qqHasOneBot
+      ? []
+      : ['appId/token or oneBotUrl']
+
+    return {
+      configLocation: '~/.claude/adapters.json',
+      defaultProjectConfigured: hasValue(config.defaultProjectDir),
+      pairingActive: typeof pairingExpiresAt === 'number' && pairingExpiresAt > now,
+      pairingExpiresAt,
+      channels: [
+        withCounts(
+          'telegram',
+          [
+            ...(hasValue(telegram.botToken) ? ['botToken'] : []),
+            ...((telegram.allowedUsers?.length ?? 0) > 0 ? ['allowedUsers'] : []),
+            ...((telegram.pairedUsers?.length ?? 0) > 0 ? ['pairedUsers'] : []),
+          ],
+          telegramMissing,
+          telegram.allowedUsers?.length ?? 0,
+          telegram.pairedUsers?.length ?? 0,
+        ),
+        withCounts(
+          'feishu',
+          [
+            ...textFields(feishu, ['appId', 'appSecret', 'encryptKey', 'verificationToken']),
+            ...((feishu.allowedUsers?.length ?? 0) > 0 ? ['allowedUsers'] : []),
+            ...((feishu.pairedUsers?.length ?? 0) > 0 ? ['pairedUsers'] : []),
+          ],
+          feishuMissing,
+          feishu.allowedUsers?.length ?? 0,
+          feishu.pairedUsers?.length ?? 0,
+        ),
+        withCounts(
+          'dingtalk',
+          [
+            ...textFields(dingtalk, ['clientId', 'clientSecret', 'robotCode', 'webhookUrl', 'webhookSecret']),
+            ...((dingtalk.allowedUsers?.length ?? 0) > 0 ? ['allowedUsers'] : []),
+            ...((dingtalk.pairedUsers?.length ?? 0) > 0 ? ['pairedUsers'] : []),
+          ],
+          dingtalkMissing,
+          dingtalk.allowedUsers?.length ?? 0,
+          dingtalk.pairedUsers?.length ?? 0,
+        ),
+        withCounts(
+          'wecom',
+          [
+            ...textFields(wecom, ['corpId', 'agentId', 'secret', 'token', 'encodingAesKey', 'webhookUrl']),
+            ...((wecom.allowedUsers?.length ?? 0) > 0 ? ['allowedUsers'] : []),
+            ...((wecom.pairedUsers?.length ?? 0) > 0 ? ['pairedUsers'] : []),
+          ],
+          wecomMissing,
+          wecom.allowedUsers?.length ?? 0,
+          wecom.pairedUsers?.length ?? 0,
+        ),
+        withCounts(
+          'qq',
+          [
+            ...textFields(qq, ['appId', 'token', 'appSecret', 'oneBotUrl', 'oneBotAccessToken']),
+            ...((qq.allowedUsers?.length ?? 0) > 0 ? ['allowedUsers'] : []),
+            ...((qq.pairedUsers?.length ?? 0) > 0 ? ['pairedUsers'] : []),
+          ],
+          qqMissing,
+          qq.allowedUsers?.length ?? 0,
+          qq.pairedUsers?.length ?? 0,
+        ),
+      ],
+      notes: [
+        'Diagnostics only checks local configuration readiness. It does not call IM provider APIs.',
+        'Adapter credentials stay in the local adapters config and are never returned by this endpoint.',
+      ],
+    }
   }
 
   /** 更新配置（浅合并，敏感字段如果是脱敏值则保留原值） */
@@ -103,6 +305,22 @@ class AdapterService {
       if (isMasked(patch.feishu.encryptKey)) patch.feishu.encryptKey = current.feishu?.encryptKey
       if (isMasked(patch.feishu.verificationToken)) patch.feishu.verificationToken = current.feishu?.verificationToken
     }
+    if (patch.dingtalk) {
+      if (isMasked(patch.dingtalk.clientSecret)) patch.dingtalk.clientSecret = current.dingtalk?.clientSecret
+      if (isMasked(patch.dingtalk.webhookUrl)) patch.dingtalk.webhookUrl = current.dingtalk?.webhookUrl
+      if (isMasked(patch.dingtalk.webhookSecret)) patch.dingtalk.webhookSecret = current.dingtalk?.webhookSecret
+    }
+    if (patch.wecom) {
+      if (isMasked(patch.wecom.secret)) patch.wecom.secret = current.wecom?.secret
+      if (isMasked(patch.wecom.token)) patch.wecom.token = current.wecom?.token
+      if (isMasked(patch.wecom.encodingAesKey)) patch.wecom.encodingAesKey = current.wecom?.encodingAesKey
+      if (isMasked(patch.wecom.webhookUrl)) patch.wecom.webhookUrl = current.wecom?.webhookUrl
+    }
+    if (patch.qq) {
+      if (isMasked(patch.qq.token)) patch.qq.token = current.qq?.token
+      if (isMasked(patch.qq.appSecret)) patch.qq.appSecret = current.qq?.appSecret
+      if (isMasked(patch.qq.oneBotAccessToken)) patch.qq.oneBotAccessToken = current.qq?.oneBotAccessToken
+    }
     if (patch.pairing && isMasked(patch.pairing.code ?? undefined)) {
       patch.pairing.code = current.pairing?.code
     }
@@ -112,6 +330,9 @@ class AdapterService {
       ...patch,
       telegram: patch.telegram ? { ...current.telegram, ...patch.telegram } : current.telegram,
       feishu: patch.feishu ? { ...current.feishu, ...patch.feishu } : current.feishu,
+      dingtalk: patch.dingtalk ? { ...current.dingtalk, ...patch.dingtalk } : current.dingtalk,
+      wecom: patch.wecom ? { ...current.wecom, ...patch.wecom } : current.wecom,
+      qq: patch.qq ? { ...current.qq, ...patch.qq } : current.qq,
       pairing: patch.pairing !== undefined ? { ...current.pairing, ...patch.pairing } : current.pairing,
     }
 

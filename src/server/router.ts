@@ -22,6 +22,7 @@ import { handleChatGPTOAuthApi } from './api/chatgpt-oauth.js'
 import { handleMcpApi } from './api/mcp.js'
 import { handlePromptOptimizeApi } from './api/prompt-optimize.js'
 import { handleAttachmentParserApi } from './api/attachment-parser.js'
+import { handleConfigBackupApi } from './api/config-backup.js'
 
 export async function handleApiRequest(req: Request, url: URL): Promise<Response> {
   const path = url.pathname
@@ -98,6 +99,9 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
 
     case 'attachment-parser':
       return handleAttachmentParserApi(req, url, segments)
+
+    case 'config-backup':
+      return handleConfigBackupApi(req, url, segments)
 
     case 'filesystem':
       return handleFilesystemRoute(url.pathname, url)

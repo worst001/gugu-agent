@@ -94,7 +94,7 @@ async function request<T>(method: string, path: string, body?: unknown, options?
       throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`)
     }
     if (err instanceof TypeError && /fetch/i.test(err.message)) {
-      throw new Error(`Cannot reach cc-haha server at ${baseUrl}. Start it with: SERVER_PORT=3456 bun --watch src/server/index.ts`)
+      throw new Error(`Cannot reach Gugu Agent server at ${baseUrl}. Start it with: SERVER_PORT=3456 bun --watch src/server/index.ts`)
     }
     throw err
   }

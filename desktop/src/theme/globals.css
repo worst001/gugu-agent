@@ -488,6 +488,13 @@ button, input, textarea, select, a, [role="button"] {
   width: var(--sidebar-rail-width);
 }
 
+.sidebar-shell[data-resizing="true"],
+.sidebar-shell[data-resizing="true"] .sidebar-panel,
+.sidebar-shell[data-resizing="true"] .sidebar-copy,
+.sidebar-shell[data-resizing="true"] .sidebar-section {
+  transition: none !important;
+}
+
 .sidebar-panel {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);

@@ -1,4 +1,4 @@
-# 使用第三方模型（OpenAI / DeepSeek / 本地模型）
+﻿# 使用第三方模型（OpenAI / DeepSeek / 本地模型）
 
 本项目基于 Anthropic 协议与 LLM 通信。通过协议转换代理，可以使用 OpenAI、DeepSeek、Ollama 等任意模型。
 
@@ -146,7 +146,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ### 5. 启动并验证
 
 ```bash
-./bin/claude-gugu
+./bin/cc-gugu
 ```
 
 如果一切正常，你应该能看到正常的对话界面，实际调用的是你配置的目标模型。

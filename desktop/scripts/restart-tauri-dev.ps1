@@ -42,6 +42,7 @@ if (-not (Test-Path -LiteralPath $desktopDir -PathType Container)) {
   "claude-sidecar-x86_64-pc-windows-msvc.exe",
   "claude-sidecar-aarch64-pc-windows-msvc.exe",
   "claude-code-desktop.exe",
+  "Gugu Agent.exe",
   "Claude Code GuGu.exe",
   "cargo.exe",
   "rustc.exe"

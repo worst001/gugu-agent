@@ -1,7 +1,7 @@
 # Global Usage (Run from Any Directory)
 
 
-If you want to run `claude-gugu` directly from any project directory, set up one of the following. Once configured, `claude-gugu` will automatically recognize your current working directory.
+If you want to run `cc-gugu` directly from any project directory, set up one of the following. Once configured, `cc-gugu` will automatically recognize your current working directory. The older `claude-gugu` entrypoint remains available for compatibility.
 
 ## macOS / Linux
 
@@ -12,7 +12,7 @@ Add to `~/.bashrc` or `~/.zshrc`:
 export PATH="$HOME/path/to/claude-code-gugu/bin:$PATH"
 
 # Option 2: Alias
-alias claude-gugu="$HOME/path/to/claude-code-gugu/bin/claude-gugu"
+alias cc-gugu="$HOME/path/to/claude-code-gugu/bin/cc-gugu"
 ```
 
 Then reload the config:
@@ -35,6 +35,6 @@ After setup, navigate to any project directory and test:
 
 ```bash
 cd ~/your-other-project
-claude-gugu
+cc-gugu
 # Ask "What is the current directory?" — it should show ~/your-other-project
 ```

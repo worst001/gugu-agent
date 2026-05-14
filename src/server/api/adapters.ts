@@ -8,7 +8,16 @@
 import { adapterService } from '../services/adapterService.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
 
-const ALLOWED_TOP_KEYS = new Set(['serverUrl', 'defaultProjectDir', 'telegram', 'feishu', 'pairing'])
+const ALLOWED_TOP_KEYS = new Set([
+  'serverUrl',
+  'defaultProjectDir',
+  'telegram',
+  'feishu',
+  'dingtalk',
+  'wecom',
+  'qq',
+  'pairing',
+])
 
 export async function handleAdaptersApi(
   req: Request,
@@ -16,6 +25,16 @@ export async function handleAdaptersApi(
   _segments: string[],
 ): Promise<Response> {
   try {
+    const action = _segments[2]
+
+    if (action === 'status') {
+      if (req.method !== 'GET') {
+        throw new ApiError(405, `Method ${req.method} not allowed`, 'METHOD_NOT_ALLOWED')
+      }
+      const diagnostics = await adapterService.getDiagnostics()
+      return Response.json(diagnostics)
+    }
+
     if (req.method === 'GET') {
       const config = await adapterService.getConfig()
       return Response.json(config)

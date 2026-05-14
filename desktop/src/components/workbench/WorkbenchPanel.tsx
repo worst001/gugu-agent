@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation, type TranslationKey } from '../../i18n'
 import { useWorkbenchStore, type WorkbenchTab } from '../../stores/workbenchStore'
 import type { UIMessage } from '../../types/chat'
@@ -33,6 +33,10 @@ export function WorkbenchPanel({ sessionId, messages }: Props) {
   const openWorkbench = useWorkbenchStore((store) => store.openWorkbench)
   const closeWorkbench = useWorkbenchStore((store) => store.closeWorkbench)
   const setActiveTab = useWorkbenchStore((store) => store.setActiveTab)
+  const panelWidth = useWorkbenchStore((store) => store.panelWidth)
+  const setPanelWidth = useWorkbenchStore((store) => store.setPanelWidth)
+  const resetPanelWidth = useWorkbenchStore((store) => store.resetPanelWidth)
+  const [isResizing, setIsResizing] = useState(false)
 
   const model = useMemo(() => buildWorkbenchModel(messages), [messages])
   const selectedActivity = findSelectedActivity(model, state.selectedToolUseId)
@@ -55,6 +59,26 @@ export function WorkbenchPanel({ sessionId, messages }: Props) {
   const fileCount = model.fileChanges.length
   const attachmentCount = model.attachmentPreviews.length
 
+  const startResize = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const startX = event.clientX
+    const startWidth = panelWidth
+    setIsResizing(true)
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      setPanelWidth(startWidth + startX - moveEvent.clientX)
+    }
+    const handleUp = () => {
+      setIsResizing(false)
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+  }
+
   if (!state.isOpen) {
     return (
       <aside className="hidden w-11 shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface-container-low)] xl:flex xl:flex-col xl:items-center xl:pt-4">
@@ -73,9 +97,24 @@ export function WorkbenchPanel({ sessionId, messages }: Props) {
 
   return (
     <aside
-      className="hidden w-[390px] max-w-[40vw] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface)] xl:flex xl:min-w-[340px] xl:flex-col"
+      data-resizing={isResizing ? 'true' : 'false'}
+      className="relative hidden shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface)] xl:flex xl:flex-col"
+      style={{ width: panelWidth, minWidth: 320, maxWidth: 'min(720px, 50vw)' }}
       aria-label={t('workbench.title')}
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize workbench"
+        title="Drag to resize. Double-click to reset."
+        onMouseDown={startResize}
+        onDoubleClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          resetPanelWidth()
+        }}
+        className="absolute bottom-0 left-0 top-0 z-30 w-2 -translate-x-1/2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-[var(--color-border-focus)]/20"
+      />
       <div className="flex h-12 items-center justify-between border-b border-[var(--color-border)] px-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-[var(--color-text-primary)]">

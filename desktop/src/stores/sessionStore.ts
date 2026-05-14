@@ -14,6 +14,14 @@ type SessionStore = {
 
   fetchSessions: (project?: string) => Promise<void>
   createSession: (workDir?: string) => Promise<string>
+  forkSession: (
+    sourceSessionId: string,
+    target: {
+      targetUserMessageId?: string
+      userMessageIndex?: number
+      expectedContent?: string
+    },
+  ) => Promise<{ sessionId: string; title: string }>
   deleteSession: (id: string) => Promise<void>
   renameSession: (id: string, title: string) => Promise<void>
   updateSessionTitle: (id: string, title: string) => void
@@ -76,6 +84,31 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     void get().fetchSessions()
     return id
+  },
+
+  forkSession: async (sourceSessionId, target) => {
+    const result = await sessionsApi.fork(sourceSessionId, target)
+    const now = new Date().toISOString()
+    const optimisticSession: SessionListItem = {
+      id: result.sessionId,
+      title: result.title,
+      createdAt: now,
+      modifiedAt: now,
+      messageCount: result.messagesCopied,
+      projectPath: '',
+      workDir: result.workDir,
+      workDirExists: Boolean(result.workDir),
+    }
+
+    set((state) => ({
+      sessions: state.sessions.some((session) => session.id === result.sessionId)
+        ? state.sessions
+        : [optimisticSession, ...state.sessions],
+      activeSessionId: result.sessionId,
+    }))
+
+    void get().fetchSessions()
+    return { sessionId: result.sessionId, title: result.title }
   },
 
   deleteSession: async (id: string) => {

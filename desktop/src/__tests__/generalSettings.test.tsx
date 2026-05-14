@@ -16,10 +16,16 @@ const {
   MOCK_GET_ATTACHMENT_CONFIG,
   MOCK_UPDATE_ATTACHMENT_CONFIG,
   MOCK_TEST_ATTACHMENT_CONFIG,
+  MOCK_EXPORT_CONFIG,
+  MOCK_PREVIEW_IMPORT,
+  MOCK_IMPORT_CONFIG,
 } = vi.hoisted(() => ({
   MOCK_GET_ATTACHMENT_CONFIG: vi.fn(),
   MOCK_UPDATE_ATTACHMENT_CONFIG: vi.fn(),
   MOCK_TEST_ATTACHMENT_CONFIG: vi.fn(),
+  MOCK_EXPORT_CONFIG: vi.fn(),
+  MOCK_PREVIEW_IMPORT: vi.fn(),
+  MOCK_IMPORT_CONFIG: vi.fn(),
 }))
 const providerStoreState = {
   providers: [] as SavedProvider[],
@@ -61,6 +67,14 @@ vi.mock('../api/attachmentParser', () => ({
     getConfig: MOCK_GET_ATTACHMENT_CONFIG,
     updateConfig: MOCK_UPDATE_ATTACHMENT_CONFIG,
     test: MOCK_TEST_ATTACHMENT_CONFIG,
+  },
+}))
+
+vi.mock('../api/configBackup', () => ({
+  configBackupApi: {
+    exportConfig: MOCK_EXPORT_CONFIG,
+    previewImport: MOCK_PREVIEW_IMPORT,
+    importConfig: MOCK_IMPORT_CONFIG,
   },
 }))
 
@@ -278,6 +292,115 @@ describe('Settings > Providers tab', () => {
 
     expect(within(dialog).getByRole('button', { name: /OpenAI Responses API \(proxy\)/i })).toBeInTheDocument()
     expect(within(dialog).getByText('Requests will be translated via the local proxy')).toBeInTheDocument()
+    expect(within(dialog).getByText('Resolved endpoint: https://api.example.com/anthropic/v1/responses')).toBeInTheDocument()
+  })
+
+  it('warns when custom provider base URL includes the concrete upstream endpoint', () => {
+    providerStoreState.presets = [
+      {
+        id: 'custom',
+        name: 'Custom',
+        baseUrl: 'https://api.example.com/v1/chat/completions',
+        apiFormat: 'openai_chat',
+        defaultModels: {
+          main: 'custom-main',
+          haiku: '',
+          sonnet: '',
+          opus: '',
+        },
+        needsApiKey: true,
+        websiteUrl: '',
+        category: 'custom',
+      },
+    ]
+
+    render(<Settings />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Add Provider/i }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('Use the base URL before /chat/completions. The local proxy appends the chat endpoint automatically.')).toBeInTheDocument()
+  })
+
+  it('shows provider preset protocol and fast/pro routing metadata', () => {
+    providerStoreState.presets = [
+      {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com/anthropic',
+        apiFormat: 'anthropic',
+        defaultModels: {
+          main: 'deepseek-v4-pro',
+          haiku: 'deepseek-v4-flash',
+          sonnet: 'deepseek-v4-pro',
+          opus: 'deepseek-v4-pro',
+        },
+        needsApiKey: true,
+        websiteUrl: 'https://platform.deepseek.com',
+        category: 'domestic',
+        protocol: 'anthropic_compatible',
+        agentCompatible: true,
+        routingHint: {
+          fast: 'haiku',
+          balanced: 'main',
+          pro: 'sonnet',
+        },
+      },
+      {
+        id: 'qwen-dashscope',
+        name: 'Qwen / DashScope',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        apiFormat: 'openai_chat',
+        defaultModels: {
+          main: 'qwen3.6-plus',
+          haiku: 'qwen3.6-flash',
+          sonnet: 'qwen3.6-plus',
+          opus: 'qwen3.6-max-preview',
+        },
+        needsApiKey: true,
+        websiteUrl: 'https://help.aliyun.com/zh/model-studio/',
+        category: 'domestic',
+        protocol: 'openai_chat_proxy',
+        agentCompatible: true,
+        routingHint: {
+          fast: 'haiku',
+          balanced: 'sonnet',
+          pro: 'opus',
+        },
+      },
+      {
+        id: 'custom',
+        name: 'Custom',
+        baseUrl: '',
+        apiFormat: 'anthropic',
+        defaultModels: {
+          main: '',
+          haiku: '',
+          sonnet: '',
+          opus: '',
+        },
+        needsApiKey: true,
+        websiteUrl: '',
+        category: 'custom',
+      },
+    ]
+
+    render(<Settings />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Add Provider/i }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('Domestic')).toBeInTheDocument()
+    expect(within(dialog).getByText('Anthropic-compatible')).toBeInTheDocument()
+    expect(within(dialog).getByText('Agent ready')).toBeInTheDocument()
+    expect(within(dialog).getByText('Fast: deepseek-v4-flash · Balanced: deepseek-v4-pro · Pro: deepseek-v4-pro')).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Qwen / DashScope' }))
+
+    expect(within(dialog).getByText('OpenAI chat via proxy')).toBeInTheDocument()
+    expect(within(dialog).getByText('Agent ready via proxy')).toBeInTheDocument()
+    expect(within(dialog).getByText('Fast: qwen3.6-flash · Balanced: qwen3.6-plus · Pro: qwen3.6-max-preview')).toBeInTheDocument()
+    expect(within(dialog).getByText('Resolved endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')).toBeInTheDocument()
   })
 
   it('hides the API key by default and reveals it from the eye button', () => {
@@ -407,13 +530,127 @@ describe('Settings > Attachment parser tab', () => {
   })
 })
 
+describe('Settings > Config backup tab', () => {
+  beforeEach(() => {
+    MOCK_EXPORT_CONFIG.mockReset()
+    MOCK_PREVIEW_IMPORT.mockReset()
+    MOCK_IMPORT_CONFIG.mockReset()
+    MOCK_EXPORT_CONFIG.mockResolvedValue({
+      format: 'gugu-config-export',
+      version: 1,
+      exportedAt: '2026-05-15T00:00:00.000Z',
+      app: { name: 'Gugu Agent', configDir: 'D:/tmp/.claude' },
+      secretsIncluded: false,
+      sections: {},
+    })
+    MOCK_PREVIEW_IMPORT.mockResolvedValue({
+      preview: {
+        valid: true,
+        format: 'gugu-config-export',
+        version: 1,
+        secretsIncluded: false,
+        summary: { add: 1, overwrite: 1, skip: 1, preserve: 0 },
+        items: [
+          { section: 'providers', name: 'DeepSeek', action: 'overwrite', reason: 'API key is masked and will not be imported.' },
+          { section: 'mcp', name: 'rtk', action: 'add' },
+          { section: 'plugins', name: 'grill-me', action: 'skip', reason: 'Plugin inventory is exported for sharing.' },
+        ],
+      },
+    })
+    MOCK_IMPORT_CONFIG.mockResolvedValue({
+      ok: true,
+      preview: {
+        valid: true,
+        format: 'gugu-config-export',
+        version: 1,
+        secretsIncluded: false,
+        summary: { add: 1, overwrite: 1, skip: 1, preserve: 0 },
+        items: [],
+      },
+    })
+
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:gugu-config'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    useSettingsStore.setState({ locale: 'en' })
+    useUIStore.setState({ pendingSettingsTab: 'configBackup' })
+    useUpdateStore.setState({
+      status: 'idle',
+      availableVersion: null,
+      releaseNotes: null,
+      progressPercent: 0,
+      downloadedBytes: 0,
+      totalBytes: null,
+      error: null,
+      checkedAt: null,
+      shouldPrompt: false,
+      initialize: vi.fn().mockResolvedValue(undefined),
+      checkForUpdates: vi.fn().mockResolvedValue(null),
+      installUpdate: vi.fn().mockResolvedValue(undefined),
+      dismissPrompt: vi.fn(),
+    })
+  })
+
+  it('exports a config package without secrets by default', async () => {
+    render(<Settings />)
+
+    expect(await screen.findByText('Config Backup')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Export JSON/i }))
+
+    await waitFor(() => {
+      expect(MOCK_EXPORT_CONFIG).toHaveBeenCalledWith(false)
+    })
+    expect(await screen.findByText('Configuration export downloaded.')).toBeInTheDocument()
+  })
+
+  it('previews a selected config package before applying import', async () => {
+    const { container } = render(<Settings />)
+    expect(await screen.findByText('Config Backup')).toBeInTheDocument()
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File([
+      JSON.stringify({
+        format: 'gugu-config-export',
+        version: 1,
+        exportedAt: '2026-05-15T00:00:00.000Z',
+        app: { name: 'Gugu Agent', configDir: 'D:/tmp/.claude' },
+        secretsIncluded: false,
+        sections: {},
+      }),
+    ], 'gugu-config-export.json', { type: 'application/json' })
+
+    fireEvent.change(input, { target: { files: [file] } })
+
+    expect(await screen.findByText('Import Preview')).toBeInTheDocument()
+    expect(screen.getByText('DeepSeek')).toBeInTheDocument()
+    expect(screen.getByText('rtk')).toBeInTheDocument()
+    expect(screen.getByText('grill-me')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Import' }))
+
+    await waitFor(() => {
+      expect(MOCK_IMPORT_CONFIG).toHaveBeenCalledWith(expect.objectContaining({
+        format: 'gugu-config-export',
+      }), true)
+    })
+    expect(await screen.findByText('Configuration import applied.')).toBeInTheDocument()
+  })
+})
+
 describe('Settings > About tab', () => {
   beforeEach(() => {
     useUIStore.setState({ pendingSettingsTab: 'about' })
     useUpdateStore.setState({
       status: 'available',
       availableVersion: '0.1.5',
-      releaseNotes: '# Claude Code GuGu v0.1.5\n\n- Fixed updater rendering\n- Added markdown support',
+      releaseNotes: '# Gugu Agent v0.1.5\n\n- Fixed updater rendering\n- Added markdown support',
       progressPercent: 0,
       downloadedBytes: 0,
       totalBytes: null,
@@ -430,7 +667,7 @@ describe('Settings > About tab', () => {
   it('renders release notes with markdown formatting', async () => {
     render(<Settings />)
 
-    expect(await screen.findByRole('heading', { name: 'Claude Code GuGu v0.1.5' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Gugu Agent v0.1.5' })).toBeInTheDocument()
     expect(screen.getByText('Fixed updater rendering')).toBeInTheDocument()
     expect(screen.getByText('Added markdown support')).toBeInTheDocument()
   })
@@ -439,7 +676,7 @@ describe('Settings > About tab', () => {
     useUpdateStore.setState({
       status: 'downloading',
       availableVersion: '0.1.5',
-      releaseNotes: '# Claude Code GuGu v0.1.5',
+      releaseNotes: '# Gugu Agent v0.1.5',
       progressPercent: 0,
       downloadedBytes: 1536,
       totalBytes: null,

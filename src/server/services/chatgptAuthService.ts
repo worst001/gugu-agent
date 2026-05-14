@@ -143,7 +143,7 @@ function renderCallbackPage(success: boolean, message: string): string {
   const color = success ? '#16a34a' : '#dc2626'
   const title = success ? 'ChatGPT Connected' : 'ChatGPT Connect Failed'
   const body = success
-    ? 'You can close this window and return to Claude Code GuGu.'
+    ? 'You can close this window and return to Gugu Agent.'
     : message
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${title}</title>

@@ -1,13 +1,13 @@
----
+﻿---
 layout: home
 
 hero:
-  name: Claude Code GuGu
+  name: Gugu Agent
   text: 本地可运行的 Claude Code
   tagline: 基于泄露源码修复，支持接入任意 Anthropic 兼容 API（MiniMax、OpenRouter 等）
   image:
     src: /images/logo-horizontal.svg
-    alt: Claude Code GuGu
+    alt: Gugu Agent
   actions:
     - theme: brand
       text: 快速开始

@@ -24,7 +24,7 @@
         {
           "args": [
             "adapters",
-            { "validator": "regex", "value": "^(feishu|telegram|lark|slack)(:.+)?$" }
+            { "validator": "regex", "value": "^(feishu|telegram|dingtalk|wecom|qq|lark|slack)(:.+)?$" }
           ],
           "name": "binaries/claude-sidecar",
           "sidecar": true
@@ -53,7 +53,7 @@
         {
           "args": [
             "adapters",
-            { "validator": "regex", "value": "^(feishu|telegram|lark|slack)(:.+)?$" }
+            { "validator": "regex", "value": "^(feishu|telegram|dingtalk|wecom|qq|lark|slack)(:.+)?$" }
           ],
           "name": "binaries/claude-sidecar",
           "sidecar": true
@@ -82,7 +82,7 @@
         {
           "args": [
             "adapters",
-            { "validator": "regex", "value": "^(feishu|telegram|lark|slack)(:.+)?$" }
+            { "validator": "regex", "value": "^(feishu|telegram|dingtalk|wecom|qq|lark|slack)(:.+)?$" }
           ],
           "name": "binaries/claude-sidecar",
           "sidecar": true

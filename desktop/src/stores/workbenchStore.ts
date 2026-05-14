@@ -2,6 +2,11 @@ import { create } from 'zustand'
 
 export type WorkbenchTab = 'activity' | 'diff' | 'preview'
 
+const WORKBENCH_WIDTH_STORAGE_KEY = 'gugu-agent-workbench-width-v1'
+const DEFAULT_WORKBENCH_WIDTH = 390
+const MIN_WORKBENCH_WIDTH = 320
+const MAX_WORKBENCH_WIDTH = 720
+
 type SessionWorkbenchState = {
   isOpen: boolean
   activeTab: WorkbenchTab
@@ -19,7 +24,10 @@ type WorkbenchSelection = {
 
 type WorkbenchStore = {
   sessions: Record<string, SessionWorkbenchState>
+  panelWidth: number
   getSessionState: (sessionId: string) => SessionWorkbenchState
+  setPanelWidth: (width: number) => void
+  resetPanelWidth: () => void
   openWorkbench: (sessionId: string, selection?: WorkbenchSelection) => void
   closeWorkbench: (sessionId: string) => void
   toggleWorkbench: (sessionId: string) => void
@@ -37,6 +45,24 @@ const DEFAULT_WORKBENCH_STATE: SessionWorkbenchState = {
   selectedAttachmentId: null,
 }
 
+function getMaxWorkbenchWidth(): number {
+  if (typeof window === 'undefined') return MAX_WORKBENCH_WIDTH
+  return Math.min(MAX_WORKBENCH_WIDTH, Math.max(MIN_WORKBENCH_WIDTH, Math.floor(window.innerWidth * 0.5)))
+}
+
+function clampWorkbenchWidth(width: number): number {
+  if (!Number.isFinite(width)) return DEFAULT_WORKBENCH_WIDTH
+  return Math.min(getMaxWorkbenchWidth(), Math.max(MIN_WORKBENCH_WIDTH, Math.round(width)))
+}
+
+function getStoredWorkbenchWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(WORKBENCH_WIDTH_STORAGE_KEY))
+    if (Number.isFinite(stored)) return clampWorkbenchWidth(stored)
+  } catch { /* localStorage unavailable */ }
+  return DEFAULT_WORKBENCH_WIDTH
+}
+
 function getStateFor(
   sessions: Record<string, SessionWorkbenchState>,
   sessionId: string,
@@ -46,8 +72,20 @@ function getStateFor(
 
 export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
   sessions: {},
+  panelWidth: getStoredWorkbenchWidth(),
 
   getSessionState: (sessionId) => getStateFor(get().sessions, sessionId),
+
+  setPanelWidth: (width) => {
+    const next = clampWorkbenchWidth(width)
+    try { localStorage.setItem(WORKBENCH_WIDTH_STORAGE_KEY, String(next)) } catch { /* noop */ }
+    set({ panelWidth: next })
+  },
+
+  resetPanelWidth: () => {
+    try { localStorage.removeItem(WORKBENCH_WIDTH_STORAGE_KEY) } catch { /* noop */ }
+    set({ panelWidth: DEFAULT_WORKBENCH_WIDTH })
+  },
 
   openWorkbench: (sessionId, selection) => {
     set((state) => {

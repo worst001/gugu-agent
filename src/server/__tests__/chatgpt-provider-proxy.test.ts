@@ -204,6 +204,59 @@ describe('ChatGPT provider integration', () => {
     expect(body.error.message).toContain('does not support image content blocks')
   })
 
+  test('proxy accepts OpenAI-compatible base URLs that already include a version path', async () => {
+    const svc = new ProviderService()
+    const provider = await svc.addProvider({
+      presetId: 'doubao-ark',
+      name: 'Doubao',
+      apiKey: 'ark-key',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+      apiFormat: 'openai_chat',
+      models: {
+        main: 'doubao-seed-1-6-250615',
+        haiku: 'doubao-seed-1-6-flash-250615',
+        sonnet: 'doubao-seed-1-6-250615',
+        opus: 'doubao-seed-1-6-thinking-250615',
+      },
+    })
+    await svc.activateProvider(provider.id)
+
+    let upstreamUrl = ''
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      upstreamUrl = String(input)
+      return Response.json({
+        id: 'chatcmpl-test',
+        object: 'chat.completion',
+        created: 1,
+        model: 'doubao-seed-1-6-250615',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'ok' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      })
+    }) as typeof fetch
+
+    const req = new Request('http://127.0.0.1:3456/proxy/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'doubao-seed-1-6-250615',
+        max_tokens: 64,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+
+    const res = await handleProxyRequest(req, new URL(req.url))
+    const body = await res.json() as { type: string; content: Array<{ text: string }> }
+
+    expect(res.status).toBe(200)
+    expect(upstreamUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions')
+    expect(body.type).toBe('message')
+    expect(body.content[0]?.text).toBe('ok')
+  })
+
   test('proxy sends ChatGPT OAuth token to Codex endpoint', async () => {
     const svc = new ProviderService()
     await svc.ensureChatGPTProvider()

@@ -19,8 +19,8 @@ import { getShellConfigPaths } from '../../utils/shellConfig.js'
 import { getUserBinDir } from '../../utils/xdg.js'
 
 const DESKTOP_CLI_NAME = 'claude-gugu'
-const PATH_BLOCK_START = '# >>> Claude Code GuGu PATH >>>'
-const PATH_BLOCK_END = '# <<< Claude Code GuGu PATH <<<'
+const PATH_BLOCK_START = '# >>> Gugu Agent PATH >>>'
+const PATH_BLOCK_END = '# <<< Gugu Agent PATH <<<'
 const WINDOWS_PATH_TARGET = 'Windows User PATH'
 const WINDOWS_USER_BIN_EXPR = '%USERPROFILE%\\.local\\bin'
 

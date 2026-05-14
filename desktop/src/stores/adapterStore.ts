@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { adaptersApi } from '../api/adapters'
-import type { AdapterFileConfig } from '../types/adapter'
+import type { AdapterFileConfig, AdapterPlatform } from '../types/adapter'
 
 /**
  * Tauri command 触发器：让主进程 kill + respawn adapter sidecar，
@@ -48,7 +48,7 @@ type AdapterStore = {
   fetchConfig: () => Promise<void>
   updateConfig: (patch: Partial<AdapterFileConfig>) => Promise<void>
   generatePairingCode: () => Promise<string>
-  removePairedUser: (platform: 'telegram' | 'feishu', userId: string | number) => Promise<void>
+  removePairedUser: (platform: AdapterPlatform, userId: string | number) => Promise<void>
 }
 
 export const useAdapterStore = create<AdapterStore>((set, get) => ({

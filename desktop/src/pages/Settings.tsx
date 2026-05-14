@@ -33,6 +33,7 @@ import { formatBytes } from '../lib/formatBytes'
 import { isTauriRuntime } from '../lib/desktopRuntime'
 import { attachmentParserApi } from '../api/attachmentParser'
 import type { AttachmentParserConfig, AttachmentParserTestResult } from '../types/attachmentParser'
+import { ConfigBackupSettings } from './ConfigBackupSettings'
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -53,6 +54,7 @@ export function Settings() {
           <div className="flex-1">
             <TabButton icon="dns" label={t('settings.tab.providers')} active={activeTab === 'providers'} onClick={() => setActiveTab('providers')} />
             <TabButton icon="document_scanner" label={t('settings.tab.attachmentParser')} active={activeTab === 'attachmentParser'} onClick={() => setActiveTab('attachmentParser')} />
+            <TabButton icon="ios_share" label={t('settings.tab.configBackup')} active={activeTab === 'configBackup'} onClick={() => setActiveTab('configBackup')} />
             <TabButton icon="shield" label={t('settings.tab.permissions')} active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} />
             <TabButton icon="tune" label={t('settings.tab.general')} active={activeTab === 'general'} onClick={() => setActiveTab('general')} />
             <TabButton icon="chat" label={t('settings.tab.adapters')} active={activeTab === 'adapters'} onClick={() => setActiveTab('adapters')} />
@@ -72,6 +74,7 @@ export function Settings() {
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {activeTab === 'providers' && <ProviderSettings />}
           {activeTab === 'attachmentParser' && <AttachmentParserSettings />}
+          {activeTab === 'configBackup' && <ConfigBackupSettings />}
           {activeTab === 'permissions' && <PermissionSettings />}
           {activeTab === 'general' && <GeneralSettings />}
           {activeTab === 'adapters' && <AdapterSettings />}
@@ -518,6 +521,8 @@ function ProviderSettings() {
             const isActive = activeId === provider.id
             const test = testResults[provider.id]
             const preset = presetMap.get(provider.presetId)
+            const categoryLabel = formatPresetCategoryLabel(preset, t)
+            const routingSummary = formatProviderRoutingSummary(preset, provider.models, t)
             return (
               <div
                 key={provider.id}
@@ -537,11 +542,12 @@ function ProviderSettings() {
                     {preset && preset.id !== 'custom' && (
                       <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-text-tertiary)] leading-none">{preset.name}</span>
                     )}
-                    {provider.apiFormat && provider.apiFormat !== 'anthropic' && (
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-warning)] leading-none">
-                        {formatApiFormatLabel(provider.apiFormat, t)}
-                      </span>
+                    {categoryLabel && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-text-tertiary)] leading-none">{categoryLabel}</span>
                     )}
+                    <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-warning)] leading-none">
+                      {formatPresetProtocolLabel(preset, provider.apiFormat, t)}
+                    </span>
                     {isActive && (
                       <span className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-[var(--color-brand)]/18 bg-[var(--color-brand)]/14 text-[var(--color-brand)] leading-none">{t('settings.providers.default')}</span>
                     )}
@@ -549,6 +555,11 @@ function ProviderSettings() {
                   <div className="text-xs text-[var(--color-text-tertiary)] truncate mt-0.5">
                     {provider.baseUrl} &middot; {provider.models.main}
                   </div>
+                  {routingSummary && (
+                    <div className="text-[11px] text-[var(--color-text-tertiary)] truncate mt-0.5">
+                      {routingSummary}
+                    </div>
+                  )}
                   {test && !test.loading && test.result && (
                     <div className="text-xs mt-1 flex flex-col gap-0.5">
                       <span className={test.result.connectivity.success ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}>
@@ -653,6 +664,149 @@ function formatApiFormatLabel(apiFormat: ApiFormat, t: ReturnType<typeof useTran
   if (apiFormat === 'openai_responses') return t('settings.providers.apiFormatOpenaiResponses')
   if (apiFormat === 'chatgpt_codex') return t('settings.providers.apiFormatChatgptCodex')
   return t('settings.providers.apiFormatAnthropic')
+}
+
+function inferPresetProtocol(preset: ProviderPreset | undefined, apiFormat: ApiFormat): NonNullable<ProviderPreset['protocol']> {
+  if (preset?.protocol) return preset.protocol
+  if (apiFormat === 'openai_chat') return 'openai_chat_proxy'
+  if (apiFormat === 'openai_responses') return 'openai_responses_proxy'
+  if (apiFormat === 'chatgpt_codex') return 'chatgpt_codex'
+  return preset?.id === 'official' ? 'anthropic_native' : 'anthropic_compatible'
+}
+
+function formatPresetCategoryLabel(preset: ProviderPreset | undefined, t: ReturnType<typeof useTranslation>): string | null {
+  switch (preset?.category) {
+    case 'official':
+      return t('settings.providers.categoryOfficial')
+    case 'domestic':
+      return t('settings.providers.categoryDomestic')
+    case 'domestic-coding':
+      return t('settings.providers.categoryDomesticCoding')
+    case 'aggregator':
+      return t('settings.providers.categoryAggregator')
+    case 'local':
+      return t('settings.providers.categoryLocal')
+    case 'custom':
+      return t('settings.providers.categoryCustom')
+    default:
+      return null
+  }
+}
+
+function formatPresetProtocolLabel(
+  preset: ProviderPreset | undefined,
+  apiFormat: ApiFormat,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  switch (inferPresetProtocol(preset, apiFormat)) {
+    case 'anthropic_native':
+      return t('settings.providers.protocolAnthropicNative')
+    case 'anthropic_compatible':
+      return t('settings.providers.protocolAnthropicCompatible')
+    case 'openai_chat_proxy':
+      return t('settings.providers.protocolOpenaiChatProxy')
+    case 'openai_responses_proxy':
+      return t('settings.providers.protocolOpenaiResponsesProxy')
+    case 'chatgpt_codex':
+      return t('settings.providers.protocolChatgptCodex')
+  }
+}
+
+function formatPresetAgentLabel(preset: ProviderPreset | undefined, apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): string {
+  if (preset?.agentCompatible === false) return t('settings.providers.agentNotReady')
+  if (apiFormat === 'openai_chat' || apiFormat === 'openai_responses') return t('settings.providers.agentReadyViaProxy')
+  if (apiFormat === 'chatgpt_codex') return t('settings.providers.agentReadyViaCodex')
+  return t('settings.providers.agentReady')
+}
+
+function getModelRoleLabel(role: NonNullable<ProviderPreset['routingHint']>['fast'], t: ReturnType<typeof useTranslation>): string {
+  if (role === 'haiku') return t('settings.providers.haikuModel')
+  if (role === 'sonnet') return t('settings.providers.sonnetModel')
+  if (role === 'opus') return t('settings.providers.opusModel')
+  return t('settings.providers.mainModel')
+}
+
+function getModelByRole(models: ModelMapping, role: NonNullable<ProviderPreset['routingHint']>['fast']): string {
+  if (role === 'haiku') return models.haiku || models.main
+  if (role === 'sonnet') return models.sonnet || models.main
+  if (role === 'opus') return models.opus || models.sonnet || models.main
+  return models.main
+}
+
+function formatProviderRoutingSummary(
+  preset: ProviderPreset | undefined,
+  models: ModelMapping,
+  t: ReturnType<typeof useTranslation>,
+): string | null {
+  const hint = preset?.routingHint ?? { fast: 'haiku' as const, balanced: 'main' as const, pro: 'opus' as const }
+  const fastModel = hint.fast ? getModelByRole(models, hint.fast) : ''
+  const balancedModel = hint.balanced ? getModelByRole(models, hint.balanced) : ''
+  const proModel = hint.pro ? getModelByRole(models, hint.pro) : ''
+  const segments = [
+    fastModel ? t('settings.providers.routingFast', { model: fastModel }) : '',
+    balancedModel ? t('settings.providers.routingBalanced', { model: balancedModel }) : '',
+    proModel ? t('settings.providers.routingPro', { model: proModel }) : '',
+  ].filter(Boolean)
+  return segments.length > 0 ? segments.join(' · ') : null
+}
+
+function formatProviderRoutingRoleSummary(
+  preset: ProviderPreset | undefined,
+  t: ReturnType<typeof useTranslation>,
+): string | null {
+  if (!preset?.routingHint) return null
+  const segments = [
+    preset.routingHint.fast
+      ? t('settings.providers.routingFast', { model: getModelRoleLabel(preset.routingHint.fast, t) })
+      : '',
+    preset.routingHint.balanced
+      ? t('settings.providers.routingBalanced', { model: getModelRoleLabel(preset.routingHint.balanced, t) })
+      : '',
+    preset.routingHint.pro
+      ? t('settings.providers.routingPro', { model: getModelRoleLabel(preset.routingHint.pro, t) })
+      : '',
+  ].filter(Boolean)
+  return segments.length > 0 ? segments.join(' · ') : null
+}
+
+type BaseUrlNotice = {
+  tone: 'neutral' | 'warning'
+  text: string
+}
+
+function formatEndpointPreview(baseUrl: string, apiFormat: ApiFormat): string | null {
+  const base = baseUrl.trim().replace(/\/+$/, '')
+  if (!base) return null
+  const isVersionedBase = /\/v\d+$/i.test(base)
+  if (apiFormat === 'openai_chat') {
+    return `${base}${isVersionedBase ? '' : '/v1'}/chat/completions`
+  }
+  if (apiFormat === 'openai_responses') {
+    return `${base}${isVersionedBase ? '' : '/v1'}/responses`
+  }
+  if (apiFormat === 'anthropic') {
+    return `${base}/v1/messages`
+  }
+  return null
+}
+
+function getBaseUrlNotice(baseUrl: string, apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): BaseUrlNotice | null {
+  const normalized = baseUrl.trim().replace(/\/+$/, '').toLowerCase()
+  if (!normalized || apiFormat === 'chatgpt_codex') return null
+
+  if (apiFormat === 'openai_chat' && normalized.endsWith('/chat/completions')) {
+    return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullOpenaiChat') }
+  }
+  if (apiFormat === 'openai_responses' && normalized.endsWith('/responses')) {
+    return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullOpenaiResponses') }
+  }
+  if (apiFormat === 'anthropic' && normalized.endsWith('/v1/messages')) {
+    return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullAnthropic') }
+  }
+
+  const preview = formatEndpointPreview(baseUrl, apiFormat)
+  if (!preview) return null
+  return { tone: 'neutral', text: t('settings.providers.baseUrlResolvedEndpoint', { endpoint: preview }) }
 }
 
 function openExternalUrl(url: string) {
@@ -813,6 +967,12 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
     },
   ]
   const selectedApiFormatLabel = apiFormatItems.find((item) => item.value === apiFormat)?.label ?? t('settings.providers.apiFormatAnthropic')
+  const selectedCategoryLabel = formatPresetCategoryLabel(selectedPreset, t)
+  const selectedProtocolLabel = formatPresetProtocolLabel(selectedPreset, apiFormat, t)
+  const selectedAgentLabel = formatPresetAgentLabel(selectedPreset, apiFormat, t)
+  const selectedRoutingSummary = formatProviderRoutingSummary(selectedPreset, models, t)
+  const selectedRoutingRoleSummary = formatProviderRoutingRoleSummary(selectedPreset, t)
+  const baseUrlNotice = getBaseUrlNotice(baseUrl, apiFormat, t)
   const renderPresetButton = (preset: ProviderPreset) => (
     <button
       key={preset.id}
@@ -822,6 +982,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           ? 'border-[var(--color-brand)] bg-[var(--color-surface-container-high)] text-[var(--color-brand)] shadow-[var(--shadow-focus-ring)]'
           : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-hover)]'
       }`}
+      title={[formatPresetCategoryLabel(preset, t), formatPresetProtocolLabel(preset, preset.apiFormat, t)].filter(Boolean).join(' · ')}
     >
       {preset.name}
     </button>
@@ -937,11 +1098,48 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           </div>
         )}
 
+        <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selectedCategoryLabel && (
+              <span className="rounded bg-[var(--color-surface-container-high)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-text-tertiary)]">
+                {selectedCategoryLabel}
+              </span>
+            )}
+            <span className="rounded bg-[var(--color-surface-container-high)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-warning)]">
+              {selectedProtocolLabel}
+            </span>
+            <span className="rounded border border-[var(--color-success)]/20 bg-[var(--color-success)]/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-success)]">
+              {selectedAgentLabel}
+            </span>
+          </div>
+          {selectedRoutingSummary && (
+            <div className="mt-2 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
+              {selectedRoutingSummary}
+            </div>
+          )}
+          {selectedRoutingRoleSummary && (
+            <div className="mt-0.5 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
+              {selectedRoutingRoleSummary}
+            </div>
+          )}
+        </div>
+
         <Input label={t('settings.providers.name')} required value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.providers.namePlaceholder')} />
 
         <Input label={t('settings.providers.notes')} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('settings.providers.notesPlaceholder')} />
 
-        <Input label={t('settings.providers.baseUrl')} required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t('settings.providers.baseUrlPlaceholder')} />
+        <div>
+          <Input label={t('settings.providers.baseUrl')} required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t('settings.providers.baseUrlPlaceholder')} />
+          {baseUrlNotice && (
+            <p className={`mt-1 text-[11px] leading-5 ${
+              baseUrlNotice.tone === 'warning'
+                ? 'text-[var(--color-warning)]'
+                : 'text-[var(--color-text-tertiary)]'
+            }`}>
+              {baseUrlNotice.text}
+            </p>
+          )}
+        </div>
 
         {/* API Format */}
         {(isCustom || mode === 'edit') ? (
@@ -1923,8 +2121,8 @@ function AboutSettings() {
   return (
     <div className="w-full min-w-0 max-w-lg mx-auto flex flex-col items-center py-6">
       {/* Logo + App Name + Version */}
-      <img src="/app-icon.svg" alt="Claude Code GuGu" className="w-20 h-20 mb-4" />
-      <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Claude Code GuGu</h1>
+      <img src="/app-icon.svg" alt="Gugu Agent" className="w-20 h-20 mb-4" />
+      <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Gugu Agent</h1>
       {version && (
         <div className="mt-1 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
           <span>{t('settings.about.version')} {version}</span>

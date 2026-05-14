@@ -89,6 +89,26 @@ export async function handleSessionsApi(
       return await rewindSession(req, sessionId)
     }
 
+    if (subResource === 'checkpoints') {
+      if (req.method !== 'GET') {
+        return Response.json(
+          { error: 'METHOD_NOT_ALLOWED', message: `Method ${req.method} not allowed` },
+          { status: 405 }
+        )
+      }
+      return await getSessionCheckpoints(sessionId)
+    }
+
+    if (subResource === 'fork') {
+      if (req.method !== 'POST') {
+        return Response.json(
+          { error: 'METHOD_NOT_ALLOWED', message: `Method ${req.method} not allowed` },
+          { status: 405 }
+        )
+      }
+      return await forkSession(req, sessionId)
+    }
+
     if (subResource === 'slash-commands') {
       if (req.method !== 'GET') {
         return Response.json(
@@ -430,6 +450,35 @@ async function rewindSession(req: Request, sessionId: string): Promise<Response>
     : await executeSessionRewind(sessionId, body)
 
   return Response.json(result)
+}
+
+async function getSessionCheckpoints(sessionId: string): Promise<Response> {
+  const result = await sessionService.getSessionCheckpoints(sessionId)
+  return Response.json(result)
+}
+
+async function forkSession(req: Request, sessionId: string): Promise<Response> {
+  type ForkSessionBody = {
+    targetUserMessageId?: string
+    userMessageIndex?: number
+    expectedContent?: string
+  }
+  let body: ForkSessionBody
+  try {
+    body = (await req.json()) as ForkSessionBody
+  } catch {
+    throw ApiError.badRequest('Invalid JSON body')
+  }
+
+  if (
+    (typeof body.targetUserMessageId !== 'string' || body.targetUserMessageId.length === 0) &&
+    !Number.isInteger(body.userMessageIndex)
+  ) {
+    throw ApiError.badRequest('targetUserMessageId (string) or userMessageIndex (integer) is required')
+  }
+
+  const result = await sessionService.forkSessionFromMessage(sessionId, body)
+  return Response.json(result, { status: 201 })
 }
 
 async function patchSession(req: Request, sessionId: string): Promise<Response> {
