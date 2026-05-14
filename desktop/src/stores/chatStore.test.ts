@@ -189,6 +189,35 @@ describe('chatStore history mapping', () => {
     expect(mapped[3]).toMatchObject({ parentToolUseId: 'agent-1' })
   })
 
+  it('localizes restored English thinking after a Chinese user prompt', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: '粗略看下这个文件',
+      },
+      {
+        id: 'assistant-1',
+        type: 'assistant',
+        timestamp: '2026-04-06T00:00:01.000Z',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'The user wants me to look at the attached PDF file. Let me inspect the parsed attachment results.',
+          },
+        ],
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped[1]).toMatchObject({
+      type: 'thinking',
+      content: '正在结合附件解析结果梳理文件内容。',
+    })
+  })
+
   it('merges consecutive assistant text blocks when restoring transcript history', () => {
     const messages: MessageEntry[] = [
       {
@@ -669,6 +698,60 @@ describe('chatStore history mapping', () => {
         content: '模型长时间没有返回内容，已中止本轮以恢复会话。',
       },
     ])
+  })
+
+  it('localizes live English thinking for Chinese prompts and avoids duplicate spam', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '粗略看下这个文件',
+          timestamp: 1,
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: 'The user wants me to inspect the attached PDF file and OCR parsing results.',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: 'Looking at the attachment parsing results, this appears to be a datasheet PDF.',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages).toMatchObject([
+      { type: 'user_text', content: '粗略看下这个文件' },
+      { type: 'thinking', content: '正在结合附件解析结果梳理文件内容。' },
+    ])
+  })
+
+  it('keeps live Chinese thinking text intact', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '这是什么',
+          timestamp: 1,
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: '我需要先查看附件解析结果。',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages[session.messages.length - 1]).toMatchObject({
+      type: 'thinking',
+      content: '我需要先查看附件解析结果。',
+    })
   })
 
   it('strips hidden CE workflow preamble when restoring user transcript history', () => {

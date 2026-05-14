@@ -52,7 +52,7 @@ export type WorkbenchAttachmentPreview = {
   mimeType?: string
   data?: string
   kind: AttachmentPreviewKind
-  parserMethod?: 'vision' | 'ocr' | 'file-parser'
+  parserMethod?: 'vision' | 'ocr' | 'file-parser' | 'local-text'
   parsedMarkdown?: string
   promptText?: string
   timestamp: number

@@ -110,34 +110,34 @@
 
 /* ─── Tailwind Theme Override (GuGu squirrel skin) ─── */
 @theme {
-  --color-primary: #95542D;
-  --color-primary-container: #C8753F;
-  --color-primary-fixed: #FFE5B8;
-  --color-primary-fixed-dim: #FFC978;
+  --color-primary: #8A4D2B;
+  --color-primary-container: #B76435;
+  --color-primary-fixed: #FFE4B8;
+  --color-primary-fixed-dim: #F6C177;
 
   --color-on-primary: #FFFFFF;
-  --color-on-surface: #2A1A10;
-  --color-on-surface-variant: #6A4B35;
+  --color-on-surface: #241A14;
+  --color-on-surface-variant: #6B5848;
 
-  --color-surface: #FFF8DE;
-  --color-surface-bright: #FFFBEA;
-  --color-surface-dim: #E8D9B4;
-  --color-surface-container: #F8E8BF;
-  --color-surface-container-low: #FFF0C9;
-  --color-surface-container-high: #EFD7A8;
-  --color-surface-container-highest: #E5C991;
-  --color-surface-container-lowest: #FFFFFF;
-  --color-surface-variant: #F0D9AA;
+  --color-surface: #FCF7EC;
+  --color-surface-bright: #FFFDF7;
+  --color-surface-dim: #E5D8C7;
+  --color-surface-container: #F3E7D6;
+  --color-surface-container-low: #FFF7E9;
+  --color-surface-container-high: #E9D8C0;
+  --color-surface-container-highest: #DCC6AA;
+  --color-surface-container-lowest: #FFFDF8;
+  --color-surface-variant: #E9D9C2;
 
-  --color-background: #FFF7D1;
+  --color-background: #F8F1E2;
 
-  --color-outline: #A47755;
-  --color-outline-variant: #E8C79A;
+  --color-outline: #927154;
+  --color-outline-variant: #DFC5A1;
 
-  --color-secondary: #D86F86;
-  --color-secondary-container: #FFD4DC;
-  --color-tertiary: #6C7B3F;
-  --color-tertiary-container: #D9E6A8;
+  --color-secondary: #A85563;
+  --color-secondary-container: #F8D8DE;
+  --color-tertiary: #587545;
+  --color-tertiary-container: #DCE8C4;
 
   --color-error: #BA1A1A;
   --color-error-container: #FFDAD6;
@@ -150,10 +150,10 @@
   --color-success: #16A34A;
   --color-warning: #D99A18;
 
-  --font-headline: 'Manrope', sans-serif;
-  --font-body: 'Inter', sans-serif;
-  --font-label: 'Inter', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-headline: 'Manrope', 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  --font-body: 'Inter', 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans SC', 'Segoe UI', sans-serif;
+  --font-label: 'Inter', 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
 }
 
 /* ─── Semantic Aliases (used by layout & infrastructure components) ── */
@@ -170,22 +170,23 @@
   --motion-sidebar-easing: cubic-bezier(0.22, 1, 0.36, 1);
 
   /* Surface aliases */
-  --color-surface-sidebar: var(--color-surface-container-low);
-  --color-surface-hover: var(--color-surface-container-high);
-  --color-surface-selected: var(--color-surface-container);
-  --color-model-option-selected-bg: var(--color-primary-fixed);
-  --color-model-option-selected-border: rgba(149, 84, 45, 0.24);
+  --color-surface-sidebar: #F6E8D1;
+  --color-surface-hover: rgba(138, 77, 43, 0.08);
+  --color-surface-selected: rgba(255, 255, 255, 0.68);
+  --color-model-option-selected-bg: #FFE3AF;
+  --color-model-option-selected-border: rgba(138, 77, 43, 0.28);
   --color-sidebar-filter-bg: transparent;
-  --color-sidebar-filter-border: rgba(232, 199, 154, 0.92);
+  --color-sidebar-filter-border: rgba(209, 174, 128, 0.72);
   --color-sidebar-filter-icon-bg: transparent;
-  --color-sidebar-search-bg: rgba(255, 252, 238, 0.82);
-  --color-sidebar-search-border: rgba(232, 199, 154, 0.88);
-  --color-sidebar-item-hover: rgba(255, 232, 188, 0.72);
-  --color-sidebar-item-active: rgba(255, 226, 174, 0.86);
-  --color-sidebar-item-active-border: rgba(149, 84, 45, 0.16);
+  --color-sidebar-search-bg: rgba(255, 253, 248, 0.7);
+  --color-sidebar-search-border: rgba(209, 174, 128, 0.68);
+  --color-sidebar-item-hover: rgba(255, 245, 226, 0.86);
+  --color-sidebar-item-active: rgba(255, 235, 198, 0.9);
+  --color-sidebar-item-active-border: rgba(138, 77, 43, 0.18);
   --sidebar-panel-bg-image:
-    radial-gradient(circle at 24% 12%, rgba(216, 111, 134, 0.12), transparent 26%),
-    radial-gradient(circle at 82% 0%, rgba(255, 201, 120, 0.32), transparent 32%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 34%),
+    radial-gradient(circle at 24% 12%, rgba(168, 85, 99, 0.08), transparent 24%),
+    radial-gradient(circle at 82% 0%, rgba(246, 193, 119, 0.22), transparent 30%);
 
   /* Border aliases */
   --color-border: var(--color-outline-variant);
@@ -205,11 +206,11 @@
   --color-text-accent: var(--color-secondary);
 
   /* Shadows */
-  --shadow-dropdown: 0 4px 20px rgba(27, 28, 26, 0.04), 0 12px 40px rgba(27, 28, 26, 0.08);
+  --shadow-dropdown: 0 10px 28px rgba(50, 37, 26, 0.08), 0 24px 60px rgba(50, 37, 26, 0.12);
   --shadow-sidebar-filter: none;
-  --shadow-focus-ring: 0 0 0 1px rgba(149, 84, 45, 0.2);
+  --shadow-focus-ring: 0 0 0 1px rgba(138, 77, 43, 0.24), 0 0 0 4px rgba(246, 193, 119, 0.16);
   --shadow-error-ring: 0 0 0 1px rgba(186, 26, 26, 0.18);
-  --shadow-button-primary: 0 10px 26px rgba(149, 84, 45, 0.22);
+  --shadow-button-primary: 0 12px 28px rgba(138, 77, 43, 0.22);
 
   /* Button colors */
   --color-btn-primary-fg: var(--color-on-primary);
@@ -217,15 +218,15 @@
   --gradient-btn-primary-hover: linear-gradient(135deg, var(--color-primary-container), var(--color-primary));
 
   /* User message bubble */
-  --color-surface-user-msg: #FFF0C9;
+  --color-surface-user-msg: #FFF0CB;
 
   /* Glass / overlays */
   --color-overlay-scrim: rgba(27, 28, 26, 0.48);
-  --color-surface-glass: rgba(255, 249, 223, 0.86);
-  --color-surface-glass-border: rgba(232, 199, 154, 0.34);
+  --color-surface-glass: rgba(255, 253, 248, 0.82);
+  --color-surface-glass-border: rgba(209, 174, 128, 0.32);
 
   /* Code + diff */
-  --color-code-bg: #FFFDF2;
+  --color-code-bg: #FFFDF8;
   --color-code-fg: #2A1A10;
   --color-code-comment: #7C6A55;
   --color-code-string: #5B7A2A;
@@ -249,9 +250,9 @@
   --color-diff-removed-text: #CF222E;
   --color-diff-highlight-bg: #FFF5D6;
   --color-diff-highlight-gutter: #FFECB3;
-  --color-diff-title-bg: #FFF0C9;
-  --color-diff-title-color: #A47755;
-  --color-diff-title-border: #E8C79A;
+  --color-diff-title-bg: #FFF7E9;
+  --color-diff-title-color: #927154;
+  --color-diff-title-border: #DFC5A1;
 
   /* Terminal */
   --color-terminal-header: #2D2D2D;
@@ -435,6 +436,9 @@ html, body, #root {
   font-family: var(--font-body);
   color: var(--color-on-surface);
   background-color: var(--color-background);
+  font-size: 14px;
+  line-height: 1.45;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

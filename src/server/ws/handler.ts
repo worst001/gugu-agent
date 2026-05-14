@@ -25,7 +25,7 @@ import {
   AttachmentParserError,
   attachmentParserService,
 } from '../services/attachmentParserService.js'
-import { deriveTitle, generateTitle, saveAiTitle } from '../services/titleService.js'
+import { deriveTitle, generateTitle, getTitleInputText, saveAiTitle } from '../services/titleService.js'
 import { parseSlashCommand } from '../../utils/slashCommandParsing.js'
 import {
   LOCAL_COMMAND_STDERR_TAG,
@@ -598,10 +598,11 @@ async function handleUserMessage(
     titleState = { userMessageCount: 0, hasCustomTitle: false, firstUserMessage: '', allUserMessages: [] }
     sessionTitleState.set(sessionId, titleState)
   }
+  const titleInputText = getTitleInputText(message.content)
   titleState.userMessageCount++
-  titleState.allUserMessages.push(message.content)
+  titleState.allUserMessages.push(titleInputText)
   if (titleState.userMessageCount === 1) {
-    titleState.firstUserMessage = message.content
+    titleState.firstUserMessage = titleInputText
   }
 
   // Register the callback before sending the turn so startup errors are not lost.

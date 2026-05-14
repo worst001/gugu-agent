@@ -54,6 +54,32 @@ describe('AttachmentParserService', () => {
     }])).rejects.toBeInstanceOf(AttachmentParserError)
   })
 
+  test('parses markdown files locally without a GLM key or network call', async () => {
+    let called = false
+    const service = new AttachmentParserService(async () => {
+      called = true
+      return jsonResponse({ content: 'should not be used' })
+    })
+    await service.updateConfig({ enabled: true, apiKey: '' })
+
+    const result = await service.prepareMessageContent('看下这个文件', 'session-1', [{
+      type: 'file',
+      name: 'PLAN.md',
+      data: Buffer.from('# Plan\n\n- 第一阶段\n- 第二阶段', 'utf8').toString('base64'),
+      mimeType: 'text/markdown',
+    }])
+
+    expect(called).toBe(false)
+    expect(result.usedParser).toBe(true)
+    expect(result.attachments).toBeUndefined()
+    expect(result.content).toContain('# Plan')
+    expect(result.preview?.results[0]).toMatchObject({
+      name: 'PLAN.md',
+      method: 'local-text',
+      markdown: '# Plan\n\n- 第一阶段\n- 第二阶段',
+    })
+  })
+
   test('parses image attachments with glm-5v-turbo and removes raw attachments for the CLI', async () => {
     const calls: Array<{ url: string; body: unknown }> = []
     const service = new AttachmentParserService(async (url, init) => {
@@ -132,7 +158,7 @@ describe('AttachmentParserService', () => {
     expect(result.preview?.results[0]?.method).toBe('ocr')
   })
 
-  test('parses office and text files with the GLM sync file parser', async () => {
+  test('parses office files with the GLM sync file parser', async () => {
     const calls: Array<{ url: string; body: unknown }> = []
     const service = new AttachmentParserService(async (url, init) => {
       calls.push({ url: String(url), body: init?.body })

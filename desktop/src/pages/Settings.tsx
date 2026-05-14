@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, useRef, type FormEvent, type ReactNode } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useProviderStore } from '../stores/providerStore'
-import { useTranslation } from '../i18n'
+import { useTranslation, type TranslationKey } from '../i18n'
 import { Modal } from '../components/shared/Modal'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { Input } from '../components/shared/Input'
@@ -34,6 +34,8 @@ import { isTauriRuntime } from '../lib/desktopRuntime'
 import { attachmentParserApi } from '../api/attachmentParser'
 import type { AttachmentParserConfig, AttachmentParserTestResult } from '../types/attachmentParser'
 import { ConfigBackupSettings } from './ConfigBackupSettings'
+import { useBillingStore } from '../stores/billingStore'
+import type { BillingStatus } from '../types/billing'
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -66,6 +68,7 @@ export function Settings() {
             <TabButton icon="mouse" label={t('settings.tab.computerUse')} active={activeTab === 'computerUse'} onClick={() => setActiveTab('computerUse')} />
           </div>
           <div className="border-t border-[var(--color-border)]/40 pt-1">
+            <TabButton icon="workspace_premium" label={t('settings.tab.billing')} active={activeTab === 'billing'} onClick={() => setActiveTab('billing')} />
             <TabButton icon="info" label={t('settings.tab.about')} active={activeTab === 'about'} onClick={() => setActiveTab('about')} />
           </div>
         </div>
@@ -84,6 +87,7 @@ export function Settings() {
           {activeTab === 'skills' && <SkillSettings />}
           {activeTab === 'plugins' && <PluginSettings />}
           {activeTab === 'computerUse' && <ComputerUseSettings />}
+          {activeTab === 'billing' && <BillingSettings />}
           {activeTab === 'about' && <AboutSettings />}
         </div>
       </div>

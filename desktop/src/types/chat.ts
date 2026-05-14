@@ -47,7 +47,7 @@ export type UIAttachment = {
   mimeType?: string
 }
 
-export type AttachmentParserMethod = 'vision' | 'ocr' | 'file-parser'
+export type AttachmentParserMethod = 'vision' | 'ocr' | 'file-parser' | 'local-text'
 
 export type AttachmentParserPreviewResult = {
   name: string

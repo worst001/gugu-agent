@@ -23,6 +23,7 @@ import { handleMcpApi } from './api/mcp.js'
 import { handlePromptOptimizeApi } from './api/prompt-optimize.js'
 import { handleAttachmentParserApi } from './api/attachment-parser.js'
 import { handleConfigBackupApi } from './api/config-backup.js'
+import { handleBillingApi } from './api/billing.js'
 
 export async function handleApiRequest(req: Request, url: URL): Promise<Response> {
   const path = url.pathname
@@ -102,6 +103,9 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
 
     case 'config-backup':
       return handleConfigBackupApi(req, url, segments)
+
+    case 'billing':
+      return handleBillingApi(req, url, segments)
 
     case 'filesystem':
       return handleFilesystemRoute(url.pathname, url)

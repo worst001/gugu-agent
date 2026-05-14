@@ -442,6 +442,11 @@ export class SessionService {
   }
 
   private stripHiddenPromptScaffolding(text: string): string {
+    const attachmentMatch = text.match(/<用户正文>\s*([\s\S]*?)\s*<\/用户正文>/)
+    if (attachmentMatch?.[1]?.trim()) {
+      return this.stripHiddenPromptScaffolding(attachmentMatch[1])
+    }
+
     const markerMatch = text.match(/(?:^|\n)User message:\s*\n([\s\S]*)$/)
     if (markerMatch?.[1]?.trim()) {
       return markerMatch[1].trim()
@@ -458,6 +463,14 @@ export class SessionService {
     const text = this.getVisiblePromptText(content).replace(/\s+/g, ' ').trim()
     if (!text) return 'Attachment-only prompt'
     return text.length > 80 ? `${text.slice(0, 80)}...` : text
+  }
+
+  private cleanExtractedTitle(title: string): string | null {
+    const visible = this.stripHiddenPromptScaffolding(title).replace(/\s+/g, ' ').trim()
+    if (!visible || visible.startsWith('[Workflow:') || visible.includes('CE automation (binding)')) {
+      return null
+    }
+    return visible.length > 80 ? `${visible.slice(0, 80)}...` : visible
   }
 
   private assertExpectedPromptMatches(
@@ -753,7 +766,8 @@ export class SessionService {
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i]!
       if (e.type === 'custom-title' && e.customTitle) {
-        return e.customTitle
+        const title = this.cleanExtractedTitle(e.customTitle)
+        if (title) return title
       }
     }
 
@@ -761,7 +775,8 @@ export class SessionService {
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i]!
       if (e.type === 'ai-title' && e.aiTitle) {
-        return e.aiTitle as string
+        const title = this.cleanExtractedTitle(e.aiTitle as string)
+        if (title) return title
       }
     }
 
@@ -779,7 +794,8 @@ export class SessionService {
           if (textBlock) text = textBlock.text as string
         }
         if (text) {
-          return text.length > 80 ? text.slice(0, 80) + '...' : text
+          const title = this.cleanExtractedTitle(text)
+          if (title) return title
         }
       }
     }

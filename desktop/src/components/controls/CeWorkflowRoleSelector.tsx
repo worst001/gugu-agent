@@ -98,7 +98,7 @@ export function CeWorkflowRoleSelector({ sessionKey, disabled = false }: Props) 
         type="button"
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
-        className="flex max-w-[280px] items-center gap-2 rounded-full bg-[var(--color-surface-container-low)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] ring-1 ring-[var(--color-brand)]/15 transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex max-w-[280px] items-center gap-2 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]/72 px-3.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] shadow-[0_1px_0_rgba(255,255,255,0.55)] transition-[background-color,border-color,box-shadow] hover:border-[var(--color-brand)]/28 hover:bg-[var(--color-surface-container-lowest)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--color-text-primary)]">
@@ -112,13 +112,13 @@ export function CeWorkflowRoleSelector({ sessionKey, disabled = false }: Props) 
       </button>
 
       {open && (
-        <div className="absolute right-0 bottom-full z-50 mb-2 w-[360px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] shadow-[var(--shadow-dropdown)]">
-          <div className="max-h-[420px] overflow-y-auto p-3">
-            <div className="mb-2 px-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-outline)]">
+        <div className="absolute right-0 bottom-full z-50 mb-2 w-[372px] overflow-hidden rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)] shadow-[var(--shadow-dropdown)]">
+          <div className="max-h-[420px] overflow-y-auto p-3.5">
+            <div className="mb-2 px-1 text-[10px] font-bold text-[var(--color-outline)]">
               {t('ceWorkflow.panelTitle')}
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {CE_WORKFLOW_ROLES.map((role) => {
                 const keys = ROLE_I18N[role.id]
                 if (!keys) return null
@@ -129,16 +129,16 @@ export function CeWorkflowRoleSelector({ sessionKey, disabled = false }: Props) 
                     type="button"
                     onClick={() => pick(role)}
                     className={`
-                      w-full rounded-lg border px-3 py-2.5 text-left transition-colors
+                      w-full rounded-xl border px-3.5 py-3 text-left transition-[background-color,border-color,box-shadow]
                       ${isSelected
-                        ? 'border-[var(--color-model-option-selected-border)] bg-[var(--color-model-option-selected-bg)]'
+                        ? 'border-[var(--color-model-option-selected-border)] bg-[var(--color-model-option-selected-bg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]'
                         : 'border-transparent hover:bg-[var(--color-surface-hover)]'
                       }
                     `}
                   >
                     <div className="flex items-start gap-3">
                       <div className={`mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2 ${
-                        isSelected ? 'border-[var(--color-brand)]' : 'border-[var(--color-outline)]'
+                        isSelected ? 'border-[var(--color-brand)]' : 'border-[var(--color-outline)]/72'
                       }`}>
                         {isSelected && (
                           <div className="h-2 w-2 rounded-full bg-[var(--color-brand)]" />
@@ -146,13 +146,13 @@ export function CeWorkflowRoleSelector({ sessionKey, disabled = false }: Props) 
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                        <div className="truncate text-[13px] font-semibold text-[var(--color-text-primary)]">
                           {t(keys.label)}
                         </div>
-                        <div className="mt-0.5 truncate text-[10px] text-[var(--color-text-tertiary)]">
+                        <div className="mt-0.5 truncate text-[10px] font-medium text-[var(--color-text-tertiary)]">
                           {t(keys.tag)}
                         </div>
-                        <div className="mt-1 text-[10px] leading-snug text-[var(--color-text-secondary)]">
+                        <div className="mt-1 text-[10px] leading-[1.45] text-[var(--color-text-secondary)]">
                           {t(keys.description)}
                         </div>
                         <div className="mt-1.5 truncate font-mono text-[9px] text-[var(--color-text-tertiary)]">

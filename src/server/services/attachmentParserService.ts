@@ -11,6 +11,46 @@ const DEFAULT_SUMMARIZE_MODEL = 'glm-5.1'
 const SUMMARY_THRESHOLD_CHARS = 24_000
 const SUMMARY_TARGET_CHARS = 12_000
 const MAX_ATTACHMENT_TEXT_CHARS = 60_000
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  'txt',
+  'md',
+  'markdown',
+  'csv',
+  'json',
+  'jsonl',
+  'yaml',
+  'yml',
+  'toml',
+  'xml',
+  'html',
+  'htm',
+  'css',
+  'js',
+  'jsx',
+  'ts',
+  'tsx',
+  'py',
+  'rs',
+  'go',
+  'java',
+  'c',
+  'cc',
+  'cpp',
+  'h',
+  'hpp',
+  'cs',
+  'php',
+  'rb',
+  'sh',
+  'ps1',
+  'bat',
+  'cmd',
+  'sql',
+  'log',
+  'ini',
+  'conf',
+  'env',
+])
 
 export type AttachmentParserConfig = {
   enabled: boolean
@@ -68,7 +108,7 @@ type ParsedAttachment = {
   markdown: string
 }
 
-type ParsedAttachmentMethod = 'vision' | 'ocr' | 'file-parser'
+type ParsedAttachmentMethod = 'vision' | 'ocr' | 'file-parser' | 'local-text'
 
 type FetchLike = typeof fetch
 
@@ -186,14 +226,24 @@ export class AttachmentParserService {
       return { content, attachments, usedParser: false }
     }
 
-    if (!config.apiKey.trim()) {
-      throw new AttachmentParserError('请先在设置里配置 GLM API Key，才能解析图片或文件。')
-    }
-
-    const parsed: ParsedAttachment[] = []
+    const payloads: AttachmentPayload[] = []
     for (const attachment of attachments) {
       const payload = await this.readAttachmentPayload(sessionId, attachment)
       if (!payload) continue
+      payloads.push(payload)
+    }
+
+    if (payloads.length === 0) {
+      throw new AttachmentParserError('没有可解析的附件内容。请检查文件是否可读取后重试。')
+    }
+
+    const needsGlm = payloads.some((payload) => !isLocalTextPayload(payload))
+    if (needsGlm && !config.apiKey.trim()) {
+      throw new AttachmentParserError('请先在设置里配置 GLM API Key，才能解析图片、PDF 或 Office 文件。文本和 Markdown 文件可直接本地解析。')
+    }
+
+    const parsed: ParsedAttachment[] = []
+    for (const payload of payloads) {
       parsed.push(await this.parseAttachment(config, payload))
     }
 
@@ -307,6 +357,16 @@ export class AttachmentParserService {
     config: AttachmentParserConfig,
     payload: AttachmentPayload,
   ): Promise<ParsedAttachment> {
+    if (isLocalTextPayload(payload)) {
+      return {
+        name: payload.name,
+        type: payload.type,
+        mimeType: payload.mimeType,
+        method: 'local-text',
+        markdown: this.parseLocalText(payload),
+      }
+    }
+
     if (isImagePayload(payload)) {
       return {
         name: payload.name,
@@ -334,6 +394,10 @@ export class AttachmentParserService {
       method: 'file-parser',
       markdown: await this.parseWithFileParser(config, payload),
     }
+  }
+
+  private parseLocalText(payload: AttachmentPayload): string {
+    return assertParsedText(decodeTextPayload(payload.data), payload.name)
   }
 
   private async parseImageWithVision(
@@ -527,6 +591,11 @@ function inferMimeType(name: string, type: AttachmentRef['type']): string {
   if (lower.endsWith('.txt')) return 'text/plain'
   if (lower.endsWith('.md')) return 'text/markdown'
   if (lower.endsWith('.csv')) return 'text/csv'
+  if (lower.endsWith('.json')) return 'application/json'
+  if (lower.endsWith('.jsonl')) return 'application/x-ndjson'
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'application/yaml'
+  if (lower.endsWith('.toml')) return 'application/toml'
+  if (lower.endsWith('.xml')) return 'application/xml'
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html'
   if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -553,9 +622,44 @@ function isPdfPayload(payload: AttachmentPayload): boolean {
   return payload.mimeType === 'application/pdf' || payload.name.toLowerCase().endsWith('.pdf')
 }
 
+function isLocalTextPayload(payload: AttachmentPayload): boolean {
+  const mime = payload.mimeType.toLowerCase()
+  if (
+    mime.startsWith('text/') ||
+    mime.includes('markdown') ||
+    mime.includes('json') ||
+    mime === 'application/xml' ||
+    mime === 'text/xml' ||
+    mime.endsWith('+xml') ||
+    mime.includes('yaml') ||
+    mime.includes('toml') ||
+    mime.includes('javascript')
+  ) {
+    return looksLikeTextBuffer(payload.data)
+  }
+
+  const ext = payload.name.split('.').pop()?.toLowerCase() ?? ''
+  return TEXT_ATTACHMENT_EXTENSIONS.has(ext) && looksLikeTextBuffer(payload.data)
+}
+
+function looksLikeTextBuffer(data: Buffer): boolean {
+  if (data.length === 0) return false
+  const sample = data.subarray(0, Math.min(data.length, 8192))
+  let nullBytes = 0
+  for (const byte of sample) {
+    if (byte === 0) nullBytes += 1
+  }
+  return nullBytes / sample.length < 0.01
+}
+
+function decodeTextPayload(data: Buffer): string {
+  return data.toString('utf8').replace(/^\uFEFF/, '').trim()
+}
+
 function formatMethod(method: ParsedAttachment['method']): string {
   if (method === 'vision') return 'GLM-5V-Turbo'
   if (method === 'ocr') return 'GLM-OCR'
+  if (method === 'local-text') return '本地文本解析'
   return 'GLM 文件解析'
 }
 
