@@ -685,6 +685,28 @@ describe('Prompt optimization composer action', () => {
     resetPromptOptimizeSession()
   })
 
+  it('does not show JSON-like optimized text in the preview', async () => {
+    seedPromptOptimizeSession('prompt-optimize-json-guard')
+    vi.mocked(promptOptimizeApi.optimize).mockResolvedValueOnce({
+      optimizedText: '{"optimizedText":"构建一个简单网站，用于列出去年的热门动漫。","summary":"',
+      summary: 'Optimized prompt generated.',
+    })
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: '做个动漫网站', selectionStart: 6 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Optimize prompt' }))
+
+    expect(await screen.findByText('Could not optimize the prompt.')).toBeInTheDocument()
+    expect(screen.queryByText(/"optimizedText"/)).not.toBeInTheDocument()
+    expect(textarea).toHaveValue('做个动漫网站')
+
+    resetPromptOptimizeSession()
+  })
+
   it('asks whether to keep waiting when prompt optimization is slow', async () => {
     vi.useFakeTimers()
     seedPromptOptimizeSession('prompt-optimize-slow')

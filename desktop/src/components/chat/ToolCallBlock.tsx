@@ -9,6 +9,7 @@ import { InlineImageGallery } from './InlineImageGallery'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore, type WorkbenchTab } from '../../stores/workbenchStore'
 import type { AgentTaskNotification } from '../../types/chat'
+import { extractToolResultText, formatToolErrorText } from './toolResultDisplay'
 
 type Props = {
   toolUseId?: string
@@ -51,11 +52,11 @@ export function ToolCallBlock({ toolUseId, toolName, input, result, compact = fa
 
   const preview = useMemo(() => renderPreview(toolName, obj, result, t), [obj, result, toolName, t])
   const details = useMemo(() => renderDetails(toolName, obj, t), [obj, toolName, t])
-  const hasResultDetails = Boolean(result && extractTextContent(result.content))
+  const hasResultDetails = Boolean(result && getDisplayResultText(result))
   const expandable = toolName === 'Edit' || toolName === 'Write' || hasResultDetails
   const canOpenWorkbench = Boolean(activeTabId && toolUseId)
   const workbenchTab: WorkbenchTab =
-    toolName === 'Edit' || toolName === 'Write' || toolName === 'MultiEdit'
+    toolName === 'Edit' || toolName === 'Write' || toolName === 'MultiEdit' || toolName === 'NotebookEdit'
       ? 'diff'
       : 'preview'
 
@@ -169,7 +170,7 @@ function renderPreview(
   }
 
   if (result) {
-    const text = extractTextContent(result.content)
+    const text = getDisplayResultText(result)
     if (text) {
       return (
         <>
@@ -194,6 +195,12 @@ function renderPreview(
   }
 
   return null
+}
+
+function getDisplayResultText(result: { content: unknown; isError: boolean }): string {
+  return result.isError
+    ? formatToolErrorText(result.content)
+    : extractToolResultText(result.content)
 }
 
 function renderDetails(toolName: string, obj: Record<string, unknown>, t?: (key: TranslationKey, params?: Record<string, string | number>) => string) {
@@ -222,20 +229,11 @@ function getToolResultSummary(
   isError: boolean,
   t?: (key: TranslationKey, params?: Record<string, string | number>) => string,
 ): string {
-  const text = extractTextContent(content)
+  const text = isError ? formatToolErrorText(content) : extractToolResultText(content)
   if (!text) return ''
 
   if (isError) {
-    const firstLine = text
-      .split('\n')
-      .map((line) => stripAnsi(line).replace(/\s+/g, ' ').trim())
-      .find(Boolean)
-
-    if (!firstLine) {
-      return t?.('tool.error') ?? 'Error'
-    }
-
-    return firstLine.length <= 72 ? firstLine : `${firstLine.slice(0, 72)}…`
+    return text.length <= 72 ? text : `${text.slice(0, 72)}…`
   }
 
   if (toolName === 'Bash') return ''
@@ -249,10 +247,6 @@ function getToolResultSummary(
   if (!compact) return ''
   if (compact.length <= 36) return compact
   return `${compact.slice(0, 36)}…`
-}
-
-function stripAnsi(value: string): string {
-  return value.replace(/\x1B\[[0-9;]*m/g, '')
 }
 
 function getToolFilePath(input: Record<string, unknown>): string {
@@ -290,20 +284,6 @@ function getToolSummary(toolName: string, obj: Record<string, unknown>, t?: (key
     default:
       return ''
   }
-}
-
-function extractTextContent(content: unknown): string | null {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((chunk: any) => (typeof chunk === 'string' ? chunk : chunk?.text || ''))
-      .filter(Boolean)
-      .join('\n')
-  }
-  if (content && typeof content === 'object') {
-    return JSON.stringify(content, null, 2)
-  }
-  return null
 }
 
 function changedLineSummary(oldString: string, newString: string, t?: (key: TranslationKey, params?: Record<string, string | number>) => string): string {

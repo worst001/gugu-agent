@@ -184,8 +184,9 @@ export class AttachmentParserService {
       const body = await this.postJson(config, '/chat/completions', {
         model: config.summarizeModel,
         stream: false,
+        thinking: { type: 'disabled' },
         temperature: 0,
-        max_tokens: 16,
+        max_tokens: 64,
         messages: [{ role: 'user', content: 'Say "ok" and nothing else.' }],
       })
       const text = extractOpenAiText(body)

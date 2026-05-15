@@ -231,6 +231,20 @@ export function parsePromptOptimizeModelText(modelText: string): PromptOptimizeR
         summary: summary || 'Optimized prompt generated.',
       }
     }
+    throw new ApiError(502, 'Prompt optimization returned malformed JSON', 'UPSTREAM_ERROR')
+  }
+
+  const optimizedText = extractJsonStringField(text, 'optimizedText')?.trim() ?? ''
+  if (optimizedText) {
+    const summary = extractJsonStringField(text, 'summary')?.trim() ?? ''
+    return {
+      optimizedText,
+      summary: summary || 'Optimized prompt generated.',
+    }
+  }
+
+  if (looksLikePromptOptimizeJson(text)) {
+    throw new ApiError(502, 'Prompt optimization returned malformed JSON', 'UPSTREAM_ERROR')
   }
 
   return {
@@ -270,4 +284,24 @@ function extractObjectJson(text: string): string | null {
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) return null
   return text.slice(start, end + 1)
+}
+
+function extractJsonStringField(text: string, fieldName: string): string | null {
+  const escapedName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = text.match(new RegExp(`"${escapedName}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)`, 's'))
+  if (!match) return null
+
+  try {
+    return JSON.parse(`"${match[1]}"`) as string
+  } catch {
+    return match[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+  }
+}
+
+function looksLikePromptOptimizeJson(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  if (/^```(?:json)?\s*[{[]/i.test(trimmed)) return true
+  if (/^[{[]/.test(trimmed)) return true
+  return /"(optimizedText|summary)"\s*:/.test(trimmed)
 }

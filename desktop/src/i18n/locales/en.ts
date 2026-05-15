@@ -964,6 +964,8 @@
   'tool.linesOutput': '{count} lines output',
   'tool.result': '{toolName} result',
   'tool.resultGeneric': 'Tool result',
+  'tool.callFailed': 'Tool call failed',
+  'tool.rawError': 'Raw error',
   'tool.error': 'ERROR',
   'tool.success': 'SUCCESS',
   'tool.showLess': 'Show less',

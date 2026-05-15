@@ -177,4 +177,22 @@ describe('parsePromptOptimizeModelText', () => {
       summary: 'Why',
     })
   })
+
+  test('extracts optimizedText from truncated JSON-like output', () => {
+    expect(parsePromptOptimizeModelText('{"optimizedText":"构建一个简单网站，用于列出去年的热门动漫。","summary":"')).toEqual({
+      optimizedText: '构建一个简单网站，用于列出去年的热门动漫。',
+      summary: 'Optimized prompt generated.',
+    })
+  })
+
+  test('keeps plain text fallback for non-JSON model output', () => {
+    expect(parsePromptOptimizeModelText('Please implement this with focused tests.')).toEqual({
+      optimizedText: 'Please implement this with focused tests.',
+      summary: 'Optimized prompt generated.',
+    })
+  })
+
+  test('rejects JSON-like output without an optimized prompt instead of exposing raw JSON', () => {
+    expect(() => parsePromptOptimizeModelText('{"summary":"Only summary"}')).toThrow('malformed JSON')
+  })
 })

@@ -249,6 +249,43 @@ describe('MessageList nested tool calls', () => {
     expect(renderItems[0]).toMatchObject({ kind: 'tool_group' })
   })
 
+  it('hides unavailable WebSearch tool calls and results from the chat render model', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'tool-search',
+        type: 'tool_use',
+        toolName: 'WebSearch',
+        toolUseId: 'search-1',
+        input: { query: 'latest anime rankings' },
+        timestamp: 1,
+      },
+      {
+        id: 'result-search',
+        type: 'tool_result',
+        toolUseId: 'search-1',
+        content: '<tool_use_error>Error: No such tool available: WebSearch</tool_use_error>',
+        isError: true,
+        timestamp: 2,
+      },
+      {
+        id: 'assistant-follow-up',
+        type: 'assistant_text',
+        content: '我会改用已有信息继续。',
+        timestamp: 3,
+      },
+    ]
+
+    const { renderItems, toolResultMap } = buildRenderModel(messages)
+
+    expect(toolResultMap.has('search-1')).toBe(false)
+    expect(renderItems).toEqual([
+      {
+        kind: 'message',
+        message: messages[2],
+      },
+    ])
+  })
+
   it('shows failed agent status and compact unavailable summary for Explore launch errors', () => {
     useChatStore.setState({
       sessions: {

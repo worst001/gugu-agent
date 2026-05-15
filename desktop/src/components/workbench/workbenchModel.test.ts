@@ -53,6 +53,44 @@ describe('buildWorkbenchModel', () => {
         isError: false,
         timestamp: 5,
       },
+      {
+        id: 'tool-multi',
+        type: 'tool_use',
+        toolName: 'MultiEdit',
+        toolUseId: 'multi-1',
+        input: {
+          file_path: 'src/App.tsx',
+          edits: [
+            { old_string: 'title', new_string: 'heading' },
+            { old_string: 'GuGu', new_string: 'Claude Code GuGu' },
+          ],
+        },
+        timestamp: 6,
+      },
+      {
+        id: 'tool-notebook',
+        type: 'tool_use',
+        toolName: 'NotebookEdit',
+        toolUseId: 'notebook-1',
+        input: {
+          notebook_path: 'analysis.ipynb',
+          cell_id: 'cell-a',
+          new_source: 'print("after")',
+          edit_mode: 'replace',
+        },
+        timestamp: 7,
+      },
+      {
+        id: 'result-notebook',
+        type: 'tool_result',
+        toolUseId: 'notebook-1',
+        content: {
+          original_file: '{"cells":[{"source":"print(\\"before\\")"}]}',
+          updated_file: '{"cells":[{"source":"print(\\"after\\")"}]}',
+        },
+        isError: false,
+        timestamp: 8,
+      },
     ]
 
     const model = buildWorkbenchModel(messages)
@@ -61,13 +99,17 @@ describe('buildWorkbenchModel', () => {
       'Write',
       'Edit',
       'Bash',
+      'MultiEdit',
+      'NotebookEdit',
     ])
     expect(model.activities.map((activity) => activity.status)).toEqual([
       'done',
       'running',
       'done',
+      'running',
+      'done',
     ])
-    expect(model.fileChanges).toHaveLength(2)
+    expect(model.fileChanges).toHaveLength(4)
     expect(model.fileChanges[0]).toMatchObject({
       kind: 'created',
       filePath: 'src/App.tsx',
@@ -78,6 +120,18 @@ describe('buildWorkbenchModel', () => {
       filePath: 'src/App.tsx',
       oldText: 'GuGu',
       newText: 'Claude Code GuGu',
+    })
+    expect(model.fileChanges[2]).toMatchObject({
+      kind: 'multi_edit',
+      filePath: 'src/App.tsx',
+      oldText: 'title\n\n...\n\nGuGu',
+      newText: 'heading\n\n...\n\nClaude Code GuGu',
+    })
+    expect(model.fileChanges[3]).toMatchObject({
+      kind: 'notebook_edit',
+      filePath: 'analysis.ipynb',
+      oldText: '{"cells":[{"source":"print(\\"before\\")"}]}',
+      newText: '{"cells":[{"source":"print(\\"after\\")"}]}',
     })
     expect(model.previews.some((preview) => preview.content.includes('all tests passed'))).toBe(true)
   })
@@ -106,6 +160,41 @@ describe('buildWorkbenchModel', () => {
 
     expect(findSelectedFileChange(model, 'src/a.ts', null)?.toolUseId).toBe('edit-a')
     expect(findSelectedPreview(model, 'write-a', null)?.content).toBe('a')
+  })
+
+  it('hides unavailable WebSearch tool failures from workbench activity', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'tool-search',
+        type: 'tool_use',
+        toolName: 'WebSearch',
+        toolUseId: 'search-1',
+        input: { query: 'latest anime rankings' },
+        timestamp: 1,
+      },
+      {
+        id: 'result-search',
+        type: 'tool_result',
+        toolUseId: 'search-1',
+        content: '<tool_use_error>Error: No such tool available: WebSearch</tool_use_error>',
+        isError: true,
+        timestamp: 2,
+      },
+      {
+        id: 'tool-write',
+        type: 'tool_use',
+        toolName: 'Write',
+        toolUseId: 'write-1',
+        input: { file_path: 'index.html', content: '<!DOCTYPE html>' },
+        timestamp: 3,
+      },
+    ]
+
+    const model = buildWorkbenchModel(messages)
+
+    expect(model.resultMap.has('search-1')).toBe(false)
+    expect(model.activities.map((activity) => activity.toolName)).toEqual(['Write'])
+    expect(model.fileChanges).toHaveLength(1)
   })
 
   it('extracts attachment previews with GLM parsed Markdown metadata', () => {

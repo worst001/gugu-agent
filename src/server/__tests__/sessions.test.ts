@@ -1085,6 +1085,58 @@ describe('Sessions API', () => {
     ])
   })
 
+  it('POST /api/sessions/:id/rewind should trust a stable message id when visible prompt text differs from the wire prompt', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-111111111111'
+    const firstUserId = crypto.randomUUID()
+    const targetUserId = crypto.randomUUID()
+    const targetAssistantId = crypto.randomUUID()
+    const wirePrompt = [
+      '[Workflow: standard delivery]',
+      'When scope is unclear, use /ce-plan first.',
+      '',
+      '--- CE automation (binding) ---',
+      'Preset "standard". Recommended Skill tool sequence: ce-plan.',
+      '',
+      '--- 用户可见语言要求 ---',
+      '用户正在使用中文。',
+      '',
+      'User message:',
+      '做个简单的网站，列出去年年度最受欢迎的动漫。',
+    ].join('\n')
+
+    await writeSessionFile('-tmp-api-rewind-id-wire-wrapper', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry('first prompt', firstUserId),
+      makeUserEntry(wirePrompt, targetUserId),
+      {
+        ...makeAssistantEntry('second reply', targetUserId),
+        uuid: targetAssistantId,
+      },
+    ])
+
+    const executeRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetUserMessageId: targetUserId,
+        userMessageIndex: 0,
+        expectedContent: '做个简单的网站，列出去年年度最受欢迎的动漫。',
+      }),
+    })
+
+    expect(executeRes.status).toBe(200)
+    const executeBody = await executeRes.json() as {
+      target: { targetUserMessageId: string; userMessageIndex: number }
+      conversation: { removedMessageIds: string[] }
+    }
+    expect(executeBody.target.targetUserMessageId).toBe(targetUserId)
+    expect(executeBody.target.userMessageIndex).toBe(1)
+    expect(executeBody.conversation.removedMessageIds).toEqual([
+      targetUserId,
+      targetAssistantId,
+    ])
+  })
+
   it('POST /api/sessions/:id/rewind should reject an index fallback when the selected prompt no longer matches', async () => {
     const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-000000000000'
     const firstUserId = crypto.randomUUID()
@@ -1120,6 +1172,35 @@ describe('Sessions API', () => {
       hiddenUserId,
       targetUserId,
     ])
+  })
+
+  it('POST /api/sessions/:id/rewind should compare index fallback against visible prompt text', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-222222222222'
+    const targetUserId = crypto.randomUUID()
+    const targetAssistantId = crypto.randomUUID()
+
+    await writeSessionFile('-tmp-api-rewind-index-visible-text', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry(
+        '[Workflow: standard delivery]\n\n--- CE automation (binding) ---\nPreset "standard".\n\nUser message:\n实现这个功能',
+        targetUserId,
+      ),
+      {
+        ...makeAssistantEntry('done', targetUserId),
+        uuid: targetAssistantId,
+      },
+    ])
+
+    const executeRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userMessageIndex: 0,
+        expectedContent: '实现这个功能',
+      }),
+    })
+
+    expect(executeRes.status).toBe(200)
   })
 
   it('GET /api/sessions/:id/checkpoints should return user turn metadata', async () => {

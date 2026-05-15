@@ -359,6 +359,16 @@ function getAgentRecoveryPrompt(message: string): string | null {
   return null
 }
 
+function isNonTerminalAgentRecovery(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false
+  const reason = (data as Record<string, unknown>).reason
+  return (
+    reason === 'model_stream_stalled' ||
+    reason === 'agent_connection_lost' ||
+    reason === 'agent_connection_restored'
+  )
+}
+
 function appendSystemMessage(
   messages: UIMessage[],
   content: string,
@@ -449,68 +459,56 @@ function stripHiddenUserPromptScaffolding(content: string): string {
   return stripped
 }
 
-function containsCjkText(text: string): boolean {
-  return /[\u3400-\u9fff\uf900-\ufaff]/u.test(text)
+const BRIEF_THINKING_STATUSES = new Set([
+  '正在分析上下文',
+  '正在理解问题',
+  '正在规划步骤',
+  '正在检查附件',
+  '正在检查代码',
+  '正在检查工具结果',
+  '正在整理回答',
+])
+
+function deriveBriefThinkingStatus(text: string): string {
+  const normalized = text.toLowerCase()
+  if (/附件|解析结果|attachment|uploaded|pdf|ocr|image|screenshot|file parser|parsed attachment/u.test(normalized)) {
+    return '正在检查附件'
+  }
+  if (/工具|命令|终端|报错|tool|bash|command|terminal|shell|grep|ripgrep|stdout|stderr|error/u.test(normalized)) {
+    return '正在检查工具结果'
+  }
+  if (/代码|测试|实现|修复|文件|code|implementation|bug|fix|test|diff|component|store|function/u.test(normalized)) {
+    return '正在检查代码'
+  }
+  if (/计划|步骤|方案|设计|plan|approach|next step|steps|design/u.test(normalized)) {
+    return '正在规划步骤'
+  }
+  if (/问题|回答|请求|user wants|request|question|answer|respond|reply/u.test(normalized)) {
+    return '正在理解问题'
+  }
+  if (/总结|整理|final|summary|compose|draft/u.test(normalized)) {
+    return '正在整理回答'
+  }
+  return '正在分析上下文'
 }
 
-function latestUserVisibleText(messages: UIMessage[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message?.type === 'user_text') return message.content
-  }
-  return ''
+function normalizeVisibleThinkingText(_messages: UIMessage[], text: string): string {
+  return text.trim() ? deriveBriefThinkingStatus(text) : ''
 }
 
-function shouldLocalizeVisibleThinking(messages: UIMessage[]): boolean {
-  return containsCjkText(latestUserVisibleText(messages))
+function appendThinkingContent(current: string, next: string): string {
+  if (!current) return next
+  if (!next) return current
+  if (/\s$/u.test(current) || /^\s/u.test(next)) return current + next
+  if (/[.!?。！？]$/u.test(current) && /^[A-Z0-9"'([{]/u.test(next)) {
+    return `${current} ${next}`
+  }
+  return current + next
 }
 
-function summarizeEnglishThinkingAsChinese(text: string): string {
-  const lower = text.toLowerCase()
-  if (
-    lower.includes('attachment') ||
-    lower.includes('pdf') ||
-    lower.includes('ocr') ||
-    lower.includes('parsed') ||
-    lower.includes('file')
-  ) {
-    return '正在结合附件解析结果梳理文件内容。'
-  }
-  if (
-    lower.includes('tool') ||
-    lower.includes('bash') ||
-    lower.includes('glob') ||
-    lower.includes('ripgrep') ||
-    lower.includes('command') ||
-    lower.includes('error')
-  ) {
-    return '正在检查工具执行结果，并尝试换一种方式继续。'
-  }
-  if (
-    lower.includes('user wants') ||
-    lower.includes('request') ||
-    lower.includes('question') ||
-    lower.includes('answer') ||
-    lower.includes('respond')
-  ) {
-    return '正在理解你的问题并整理回答。'
-  }
-  return '正在分析上下文并整理下一步。'
-}
-
-function normalizeVisibleThinkingText(messages: UIMessage[], text: string): string {
-  const trimmed = text.trim()
-  if (!trimmed) return ''
-  if (!shouldLocalizeVisibleThinking(messages)) return text
-  if (containsCjkText(trimmed)) return text
-  if (!/[a-z]/i.test(trimmed)) return text
-
-  const localized = summarizeEnglishThinkingAsChinese(trimmed)
-  const lastThinking = [...messages].reverse().find((message) => message.type === 'thinking')
-  if (lastThinking?.type === 'thinking' && lastThinking.content.includes(localized)) {
-    return ''
-  }
-  return localized
+function getRawThinkingContent(message: Extract<UIMessage, { type: 'thinking' }>): string {
+  if (message.rawContent !== undefined) return message.rawContent
+  return BRIEF_THINKING_STATUSES.has(message.content) ? '' : message.content
 }
 
 /** Helper: immutably update a specific session within the sessions record */
@@ -986,26 +984,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             if (last && last.type === 'thinking') {
               return { messages: base, chatState: 'thinking', activeThinkingId: last.id, streamingText: '' }
             }
-            const id = nextId()
-            return {
-              messages: [...base, { id, type: 'thinking', content: summarizeEnglishThinkingAsChinese(msg.text), timestamp: Date.now() }],
-              chatState: 'thinking',
-              activeThinkingId: id,
-              streamingText: '',
-            }
+            return { messages: base, chatState: 'thinking', activeThinkingId: null, streamingText: '' }
           }
           if (last && last.type === 'thinking') {
             const updated = [...base]
-            const separator =
-              last.content.endsWith('\n') || thinkingText.startsWith('\n')
-                ? ''
-                : '\n'
-            updated[updated.length - 1] = { ...last, content: last.content + separator + thinkingText }
+            const rawContent = appendThinkingContent(getRawThinkingContent(last), msg.text)
+            updated[updated.length - 1] = {
+              ...last,
+              content: deriveBriefThinkingStatus(rawContent),
+              rawContent,
+            }
             return { messages: updated, chatState: 'thinking', activeThinkingId: last.id, streamingText: '' }
           }
           const id = nextId()
           return {
-            messages: [...base, { id, type: 'thinking', content: thinkingText, timestamp: Date.now() }],
+            messages: [...base, { id, type: 'thinking', content: thinkingText, rawContent: msg.text, timestamp: Date.now() }],
             chatState: 'thinking',
             activeThinkingId: id,
             streamingText: '',
@@ -1201,6 +1194,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }))
         }
         if (msg.subtype === 'agent_recovery') {
+          if (isNonTerminalAgentRecovery(msg.data)) {
+            update((session) => ({
+              messages: appendSystemMessage(
+                session.messages,
+                typeof msg.message === 'string' && msg.message.trim()
+                  ? msg.message
+                  : 'Agent 仍在处理本轮请求。',
+                Date.now(),
+              ),
+            }))
+            break
+          }
+
           const session = get().sessions[sessionId]
           if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
           update((session) => ({
@@ -1469,7 +1475,7 @@ export function mapHistoryMessagesToUiMessages(
       for (const block of msg.content as AssistantHistoryBlock[]) {
         if (block.type === 'thinking' && block.thinking) {
           const thinking = normalizeVisibleThinkingText(uiMessages, block.thinking)
-          if (thinking) uiMessages.push({ id: nextId(), type: 'thinking', content: thinking, timestamp })
+          if (thinking) uiMessages.push({ id: nextId(), type: 'thinking', content: thinking, rawContent: block.thinking, timestamp })
         }
         else if (block.type === 'text' && block.text) pushAssistantHistoryText(uiMessages, block.text, timestamp, msg.model)
         else if (block.type === 'tool_use') uiMessages.push({ id: nextId(), type: 'tool_use', toolName: block.name ?? 'unknown', toolUseId: block.id ?? '', input: block.input, timestamp, parentToolUseId: msg.parentToolUseId })

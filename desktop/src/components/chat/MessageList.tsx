@@ -23,6 +23,7 @@ import { InlineTaskSummary } from './InlineTaskSummary'
 import type { AgentTaskNotification, UIMessage } from '../../types/chat'
 import { Modal } from '../shared/Modal'
 import { Button } from '../shared/Button'
+import { isHiddenToolErrorContent } from './toolResultDisplay'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
@@ -55,6 +56,7 @@ export function buildRenderModel(messages: UIMessage[]): RenderModel {
   const toolResultMap = new Map<string, ToolResult>()
   const childToolCallsByParent = new Map<string, ToolCall[]>()
   const toolUseIds = new Set<string>()
+  const hiddenToolUseIds = new Set<string>()
   let pendingToolCalls: ToolCall[] = []
 
   const flushGroup = () => {
@@ -69,15 +71,29 @@ export function buildRenderModel(messages: UIMessage[]): RenderModel {
   }
 
   for (const msg of messages) {
+    if (msg.type === 'tool_result' && msg.isError && isHiddenToolErrorContent(msg.content)) {
+      hiddenToolUseIds.add(msg.toolUseId)
+    }
+  }
+
+  for (const msg of messages) {
     if (msg.type === 'tool_use') {
+      if (hiddenToolUseIds.has(msg.toolUseId)) continue
       toolUseIds.add(msg.toolUseId)
     }
     if (msg.type === 'tool_result') {
+      if (hiddenToolUseIds.has(msg.toolUseId)) continue
       toolResultMap.set(msg.toolUseId, msg)
     }
   }
 
   for (const msg of messages) {
+    if (
+      (msg.type === 'tool_use' || msg.type === 'tool_result') &&
+      hiddenToolUseIds.has(msg.toolUseId)
+    ) {
+      continue
+    }
     if (msg.type === 'tool_result' && toolUseIds.has(msg.toolUseId)) {
       continue
     }

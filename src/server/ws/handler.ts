@@ -100,6 +100,7 @@ const DEFAULT_TURN_PROGRESS_NOTICE_MS = 45_000
 const DEFAULT_TURN_PROGRESS_REMINDER_MS = 60_000
 const DEFAULT_MODEL_STALL_NOTICE_MS = 5 * 60_000
 const DEFAULT_SDK_LIVENESS_TIMEOUT_MS = 2 * 60_000
+const DEFAULT_SDK_RECONNECT_GRACE_MS = 10 * 60_000
 const DEFAULT_TOOL_STALL_NOTICE_MS = 5 * 60_000
 const DEFAULT_TOOL_IDLE_TIMEOUT_MS = 30 * 60_000
 
@@ -111,8 +112,10 @@ type TurnMonitor = {
   startedAt: number
   lastProgressAt: number
   lastKeepAliveAt: number
+  sdkDisconnectedAt: number | null
   nextNoticeAt: number
   modelStallNoticeSent: boolean
+  sdkDisconnectNoticeSent: boolean
   toolStallNoticeSent: boolean
   callback: (msg: any) => void
   timer: ReturnType<typeof setInterval> | null
@@ -198,8 +201,10 @@ function startTurnMonitor(sessionId: string): void {
     startedAt: now,
     lastProgressAt: now,
     lastKeepAliveAt: now,
+    sdkDisconnectedAt: conversationService.hasSdkConnection(sessionId) ? null : now,
     nextNoticeAt: now + getEnvMs('CC_HAHA_TURN_PROGRESS_NOTICE_MS', DEFAULT_TURN_PROGRESS_NOTICE_MS),
     modelStallNoticeSent: false,
+    sdkDisconnectNoticeSent: false,
     toolStallNoticeSent: false,
     callback: (msg: any) => noteTurnActivity(sessionId, msg),
     timer: null,
@@ -237,9 +242,13 @@ function noteTurnActivity(sessionId: string, cliMsg: any): void {
   const now = Date.now()
   if (cliMsg?.type === 'keep_alive') {
     monitor.lastKeepAliveAt = now
+    monitor.sdkDisconnectedAt = null
+    monitor.sdkDisconnectNoticeSent = false
     return
   }
 
+  monitor.sdkDisconnectedAt = null
+  monitor.sdkDisconnectNoticeSent = false
   monitor.lastProgressAt = now
   monitor.nextNoticeAt = now + getEnvMs('CC_HAHA_TURN_PROGRESS_NOTICE_MS', DEFAULT_TURN_PROGRESS_NOTICE_MS)
 
@@ -287,9 +296,12 @@ function tickTurnMonitor(sessionId: string): void {
 
   const now = Date.now()
   const noProgressMs = now - monitor.lastProgressAt
-  const noLivenessMs = now - Math.max(monitor.lastProgressAt, monitor.lastKeepAliveAt)
 
-  if (noLivenessMs >= getEnvMs('CC_HAHA_SDK_LIVENESS_TIMEOUT_MS', DEFAULT_SDK_LIVENESS_TIMEOUT_MS)) {
+  if (shouldRecoverForMissingAgentHeartbeat(
+    monitor,
+    now,
+    conversationService.hasSdkConnection(sessionId),
+  )) {
     recoverStalledTurn(sessionId, 'Agent 连接长时间没有心跳，已中止本轮以恢复会话。')
     return
   }
@@ -301,6 +313,16 @@ function tickTurnMonitor(sessionId: string): void {
       verb: getTurnStatusVerb(monitor.phase),
     })
     monitor.nextNoticeAt = now + getEnvMs('CC_HAHA_TURN_PROGRESS_REMINDER_MS', DEFAULT_TURN_PROGRESS_REMINDER_MS)
+  }
+
+  if (monitor.sdkDisconnectedAt !== null && !monitor.sdkDisconnectNoticeSent) {
+    monitor.sdkDisconnectNoticeSent = true
+    broadcastToSession(sessionId, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: 'Agent 连接暂时中断，正在等待自动重连。你可以继续等待，或手动停止后重试。',
+      data: { reason: 'agent_connection_lost' },
+    })
   }
 
   if (
@@ -333,6 +355,48 @@ function tickTurnMonitor(sessionId: string): void {
       recoverStalledTurn(sessionId, '工具长时间没有返回结果，已中止本轮以恢复会话。')
     }
   }
+}
+
+function shouldRecoverForMissingAgentHeartbeat(
+  monitor: TurnMonitor,
+  now: number,
+  sdkConnected: boolean,
+): boolean {
+  if (sdkConnected) return false
+  if (monitor.sdkDisconnectedAt !== null) {
+    return now - monitor.sdkDisconnectedAt >= getEnvMs(
+      'CC_HAHA_SDK_RECONNECT_GRACE_MS',
+      DEFAULT_SDK_RECONNECT_GRACE_MS,
+    )
+  }
+  const noLivenessMs = now - Math.max(monitor.lastProgressAt, monitor.lastKeepAliveAt)
+  return noLivenessMs >= getEnvMs('CC_HAHA_SDK_LIVENESS_TIMEOUT_MS', DEFAULT_SDK_LIVENESS_TIMEOUT_MS)
+}
+
+function noteSdkConnected(sessionId: string): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor) return
+  if (monitor.sdkDisconnectedAt === null) return
+
+  monitor.sdkDisconnectedAt = null
+  monitor.sdkDisconnectNoticeSent = false
+  broadcastToSession(sessionId, {
+    type: 'system_notification',
+    subtype: 'agent_recovery',
+    message: 'Agent 连接已恢复，继续等待本轮结果。',
+    data: { reason: 'agent_connection_restored' },
+  })
+  broadcastToSession(sessionId, {
+    type: 'status',
+    state: monitor.phase,
+    verb: getTurnStatusVerb(monitor.phase),
+  })
+}
+
+function noteSdkDisconnected(sessionId: string): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor || monitor.sdkDisconnectedAt !== null) return
+  monitor.sdkDisconnectedAt = Date.now()
 }
 
 function recoverStalledTurn(sessionId: string, message: string): void {
@@ -375,6 +439,7 @@ export const handleWebSocket = {
       }
 
       conversationService.attachSdkConnection(sessionId, ws)
+      noteSdkConnected(sessionId)
       console.log(`[WS] SDK connected for session: ${sessionId}`)
       return
     }
@@ -465,6 +530,7 @@ export const handleWebSocket = {
     if (channel === 'sdk') {
       console.log(`[WS] SDK disconnected from session: ${sessionId} (${code}: ${reason})`)
       conversationService.detachSdkConnection(sessionId)
+      noteSdkDisconnected(sessionId)
       return
     }
 
@@ -1321,16 +1387,25 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
             // Stream events handled most blocks — but any tool_use whose
             // input JSON failed to parse in content_block_stop was deferred.
             // Emit those now with the complete input from the assistant message.
-            if (block.type === 'tool_use' && streamState.pendingToolBlocks.has(block.id)) {
-              const pending = streamState.pendingToolBlocks.get(block.id)!
-              streamState.pendingToolBlocks.delete(block.id)
-              messages.push({
-                type: 'tool_use_complete',
-                toolName: pending.toolName || block.name,
-                toolUseId: block.id,
-                input: block.input,
-                parentToolUseId: pending.parentToolUseId,
-              })
+            if (block.type === 'tool_use') {
+              const pending = streamState.pendingToolBlocks.get(block.id)
+              if (pending) {
+                streamState.pendingToolBlocks.delete(block.id)
+              }
+              if (!streamState.emittedAssistantToolUseIds.has(block.id)) {
+                streamState.emittedAssistantToolUseIds.add(block.id)
+                messages.push({
+                  type: 'tool_use_complete',
+                  toolName: pending?.toolName || block.name,
+                  toolUseId: block.id,
+                  input: block.input,
+                  parentToolUseId:
+                    pending?.parentToolUseId ||
+                    (typeof cliMsg.parent_tool_use_id === 'string'
+                      ? cliMsg.parent_tool_use_id
+                      : undefined),
+                })
+              }
             } else if (
               block.type === 'thinking' &&
               typeof block.thinking === 'string' &&
@@ -1341,6 +1416,13 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
               // the final assistant message (no thinking_delta). Without this,
               // the desktop never shows thinking while stream_events were seen.
               messages.push({ type: 'thinking', text: block.thinking })
+            } else if (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
+              const textDelta = getSnapshotDelta(streamState.assistantTextSnapshot, block.text)
+              streamState.assistantTextSnapshot = block.text
+              if (textDelta) {
+                messages.push({ type: 'content_start', blockType: 'text' })
+                messages.push({ type: 'content_delta', text: textDelta })
+              }
             }
           } else {
             // No stream events received — this is the only source, process everything
@@ -1474,6 +1556,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
           if (!delta) return []
 
           if (delta.type === 'text_delta' && delta.text) {
+            streamState.assistantTextSnapshot += delta.text
             return [{ type: 'content_delta', text: delta.text }]
           }
           if (delta.type === 'input_json_delta' && delta.partial_json) {
@@ -1507,6 +1590,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
               try { parsedInput = JSON.parse(toolBlock.inputJson) } catch {}
 
               if (parsedInput !== null) {
+                streamState.emittedAssistantToolUseIds.add(toolBlock.toolUseId)
                 return [{
                   type: 'tool_use_complete',
                   toolName: toolBlock.toolName,
@@ -1968,11 +2052,22 @@ export const __testing = {
       startedAt: monitor.startedAt,
       lastProgressAt: monitor.lastProgressAt,
       lastKeepAliveAt: monitor.lastKeepAliveAt,
+      sdkDisconnectedAt: monitor.sdkDisconnectedAt,
       nextNoticeAt: monitor.nextNoticeAt,
     }
   },
   noteTurnActivity(sessionId: string, cliMsg: any) {
     noteTurnActivity(sessionId, cliMsg)
+  },
+  shouldRecoverForMissingAgentHeartbeat(
+    sessionId: string,
+    now: number,
+    sdkConnected: boolean,
+  ) {
+    const monitor = sessionTurnMonitors.get(sessionId)
+    return monitor
+      ? shouldRecoverForMissingAgentHeartbeat(monitor, now, sdkConnected)
+      : false
   },
   setTurnMonitor(
     sessionId: string,
@@ -1986,8 +2081,10 @@ export const __testing = {
       startedAt: partial.startedAt ?? now,
       lastProgressAt: partial.lastProgressAt ?? now,
       lastKeepAliveAt: partial.lastKeepAliveAt ?? now,
+      sdkDisconnectedAt: partial.sdkDisconnectedAt ?? null,
       nextNoticeAt: partial.nextNoticeAt ?? now + DEFAULT_TURN_PROGRESS_NOTICE_MS,
       modelStallNoticeSent: partial.modelStallNoticeSent ?? false,
+      sdkDisconnectNoticeSent: partial.sdkDisconnectNoticeSent ?? false,
       toolStallNoticeSent: partial.toolStallNoticeSent ?? false,
       callback: () => {},
       timer: null,

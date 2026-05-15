@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
+import { ToolResultBlock } from './ToolResultBlock'
 import { PermissionDialog } from './PermissionDialog'
 import { useChatStore } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
@@ -14,13 +15,13 @@ describe('chat blocks', () => {
     useWorkbenchStore.setState({ sessions: {} })
   })
 
-  it('expands active thinking by default so partial reasoning is visible while streaming', () => {
-    const { container } = render(<ThinkingBlock content="this is a long internal reasoning trace" isActive />)
+  it('shows active thinking as a compact one-line status', () => {
+    const { container } = render(<ThinkingBlock content="正在分析上下文" isActive />)
 
     expect(screen.getByText(/thinking|思考/i)).toBeTruthy()
-    expect(container.textContent).toContain('this is a long internal reasoning trace')
-    // Expanded active block shows the typing cursor at end of the reasoning panel
-    expect(container.querySelector('.thinking-cursor')).toBeTruthy()
+    expect(container.textContent).toContain('正在分析上下文')
+    expect(container.querySelector('.thinking-inline-cursor')).toBeTruthy()
+    expect(container.querySelector('.thinking-cursor')).toBeNull()
   })
 
   it('does not animate inactive historical thinking blocks', () => {
@@ -76,6 +77,29 @@ describe('chat blocks', () => {
 
     expect(container.textContent).toContain('Bash')
     expect(container.textContent).toContain('fatal: unrecognized argument: --no-stat')
+  })
+
+  it('hides standalone unavailable WebSearch tool errors', () => {
+    const { container } = render(
+      <ToolResultBlock
+        content="<tool_use_error>Error: No such tool available: WebSearch</tool_use_error>"
+        isError
+      />,
+    )
+
+    expect(container.textContent).toBe('')
+  })
+
+  it('renders HTTP 403 tool errors as target access failures', () => {
+    const { container } = render(
+      <ToolResultBlock
+        content="Request failed with status code 403"
+        isError
+      />,
+    )
+
+    expect(container.textContent).toContain('目标网站拒绝访问')
+    expect(container.textContent).not.toContain('Request failed with status code 403')
   })
 
   it('opens a tool call in the right-side workbench', () => {

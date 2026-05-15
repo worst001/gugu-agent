@@ -966,6 +966,8 @@ export const zh: Record<TranslationKey, string> = {
   'tool.linesOutput': '{count} 行输出',
   'tool.result': '{toolName} 结果',
   'tool.resultGeneric': '工具结果',
+  'tool.callFailed': '工具调用失败',
+  'tool.rawError': '原始错误',
   'tool.error': '错误',
   'tool.success': '成功',
   'tool.showLess': '收起',

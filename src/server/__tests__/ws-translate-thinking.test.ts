@@ -103,6 +103,130 @@ describe('translateCliMessage thinking bridge', () => {
     expect(out).toEqual([])
   })
 
+  it('emits a final assistant tool_use when stream events never completed the tool input', () => {
+    const sessionId = sid()
+    translateCliMessage({ type: 'stream_event', event: { type: 'message_start' } }, sessionId)
+    translateCliMessage(
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'tool_use',
+            id: 'toolu-write',
+            name: 'Write',
+          },
+        },
+      },
+      sessionId,
+    )
+    translateCliMessage(
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: {
+            type: 'input_json_delta',
+            partial_json: '{"file_path":"/tmp/index.html"',
+          },
+        },
+      },
+      sessionId,
+    )
+
+    const out = translateCliMessage(
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'toolu-write',
+              name: 'Write',
+              input: {
+                file_path: '/tmp/index.html',
+                content: '<!DOCTYPE html>',
+              },
+            },
+          ],
+        },
+      },
+      sessionId,
+    )
+
+    expect(out).toEqual([
+      {
+        type: 'tool_use_complete',
+        toolName: 'Write',
+        toolUseId: 'toolu-write',
+        input: {
+          file_path: '/tmp/index.html',
+          content: '<!DOCTYPE html>',
+        },
+        parentToolUseId: undefined,
+      },
+    ])
+  })
+
+  it('emits final assistant text that never arrived through stream deltas', () => {
+    const sessionId = sid()
+    translateCliMessage({ type: 'stream_event', event: { type: 'message_start' } }, sessionId)
+    translateCliMessage(
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text' },
+        },
+      },
+      sessionId,
+    )
+
+    const out = translateCliMessage(
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'Final text only.' }],
+        },
+      },
+      sessionId,
+    )
+
+    expect(out).toContainEqual({ type: 'content_start', blockType: 'text' })
+    expect(out).toContainEqual({ type: 'content_delta', text: 'Final text only.' })
+  })
+
+  it('does not duplicate final assistant text already streamed as deltas', () => {
+    const sessionId = sid()
+    translateCliMessage({ type: 'stream_event', event: { type: 'message_start' } }, sessionId)
+    translateCliMessage(
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Final text only.' },
+        },
+      },
+      sessionId,
+    )
+
+    const out = translateCliMessage(
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'Final text only.' }],
+        },
+      },
+      sessionId,
+    )
+
+    expect(out.filter((message) => message.type === 'content_delta')).toHaveLength(0)
+  })
+
   it('turns repeated assistant snapshots without stream events into suffix deltas', () => {
     const sessionId = sid()
     const first = translateCliMessage(

@@ -42,6 +42,31 @@ describe('AttachmentParserService', () => {
     expect(JSON.stringify(config)).not.toContain('glm-secret-123456')
   })
 
+  test('tests GLM connection with thinking disabled for short health checks', async () => {
+    const calls: Array<{ url: string; body: unknown }> = []
+    const service = new AttachmentParserService(async (url, init) => {
+      calls.push({ url: String(url), body: init?.body })
+      return jsonResponse({ choices: [{ message: { content: 'ok' } }] })
+    })
+
+    const result = await service.testConfig({
+      apiKey: 'glm-key',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      visionModel: 'glm-5v-turbo',
+      ocrModel: 'glm-ocr',
+      summarizeModel: 'glm-5.1',
+    })
+
+    expect(result.success).toBe(true)
+    expect(calls[0]!.url).toEndWith('/chat/completions')
+    const body = JSON.parse(String(calls[0]!.body)) as {
+      max_tokens?: number
+      thinking?: { type?: string }
+    }
+    expect(body.max_tokens).toBeGreaterThanOrEqual(64)
+    expect(body.thinking).toEqual({ type: 'disabled' })
+  })
+
   test('fails with a friendly error when enabled without a GLM key', async () => {
     const service = new AttachmentParserService(mockFetchText('unused'))
     await service.updateConfig({ enabled: true, apiKey: '' })

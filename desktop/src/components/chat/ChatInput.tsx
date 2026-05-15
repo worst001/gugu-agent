@@ -547,14 +547,23 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       }, {
         signal: controller.signal,
       })
+      const optimizedText = getSafeOptimizedPromptText(result.optimizedText)
+      if (!optimizedText) {
+        throw new Error(t('chat.promptOptimize.failed'))
+      }
       setPromptOptimizePreview({
         originalText,
-        optimizedText: result.optimizedText,
-        summary: result.summary,
+        optimizedText,
+        summary: getSafePromptOptimizeSummary(result.summary),
       })
     } catch (error) {
       if (controller.signal.aborted) return
-      setPromptOptimizeError(error instanceof Error ? error.message : t('chat.promptOptimize.failed'))
+      const message = error instanceof Error ? error.message : ''
+      setPromptOptimizeError(
+        message && !isPromptOptimizeInternalError(message)
+          ? message
+          : t('chat.promptOptimize.failed'),
+      )
     } finally {
       if (promptOptimizeAbortRef.current === controller) {
         promptOptimizeAbortRef.current = null
@@ -1247,4 +1256,29 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       </div>
     </div>
   )
+}
+
+function getSafeOptimizedPromptText(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  if (!text || looksLikePromptOptimizeJson(text)) return null
+  return text
+}
+
+function getSafePromptOptimizeSummary(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const text = value.trim()
+  return looksLikePromptOptimizeJson(text) ? '' : text
+}
+
+function looksLikePromptOptimizeJson(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  if (/^```(?:json)?\s*[{[]/i.test(trimmed)) return true
+  if (/^[{[]/.test(trimmed)) return true
+  return /"(optimizedText|summary)"\s*:/.test(trimmed)
+}
+
+function isPromptOptimizeInternalError(message: string): boolean {
+  return /Prompt optimization returned (malformed JSON|invalid JSON|no text)/i.test(message)
 }

@@ -189,7 +189,7 @@ describe('chatStore history mapping', () => {
     expect(mapped[3]).toMatchObject({ parentToolUseId: 'agent-1' })
   })
 
-  it('localizes restored English thinking after a Chinese user prompt', () => {
+  it('maps restored thinking to a brief Chinese status', () => {
     const messages: MessageEntry[] = [
       {
         id: 'user-1',
@@ -214,7 +214,7 @@ describe('chatStore history mapping', () => {
 
     expect(mapped[1]).toMatchObject({
       type: 'thinking',
-      content: '正在结合附件解析结果梳理文件内容。',
+      content: '正在检查附件',
     })
   })
 
@@ -686,7 +686,7 @@ describe('chatStore history mapping', () => {
       type: 'system_notification',
       subtype: 'agent_recovery',
       message: '模型长时间没有返回内容，已中止本轮以恢复会话。',
-      data: { reason: 'model_stream_stalled' },
+      data: { reason: 'agent_stalled' },
     })
 
     const session = useChatStore.getState().sessions[TEST_SESSION_ID]
@@ -700,7 +700,33 @@ describe('chatStore history mapping', () => {
     ])
   })
 
-  it('localizes live English thinking for Chinese prompts and avoids duplicate spam', () => {
+  it('keeps the turn active for non-terminal model stall notifications', () => {
+    seedSession({
+      chatState: 'thinking',
+      streamingText: 'partial answer',
+      activeThinkingId: 'thinking-1',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+      data: { reason: 'model_stream_stalled' },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.streamingText).toBe('partial answer')
+    expect(session?.activeThinkingId).toBe('thinking-1')
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+      },
+    ])
+  })
+
+  it('maps live thinking to a brief Chinese status', () => {
     seedSession({
       chatState: 'thinking',
       messages: [
@@ -725,11 +751,41 @@ describe('chatStore history mapping', () => {
     const session = useChatStore.getState().sessions[TEST_SESSION_ID]
     expect(session?.messages).toMatchObject([
       { type: 'user_text', content: '粗略看下这个文件' },
-      { type: 'thinking', content: '正在结合附件解析结果梳理文件内容。' },
+      {
+        type: 'thinking',
+        content: '正在检查附件',
+      },
     ])
   })
 
-  it('keeps live Chinese thinking text intact', () => {
+  it('keeps chunked thinking streams as one brief status without exposing raw fragments', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '这是什么',
+          timestamp: 1,
+        },
+      ],
+    })
+
+    for (const text of ['鬼', '灭', '之', '刃']) {
+      useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+        type: 'thinking',
+        text,
+      })
+    }
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages[session.messages.length - 1]).toMatchObject({
+      type: 'thinking',
+      content: '正在分析上下文',
+    })
+  })
+
+  it('maps live Chinese thinking text to a brief status', () => {
     seedSession({
       chatState: 'thinking',
       messages: [
@@ -750,7 +806,7 @@ describe('chatStore history mapping', () => {
     const session = useChatStore.getState().sessions[TEST_SESSION_ID]
     expect(session?.messages[session.messages.length - 1]).toMatchObject({
       type: 'thinking',
-      content: '我需要先查看附件解析结果。',
+      content: '正在检查附件',
     })
   })
 

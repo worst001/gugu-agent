@@ -62,6 +62,8 @@ type SessionStartOptions = {
 }
 
 const DEFAULT_DESKTOP_MAX_TURNS = 20
+const DESKTOP_TOOL_AVAILABILITY_PROMPT =
+  'Tool availability: Only call WebSearch if WebSearch is explicitly listed in the current available tools. If WebSearch is unavailable, do not attempt it; continue without web search or use WebFetch only for explicit URLs the user provided.'
 
 export class ConversationStartupError extends Error {
   constructor(
@@ -105,6 +107,8 @@ export class ConversationService {
       '--include-partial-messages',
       ...(shouldResume ? ['--resume', sessionId] : ['--session-id', sessionId]),
       '--replay-user-messages',
+      '--append-system-prompt',
+      DESKTOP_TOOL_AVAILABILITY_PROMPT,
       ...this.getMaxTurnsArgs(),
       ...this.getRuntimeArgs(options),
       ...this.getPermissionArgs(options?.permissionMode, dangerousMode),
@@ -422,6 +426,10 @@ export class ConversationService {
 
   hasSession(sessionId: string): boolean {
     return this.sessions.has(sessionId)
+  }
+
+  hasSdkConnection(sessionId: string): boolean {
+    return Boolean(this.sessions.get(sessionId)?.sdkSocket)
   }
 
   getSessionWorkDir(sessionId: string): string {

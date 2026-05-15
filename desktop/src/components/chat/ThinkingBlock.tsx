@@ -1,65 +1,27 @@
-import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from '../../i18n'
 
 export function ThinkingBlock({ content, isActive = false }: { content: string; isActive?: boolean }) {
   const t = useTranslation()
-  const [expanded, setExpanded] = useState(false)
-  const contentRef = useRef<HTMLDivElement>(null)
-
-  // Stream partial reasoning without requiring a click — user can still collapse.
-  useEffect(() => {
-    if (isActive) setExpanded(true)
-  }, [isActive])
-
-  useEffect(() => {
-    if (expanded && isActive && contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight
-    }
-  }, [content, expanded, isActive])
-
-  // Preview: first meaningful line; if the model streams one long line without \n, use its tail
-  const lines = content.split('\n').filter((l) => l.trim())
-  const firstLine = lines[0]?.replace(/\s+/g, ' ').trim() || ''
-  const collapsed = content.replace(/\s+/g, ' ').trim()
-  const tailWhenNoBreak =
-    !firstLine && collapsed.length > 0
-      ? collapsed.length > 100
-        ? `…${collapsed.slice(-100)}`
-        : collapsed
-      : ''
-  const previewSource = firstLine || tailWhenNoBreak
-  const preview = previewSource.length > 80 ? previewSource.slice(0, 80) + '...' : previewSource
+  const status = content.replace(/\s+/g, ' ').trim()
 
   return (
     <div className="mb-1">
       <style>{thinkingStyles}</style>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[12px] text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-secondary)]"
+      <div
+        className="flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-[12px] text-[var(--color-text-tertiary)]"
       >
-        <span className="text-[10px] text-[var(--color-outline)]">
-          {expanded ? '\u25BE' : '\u25B8'}
-        </span>
+        <span className="text-[10px] text-[var(--color-outline)]">•</span>
         <span className="shrink-0 font-medium italic">
           {t('thinking.label')}
           {isActive && <span className="thinking-dots" />}
         </span>
-        {!expanded && preview && (
-          <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
-            {preview}
+        {status && (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--color-text-tertiary)]">
+            {status}
             {isActive && <span className="thinking-inline-cursor" />}
           </span>
         )}
-      </button>
-      {expanded && (
-        <div
-          ref={contentRef}
-          className="mt-1 max-h-[300px] overflow-y-auto rounded-lg border border-[var(--color-border)]/40 bg-[var(--color-surface-container-lowest)] p-2.5 font-[var(--font-mono)] text-[11px] leading-[1.35] text-[var(--color-text-secondary)] whitespace-pre-wrap break-words"
-        >
-          {content}
-          {isActive && expanded && <span className="thinking-cursor" />}
-        </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -74,15 +36,6 @@ const thinkingStyles = `
   40% { content: '.'; }
   60% { content: '..'; }
   80%, 100% { content: '...'; }
-}
-.thinking-cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  background: var(--color-text-tertiary);
-  vertical-align: middle;
-  margin-left: 1px;
-  animation: thinking-cursor-blink 1s step-end infinite;
 }
 .thinking-inline-cursor {
   display: inline-block;

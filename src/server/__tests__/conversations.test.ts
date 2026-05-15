@@ -191,6 +191,20 @@ describe('ConversationService', () => {
     ])
   })
 
+  it('should tell desktop sessions not to call unavailable WebSearch tools', () => {
+    const svc = new ConversationService()
+    const args = (svc as any).buildSessionCliArgs(
+      'session-websearch-guard',
+      'ws://127.0.0.1:3456/sdk/session-websearch-guard?token=test',
+      false,
+    ) as string[]
+    const promptIndex = args.indexOf('--append-system-prompt')
+
+    expect(promptIndex).toBeGreaterThan(-1)
+    expect(args[promptIndex + 1]).toContain('Only call WebSearch if WebSearch is explicitly listed')
+    expect(args[promptIndex + 1]).toContain('If WebSearch is unavailable, do not attempt it')
+  })
+
   it('should return false when sending interrupt to non-existent session', () => {
     const svc = new ConversationService()
     const result = svc.sendInterrupt('no-such-session')
@@ -207,6 +221,35 @@ describe('ConversationService', () => {
     expect(() => svc.onOutput('no-such-session', () => {})).not.toThrow()
   })
 
+  it('should report SDK connection state for active sessions', () => {
+    const svc = new ConversationService()
+
+    expect(svc.hasSdkConnection('missing-session')).toBe(false)
+
+    ;(svc as any).sessions.set('session-sdk-state', {
+      proc: { pid: 1 },
+      outputCallbacks: [],
+      workDir: process.cwd(),
+      permissionMode: 'default',
+      sdkToken: 'token',
+      sdkSocket: null,
+      pendingOutbound: [],
+      stderrLines: [],
+      stdoutLines: [],
+      sdkMessages: [],
+      initMessage: null,
+      pendingPermissionRequests: new Map(),
+    })
+
+    expect(svc.hasSdkConnection('session-sdk-state')).toBe(false)
+
+    svc.attachSdkConnection('session-sdk-state', { send() {} })
+    expect(svc.hasSdkConnection('session-sdk-state')).toBe(true)
+
+    svc.detachSdkConnection('session-sdk-state')
+    expect(svc.hasSdkConnection('session-sdk-state')).toBe(false)
+  })
+
   it('should ignore stale process exits after a session restarts', () => {
     const svc = new ConversationService()
     const oldProc = { pid: 1 } as any
@@ -221,7 +264,9 @@ describe('ConversationService', () => {
       sdkSocket: null,
       pendingOutbound: [],
       stderrLines: [],
+      stdoutLines: [],
       sdkMessages: [],
+      initMessage: null,
       pendingPermissionRequests: new Map(),
     })
 

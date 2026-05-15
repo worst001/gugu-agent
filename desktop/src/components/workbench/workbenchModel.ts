@@ -1,4 +1,5 @@
 import type { UIMessage } from '../../types/chat'
+import { isHiddenToolErrorContent } from '../chat/toolResultDisplay'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
@@ -18,7 +19,7 @@ export type ToolActivity = {
   parentToolUseId?: string
 }
 
-export type FileChangeKind = 'created' | 'edited' | 'multi_edit' | 'read'
+export type FileChangeKind = 'created' | 'edited' | 'multi_edit' | 'notebook_edit' | 'read'
 
 export type WorkbenchFileChange = {
   id: string
@@ -68,8 +69,16 @@ export type WorkbenchModel = {
 
 export function buildWorkbenchModel(messages: UIMessage[]): WorkbenchModel {
   const resultMap = new Map<string, ToolResult>()
+  const hiddenToolUseIds = new Set<string>()
+  for (const message of messages) {
+    if (message.type === 'tool_result' && message.isError && isHiddenToolErrorContent(message.content)) {
+      hiddenToolUseIds.add(message.toolUseId)
+    }
+  }
+
   for (const message of messages) {
     if (message.type === 'tool_result') {
+      if (hiddenToolUseIds.has(message.toolUseId)) continue
       resultMap.set(message.toolUseId, message)
     }
   }
@@ -86,6 +95,7 @@ export function buildWorkbenchModel(messages: UIMessage[]): WorkbenchModel {
     }
 
     if (message.type !== 'tool_use') continue
+    if (hiddenToolUseIds.has(message.toolUseId)) continue
 
     const result = resultMap.get(message.toolUseId)
     const input = asRecord(message.input)
@@ -104,7 +114,7 @@ export function buildWorkbenchModel(messages: UIMessage[]): WorkbenchModel {
       parentToolUseId: message.parentToolUseId,
     })
 
-    const change = getFileChange(message, input)
+    const change = getFileChange(message, input, result)
     if (change) fileChanges.push(change)
 
     const preview = getFilePreview(message, input, result)
@@ -147,7 +157,7 @@ export function findSelectedFileChange(
     if (byTool) return byTool
   }
 
-  return model.fileChanges[0] ?? null
+  return model.fileChanges[model.fileChanges.length - 1] ?? null
 }
 
 export function findSelectedPreview(
@@ -283,6 +293,7 @@ function isCodeExtension(ext: string): boolean {
 function getFileChange(
   toolCall: ToolCall,
   input: Record<string, unknown>,
+  result?: ToolResult,
 ): WorkbenchFileChange | null {
   const filePath = getToolFilePath(input)
   if (!filePath) return null
@@ -331,6 +342,32 @@ function getFileChange(
       summary: `${edits.length} replacements`,
       oldText: edits.map((edit) => edit.old_string).join('\n\n...\n\n'),
       newText: edits.map((edit) => edit.new_string).join('\n\n...\n\n'),
+      timestamp: toolCall.timestamp,
+    }
+  }
+
+  if (toolCall.toolName === 'NotebookEdit') {
+    const resultContent = result && !result.isError && result.content && typeof result.content === 'object'
+      ? result.content as Record<string, unknown>
+      : null
+    const originalFile = typeof resultContent?.original_file === 'string'
+      ? resultContent.original_file
+      : ''
+    const updatedFile = typeof resultContent?.updated_file === 'string'
+      ? resultContent.updated_file
+      : typeof input.new_source === 'string'
+        ? input.new_source
+        : ''
+    if (!updatedFile && !originalFile) return null
+    return {
+      id: `${toolCall.toolUseId}:notebook-edit`,
+      filePath,
+      toolUseId: toolCall.toolUseId,
+      toolName: toolCall.toolName,
+      kind: 'notebook_edit',
+      summary: stringValue(input.edit_mode) || 'notebook edit',
+      oldText: originalFile,
+      newText: updatedFile,
       timestamp: toolCall.timestamp,
     }
   }
@@ -403,6 +440,8 @@ function getToolSummary(
       return `Edit ${leafName(getToolFilePath(input)) || 'file'}`
     case 'MultiEdit':
       return `MultiEdit ${leafName(getToolFilePath(input)) || 'file'}`
+    case 'NotebookEdit':
+      return `NotebookEdit ${leafName(getToolFilePath(input)) || 'notebook'}`
     case 'Task':
     case 'Agent':
       return stringValue(input.description) || stringValue(input.prompt) || 'Agent task'
