@@ -897,13 +897,23 @@ export const zh: Record<TranslationKey, string> = {
   'chat.forkTimelineCheckpoint': '第 {index} 轮 · 包含 {count} 条消息',
   'chat.forkTimelineFiles': '{count} 个跟踪文件',
   'chat.forkSuccess': '已创建新的分叉会话。',
+  'chat.planConfirm.title': '计划确认',
+  'chat.planConfirm.implementPlan': '实施计划',
+  'chat.planConfirm.updatePlan': '更新计划',
+  'chat.planConfirm.updateLabel': '需要调整计划吗？',
+  'chat.planConfirm.updatePlaceholder': '写下要添加、删除或调整的内容...',
+  'chat.planConfirm.updateTip': '也可以直接修改或补充计划。点击“更新计划”后，会先把修改要求填入输入框，方便你确认后再发送。',
+  'chat.planConfirm.implementPrompt': '实施计划',
+  'chat.planConfirm.updatePrompt': '请根据以下修改更新计划：\n\n{notes}',
 
   // ─── Streaming Indicator ──────────────────────────────────────
   'streaming.thinking': '思考中',
   'streaming.running': '运行中',
   'streaming.working': '工作中',
+  'streaming.preparingResponse': '正在组织回复',
   'streaming.awaitingThinkingHint':
     '有思考流时，片段会显示在下方。部分模型或线路不返回可展示的思考内容；若耗时较长，仍可能是在生成回复。',
+  'streaming.preResponseHint': '思考阶段已接上回答流，第一段文字到达后会直接显示在这里。',
 
   // ─── Permission Dialog ──────────────────────────────────────
   'permission.allowEditFile': '允许 Claude {toolName} {fileName}？',

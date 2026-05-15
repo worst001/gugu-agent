@@ -10,14 +10,22 @@ function formatElapsed(seconds: number): string {
 }
 
 type StreamingIndicatorProps = {
+  sessionId?: string | null
   /** True while waiting for the first thinking_delta (spinner only, no ThinkingBlock yet) */
   showAwaitingThinkingHint?: boolean
+  /** True after thinking ends but before the first answer token arrives. */
+  showPreResponseHint?: boolean
 }
 
-export function StreamingIndicator({ showAwaitingThinkingHint = false }: StreamingIndicatorProps) {
+export function StreamingIndicator({
+  sessionId,
+  showAwaitingThinkingHint = false,
+  showPreResponseHint = false,
+}: StreamingIndicatorProps) {
   const t = useTranslation()
   const activeTabId = useTabStore((s) => s.activeTabId)
-  const sessionState = useChatStore((s) => activeTabId ? s.sessions[activeTabId] : undefined)
+  const targetSessionId = sessionId ?? activeTabId
+  const sessionState = useChatStore((s) => targetSessionId ? s.sessions[targetSessionId] : undefined)
   const chatState = sessionState?.chatState ?? 'idle'
   const statusVerb = sessionState?.statusVerb ?? ''
   const elapsedSeconds = sessionState?.elapsedSeconds ?? 0
@@ -31,6 +39,8 @@ export function StreamingIndicator({ showAwaitingThinkingHint = false }: Streami
         ? t('streaming.thinking')
         : chatState === 'tool_executing'
           ? t('streaming.running')
+          : showPreResponseHint
+            ? t('streaming.preparingResponse')
           : t('streaming.working')
   }
 
@@ -53,6 +63,11 @@ export function StreamingIndicator({ showAwaitingThinkingHint = false }: Streami
       {showAwaitingThinkingHint && (
         <p className="max-w-md pl-1 text-[10px] leading-snug text-[var(--color-text-tertiary)]">
           {t('streaming.awaitingThinkingHint')}
+        </p>
+      )}
+      {showPreResponseHint && (
+        <p className="max-w-md pl-1 text-[10px] leading-snug text-[var(--color-text-tertiary)]">
+          {t('streaming.preResponseHint')}
         </p>
       )}
     </div>

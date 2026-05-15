@@ -50,6 +50,10 @@ async function seedActiveProvider(): Promise<string> {
 }
 
 function mockAnthropicFetch(text: string, status = 200) {
+  return mockAnthropicFetchSequence([text], status)
+}
+
+function mockAnthropicFetchSequence(texts: string[], status = 200) {
   const calls: Array<{ input: unknown; init?: RequestInit; body: Record<string, unknown> }> = []
   const mockFetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {}
@@ -60,6 +64,7 @@ function mockAnthropicFetch(text: string, status = 200) {
         { status },
       )
     }
+    const text = texts[Math.min(calls.length - 1, texts.length - 1)] ?? ''
     return Response.json({
       id: 'msg_test',
       type: 'message',
@@ -137,6 +142,72 @@ describe('Prompt Optimize API', () => {
     const body = await res.json() as { optimizedText: string; summary: string }
     expect(body.optimizedText).toBe('Create a concise landing page and list the sections.')
     expect(body.summary).toBe('Clarified scope and output.')
+  })
+
+  test('sends an explicit same-language contract for Chinese prompts', async () => {
+    const providerId = await seedActiveProvider()
+    const calls = mockAnthropicFetch(JSON.stringify({
+      optimizedText: '请创建一个财务系统，包含收入支出记录、账户管理和基础财务报表。',
+      summary: '补充了功能范围。',
+    }))
+    const { req, url, segments } = makeRequest('POST', '/api/prompt-optimize', {
+      text: '写个财务系统',
+      providerId,
+    })
+
+    const res = await handlePromptOptimizeApi(req, url, segments)
+
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].body.system).toContain('same natural language')
+    const messages = calls[0].body.messages as Array<{ content: string }>
+    expect(messages[0].content).toContain('"outputLanguage":"Chinese"')
+    expect(messages[0].content).toContain('Both optimizedText and summary must use Chinese.')
+  })
+
+  test('retries when a Chinese prompt is optimized into English', async () => {
+    await seedActiveProvider()
+    const calls = mockAnthropicFetchSequence([
+      JSON.stringify({
+        optimizedText: 'Create a financial system with reports.',
+        summary: 'Clarified scope.',
+      }),
+      JSON.stringify({
+        optimizedText: '请创建一个财务系统，包含收支记录、账户管理和财务报表生成。',
+        summary: '补充了核心功能范围。',
+      }),
+    ])
+    const { req, url, segments } = makeRequest('POST', '/api/prompt-optimize', {
+      text: '写个财务系统',
+    })
+
+    const res = await handlePromptOptimizeApi(req, url, segments)
+
+    expect(res.status).toBe(200)
+    expect(calls).toHaveLength(2)
+    const retryMessages = calls[1].body.messages as Array<{ content: string }>
+    expect(retryMessages[0].content).toContain('Retry reason')
+    const body = await res.json() as { optimizedText: string; summary: string }
+    expect(body.optimizedText).toBe('请创建一个财务系统，包含收支记录、账户管理和财务报表生成。')
+    expect(body.summary).toBe('补充了核心功能范围。')
+  })
+
+  test('normalizes an English summary fallback for a Chinese optimized prompt', async () => {
+    await seedActiveProvider()
+    mockAnthropicFetch(JSON.stringify({
+      optimizedText: '请创建一个财务系统，包含收支记录、账户管理和财务报表生成。',
+      summary: 'Clarified scope.',
+    }))
+    const { req, url, segments } = makeRequest('POST', '/api/prompt-optimize', {
+      text: '写个财务系统',
+    })
+
+    const res = await handlePromptOptimizeApi(req, url, segments)
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as { optimizedText: string; summary: string }
+    expect(body.optimizedText).toBe('请创建一个财务系统，包含收支记录、账户管理和财务报表生成。')
+    expect(body.summary).toBe('已生成优化后的提示词。')
   })
 
   test('falls back to plain text when the model does not return JSON', async () => {

@@ -840,6 +840,89 @@ describe('MessageList nested tool calls', () => {
     expect(useChatStore.getState().sessions[ACTIVE_TAB]?.messages).toHaveLength(2)
   })
 
+  it('opens plan confirmation for recent planning replies and sends the implement choice', async () => {
+    const sendMessage = vi.fn()
+
+    useChatStore.setState({
+      sendMessage,
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-plan',
+              type: 'assistant_text',
+              content: [
+                'Implementation plan',
+                '',
+                '- Create a calculator script.',
+                '- Add add, subtract, multiply, and divide commands.',
+                '',
+                'Does this plan look right? Confirm and I will implement it.',
+              ].join('\n'),
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm Plan' })
+    expect(within(dialog).getByText('Implementation plan')).toBeTruthy()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Implement plan' }))
+
+    expect(sendMessage).toHaveBeenCalledWith(ACTIVE_TAB, 'Implement the plan')
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+    })
+  })
+
+  it('prefills a plan update request instead of sending immediately', async () => {
+    const sendMessage = vi.fn()
+    const queueComposerPrefill = vi.fn()
+
+    useChatStore.setState({
+      sendMessage,
+      queueComposerPrefill,
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-plan',
+              type: 'assistant_text',
+              content: [
+                'Implementation plan',
+                '',
+                '- Build the first version.',
+                '',
+                'Does this plan look right? You can revise the plan before implementation.',
+              ].join('\n'),
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm Plan' })
+    fireEvent.change(within(dialog).getByLabelText('Need to adjust the plan?'), {
+      target: { value: 'Add tests before implementation.' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Update plan' }))
+
+    expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
+      text: 'Please update the plan based on these changes:\n\nAdd tests before implementation.',
+    })
+    expect(sendMessage).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+    })
+  })
+
   it('renders unsupported attachment errors as assistant guidance instead of error panels', () => {
     useChatStore.setState({
       sessions: {

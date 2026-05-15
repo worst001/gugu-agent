@@ -5,7 +5,6 @@ import { useTeamStore } from './teamStore'
 import { useSessionStore } from './sessionStore'
 import { useCLITaskStore } from './cliTaskStore'
 import { useTabStore } from './tabStore'
-import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import { t } from '../i18n'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
 import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
@@ -168,6 +167,31 @@ function sameUserEcho(a: LocalUserEcho, b: LocalUserEcho): boolean {
   return Boolean(aNames && aNames === bNames)
 }
 
+function forgetRememberedLocalUserEcho(
+  sessionId: string,
+  target: Pick<LocalUserEcho, 'id' | 'content' | 'attachments'>,
+) {
+  const echoes = readLocalUserEchoes()
+  if (echoes.length === 0) return
+
+  const targetEcho: LocalUserEcho = {
+    id: target.id,
+    type: 'user_text',
+    content: target.content,
+    attachments: target.attachments,
+    timestamp: 0,
+  }
+  const filtered = echoes.filter((echo) => {
+    if (echo.sessionId !== sessionId) return true
+    if (echo.message.id === target.id) return false
+    return !sameUserEcho(echo.message, targetEcho)
+  })
+
+  if (filtered.length !== echoes.length) {
+    writeLocalUserEchoes(filtered)
+  }
+}
+
 function mergeLocalUserEchoes(sessionId: string, messages: UIMessage[]): UIMessage[] {
   const echoes = readLocalUserEchoes()
     .filter((echo) => echo.sessionId === sessionId)
@@ -240,6 +264,10 @@ type ChatStore = {
   stopGeneration: (sessionId: string) => void
   loadHistory: (sessionId: string) => Promise<void>
   reloadHistory: (sessionId: string) => Promise<void>
+  forgetLocalUserEcho: (
+    sessionId: string,
+    message: Pick<LocalUserEcho, 'id' | 'content' | 'attachments'>,
+  ) => void
   queueComposerPrefill: (
     sessionId: string,
     prefill: { text: string; attachments?: UIAttachment[] },
@@ -459,6 +487,22 @@ function stripHiddenUserPromptScaffolding(content: string): string {
   return stripped
 }
 
+function resolveUserFacingContent(
+  content: string,
+  displayContent: unknown,
+  hasExplicitDisplayContent: boolean,
+): string {
+  const explicitDisplayContent = hasExplicitDisplayContent
+    ? String(displayContent ?? '').trim()
+    : ''
+  if (explicitDisplayContent) return explicitDisplayContent
+
+  const strippedContent = stripHiddenUserPromptScaffolding(content)
+  if (strippedContent !== content) return strippedContent.trim()
+
+  return hasExplicitDisplayContent ? '' : content.trim()
+}
+
 const BRIEF_THINKING_STATUSES = new Set([
   '正在分析上下文',
   '正在理解问题',
@@ -509,6 +553,20 @@ function appendThinkingContent(current: string, next: string): string {
 function getRawThinkingContent(message: Extract<UIMessage, { type: 'thinking' }>): string {
   if (message.rawContent !== undefined) return message.rawContent
   return BRIEF_THINKING_STATUSES.has(message.content) ? '' : message.content
+}
+
+function createPendingThinkingMessage(
+  content: string,
+  hasAttachments: boolean,
+): Extract<UIMessage, { type: 'thinking' }> {
+  const seed = hasAttachments ? '附件' : content
+  return {
+    id: nextId(),
+    type: 'thinking',
+    content: deriveBriefThinkingStatus(seed),
+    rawContent: '',
+    timestamp: Date.now(),
+  }
 }
 
 /** Helper: immutably update a specific session within the sessions record */
@@ -611,10 +669,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   sendMessage: (sessionId, content, attachments, options) => {
-    const userFacingContent =
-      options && 'displayContent' in options
-        ? String(options.displayContent ?? '').trim()
-        : content.trim()
+    const hasExplicitDisplayContent = Boolean(options && 'displayContent' in options)
+    const userFacingContent = resolveUserFacingContent(
+      content,
+      options?.displayContent,
+      hasExplicitDisplayContent,
+    )
     const isMemberSession = !!useTeamStore.getState().getMemberBySessionId(sessionId)
     const attachmentsForDisplay = options?.displayAttachments ?? attachments
     const uiAttachments: UIAttachment[] | undefined =
@@ -645,6 +705,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       timestamp: nowMs(),
       ...(isMemberSession ? { pending: true } : {}),
     }
+    const pendingThinkingMessage = !isMemberSession
+      ? createPendingThinkingMessage(userFacingContent, Boolean(uiAttachments?.length))
+      : null
 
     set((s) => {
       const session = s.sessions[sessionId] ?? createDefaultSessionState()
@@ -667,6 +730,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         })
       }
       newMessages.push(localUserMessage)
+      if (pendingThinkingMessage) {
+        newMessages.push(pendingThinkingMessage)
+      }
 
       if (!isMemberSession && session.elapsedTimer) clearInterval(session.elapsedTimer)
 
@@ -683,9 +749,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             ...session,
             messages: newMessages,
             chatState: 'thinking',
+            activeThinkingId: pendingThinkingMessage?.id ?? null,
             elapsedSeconds: 0,
             streamingText: '',
-            statusVerb: isMemberSession ? '' : randomSpinnerVerb(),
+            statusVerb: '',
             elapsedTimer: timer,
             connectionState: isMemberSession ? 'connected' : session.connectionState,
           },
@@ -860,6 +927,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     } catch {
       // Session may not have messages yet
     }
+  },
+
+  forgetLocalUserEcho: (sessionId, message) => {
+    forgetRememberedLocalUserEcho(sessionId, message)
   },
 
   queueComposerPrefill: (sessionId, prefill) => {

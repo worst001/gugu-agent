@@ -895,13 +895,23 @@
   'chat.forkTimelineCheckpoint': 'Turn {index} - {count} messages included',
   'chat.forkTimelineFiles': '{count} tracked files',
   'chat.forkSuccess': 'Forked into a new session.',
+  'chat.planConfirm.title': 'Confirm Plan',
+  'chat.planConfirm.implementPlan': 'Implement plan',
+  'chat.planConfirm.updatePlan': 'Update plan',
+  'chat.planConfirm.updateLabel': 'Need to adjust the plan?',
+  'chat.planConfirm.updatePlaceholder': 'Describe anything to add, remove, or change...',
+  'chat.planConfirm.updateTip': 'You can revise or extend the plan here. “Update plan” places your notes in the input so you can review before sending.',
+  'chat.planConfirm.implementPrompt': 'Implement the plan',
+  'chat.planConfirm.updatePrompt': 'Please update the plan based on these changes:\n\n{notes}',
 
   // ─── Streaming Indicator ──────────────────────────────────────
   'streaming.thinking': 'Thinking',
   'streaming.running': 'Running',
   'streaming.working': 'Working',
+  'streaming.preparingResponse': 'Preparing reply',
   'streaming.awaitingThinkingHint':
     'Partial reasoning will appear below when the stream starts. Some models or providers do not expose a visible reasoning stream — long waits can still mean the model is working.',
+  'streaming.preResponseHint': 'The reasoning phase has handed off to the answer stream; the reply will appear here as soon as text arrives.',
 
   // ─── Permission Dialog ──────────────────────────────────────
   'permission.allowEditFile': 'Allow Claude to {toolName} {fileName}?',

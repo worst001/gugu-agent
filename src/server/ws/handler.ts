@@ -7,7 +7,7 @@
  */
 
 import type { ServerWebSocket } from 'bun'
-import type { ClientMessage, ServerMessage } from './events.js'
+import type { ClientMessage, ServerMessage, TokenUsage } from './events.js'
 import * as os from 'node:os'
 import {
   ConversationStartupError,
@@ -112,6 +112,8 @@ type TurnMonitor = {
   startedAt: number
   lastProgressAt: number
   lastKeepAliveAt: number
+  lastStopReason: string | null
+  currentMessageHasToolUse: boolean
   sdkDisconnectedAt: number | null
   nextNoticeAt: number
   modelStallNoticeSent: boolean
@@ -201,6 +203,8 @@ function startTurnMonitor(sessionId: string): void {
     startedAt: now,
     lastProgressAt: now,
     lastKeepAliveAt: now,
+    lastStopReason: null,
+    currentMessageHasToolUse: false,
     sdkDisconnectedAt: conversationService.hasSdkConnection(sessionId) ? null : now,
     nextNoticeAt: now + getEnvMs('CC_HAHA_TURN_PROGRESS_NOTICE_MS', DEFAULT_TURN_PROGRESS_NOTICE_MS),
     modelStallNoticeSent: false,
@@ -259,12 +263,23 @@ function noteTurnActivity(sessionId: string, cliMsg: any): void {
   if (cliMsg?.type === 'stream_event') {
     const eventType = cliMsg.event?.type
     const contentBlock = cliMsg.event?.content_block
-    if (eventType === 'content_block_start' && contentBlock?.type === 'tool_use') {
+    if (eventType === 'message_start') {
+      monitor.phase = 'thinking'
+      monitor.lastStopReason = null
+      monitor.currentMessageHasToolUse = false
+    } else if (eventType === 'content_block_start' && contentBlock?.type === 'tool_use') {
       monitor.phase = 'tool_executing'
+      monitor.currentMessageHasToolUse = true
     } else if (eventType === 'content_block_delta') {
       monitor.phase = cliMsg.event?.delta?.type === 'thinking_delta' ? 'thinking' : 'streaming'
-    } else if (eventType === 'message_start') {
-      monitor.phase = 'thinking'
+    } else if (eventType === 'message_delta') {
+      if (typeof cliMsg.event?.delta?.stop_reason === 'string') {
+        monitor.lastStopReason = cliMsg.event.delta.stop_reason
+      }
+    } else if (eventType === 'message_stop') {
+      if (!monitor.currentMessageHasToolUse && monitor.lastStopReason !== 'tool_use') {
+        completeTurnMonitor(sessionId)
+      }
     }
     return
   }
@@ -681,12 +696,18 @@ async function handleUserMessage(
   })
 
   startTurnMonitor(sessionId)
+  // Mark the turn as forwardable before sending. Some SDK bridges can emit the
+  // complete assistant/result sequence synchronously from socket.send(); if we
+  // wait until after sendMessage returns, the desktop may miss message_complete
+  // and leave the composer stuck in Stop.
+  userMessageSent = true
   const sent = conversationService.sendMessage(
     sessionId,
     cliContent,
     cliAttachments
   )
   if (!sent) {
+    userMessageSent = false
     stopTurnMonitor(sessionId)
     sendMessage(ws, {
       type: 'error',
@@ -696,8 +717,6 @@ async function handleUserMessage(
     sendMessage(ws, { type: 'status', state: 'idle' })
     return
   }
-
-  userMessageSent = true
 }
 
 async function handleDesktopClearCommand(
@@ -1076,6 +1095,10 @@ type SessionStreamState = {
   assistantTextSnapshot: string
   assistantThinkingSnapshot: string
   emittedAssistantToolUseIds: Set<string>
+  lastStopReason: string | null
+  currentMessageHasToolUse: boolean
+  completedFromMessageStop: boolean
+  latestUsage: TokenUsage
 }
 
 const sessionStreamStates = new Map<string, SessionStreamState>()
@@ -1092,10 +1115,27 @@ function getStreamState(sessionId: string): SessionStreamState {
       assistantTextSnapshot: '',
       assistantThinkingSnapshot: '',
       emittedAssistantToolUseIds: new Set(),
+      lastStopReason: null,
+      currentMessageHasToolUse: false,
+      completedFromMessageStop: false,
+      latestUsage: { input_tokens: 0, output_tokens: 0 },
     }
     sessionStreamStates.set(sessionId, state)
   }
   return state
+}
+
+function normalizeStreamUsage(usage: unknown): TokenUsage {
+  if (!usage || typeof usage !== 'object') {
+    return { input_tokens: 0, output_tokens: 0 }
+  }
+  const value = usage as Partial<TokenUsage>
+  return {
+    input_tokens: typeof value.input_tokens === 'number' ? value.input_tokens : 0,
+    output_tokens: typeof value.output_tokens === 'number' ? value.output_tokens : 0,
+    ...(typeof value.cache_read_tokens === 'number' ? { cache_read_tokens: value.cache_read_tokens } : {}),
+    ...(typeof value.cache_creation_tokens === 'number' ? { cache_creation_tokens: value.cache_creation_tokens } : {}),
+  }
 }
 
 function getSnapshotDelta(previous: string, next: string): string {
@@ -1117,6 +1157,10 @@ function resetStreamStateForTurn(streamState: SessionStreamState) {
   streamState.activeBlockTypes.clear()
   streamState.activeToolBlocks.clear()
   streamState.pendingToolBlocks.clear()
+  streamState.lastStopReason = null
+  streamState.currentMessageHasToolUse = false
+  streamState.completedFromMessageStop = false
+  streamState.latestUsage = { input_tokens: 0, output_tokens: 0 }
   resetAssistantSnapshots(streamState)
 }
 
@@ -1512,6 +1556,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
           resetStreamStateForTurn(streamState)
           streamState.hasReceivedStreamEvents = true
           streamState.receivedThinkingDelta = false
+          streamState.latestUsage = normalizeStreamUsage(event.message?.usage)
           return [{ type: 'status', state: 'streaming' }]
         }
 
@@ -1531,6 +1576,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
           streamState.activeBlockTypes.set(index, contentBlock.type === 'tool_use' ? 'tool_use' : 'text')
 
           if (contentBlock.type === 'tool_use') {
+            streamState.currentMessageHasToolUse = true
             // Track tool info so content_block_stop can emit complete data
             streamState.activeToolBlocks.set(index, {
               toolName: contentBlock.name || '',
@@ -1616,12 +1662,24 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
         }
 
         case 'message_stop': {
-          // message_stop is handled by the 'result' message
+          if (
+            !streamState.completedFromMessageStop &&
+            !streamState.currentMessageHasToolUse &&
+            streamState.lastStopReason !== 'tool_use'
+          ) {
+            streamState.completedFromMessageStop = true
+            return [{ type: 'message_complete', usage: streamState.latestUsage }]
+          }
           return []
         }
 
         case 'message_delta': {
-          // message_delta may contain stop_reason or usage updates
+          if (typeof event.delta?.stop_reason === 'string') {
+            streamState.lastStopReason = event.delta.stop_reason
+          }
+          if (event.usage) {
+            streamState.latestUsage = normalizeStreamUsage(event.usage)
+          }
           return []
         }
 

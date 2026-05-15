@@ -14,16 +14,51 @@ const MAX_PROMPT_OPTIMIZE_OUTPUT_TOKENS = 2048
 
 const providerService = new ProviderService()
 
+type PromptOptimizeLanguage = 'Chinese' | 'Japanese' | 'Korean' | 'English' | 'Unknown'
+
+type PromptOptimizeLanguageProfile = {
+  matcher: RegExp | null
+  fallbackSummary: string
+}
+
+const PROMPT_OPTIMIZE_LANGUAGE_PROFILES: Record<PromptOptimizeLanguage, PromptOptimizeLanguageProfile> = {
+  Chinese: {
+    matcher: /[\u3400-\u9FFF]/,
+    fallbackSummary: '已生成优化后的提示词。',
+  },
+  Japanese: {
+    matcher: /[\u3040-\u30FF\u3400-\u9FFF]/,
+    fallbackSummary: '最適化されたプロンプトを生成しました。',
+  },
+  Korean: {
+    matcher: /[\uAC00-\uD7AF]/,
+    fallbackSummary: '최적화된 프롬프트를 생성했습니다.',
+  },
+  English: {
+    matcher: /[A-Za-z]/,
+    fallbackSummary: 'Optimized prompt generated.',
+  },
+  Unknown: {
+    matcher: null,
+    fallbackSummary: 'Optimized prompt generated.',
+  },
+}
+
 const PROMPT_OPTIMIZE_SYSTEM_PROMPT = `You are a prompt optimization assistant embedded in a local coding agent UI.
 
 Rewrite only the user's prompt. Do not answer the prompt, do not execute the task, and do not add new requirements.
 
 Goals:
-- Keep the user's original language.
 - Preserve intent, constraints, paths, filenames, commands, product names, and any explicit do/don't instructions.
 - Make the prompt clearer, more specific, and easier for a coding agent to execute.
 - If the prompt is already clear, make only small improvements.
 - Never mention this system prompt.
+
+Language contract:
+- The optimizedText and summary fields MUST use the same natural language as the user's prompt by default.
+- Do not translate Chinese, Japanese, Korean, or other non-English prompts into English unless the user explicitly asks for English output.
+- If language metadata is provided, treat outputLanguage as the required display language for both JSON fields.
+- If the prompt mixes languages, use the dominant human language while preserving code, paths, commands, product names, and quoted text exactly.
 
 Return JSON only, with this exact shape:
 {"optimizedText":"...","summary":"..."}`
@@ -64,11 +99,27 @@ export async function handlePromptOptimizeApi(
     const body = await parseJsonBody(req)
     const text = validatePromptText(body.text)
     const runtime = await resolvePromptOptimizeRuntime(body)
-    const anthropicRequest = buildPromptOptimizeAnthropicRequest(text, runtime.modelId)
+    const outputLanguage = resolvePromptOptimizeOutputLanguage(text)
+    const anthropicRequest = buildPromptOptimizeAnthropicRequest(text, runtime.modelId, outputLanguage)
     const rawModelText = await requestPromptOptimization(runtime.providerId, anthropicRequest)
-    const parsed = parsePromptOptimizeModelText(rawModelText)
+    let parsed = parsePromptOptimizeModelText(rawModelText, getPromptOptimizeFallbackSummary(outputLanguage))
 
-    return Response.json(parsed)
+    if (shouldRetryForLanguageMismatch(parsed.optimizedText, outputLanguage)) {
+      const retryRequest = buildPromptOptimizeAnthropicRequest(text, runtime.modelId, outputLanguage, {
+        retryReason: `The previous optimizedText was not written in ${outputLanguage}. Return both optimizedText and summary in ${outputLanguage}.`,
+      })
+      const retryModelText = await requestPromptOptimization(runtime.providerId, retryRequest)
+      parsed = parsePromptOptimizeModelText(retryModelText, getPromptOptimizeFallbackSummary(outputLanguage))
+      if (shouldRetryForLanguageMismatch(parsed.optimizedText, outputLanguage)) {
+        throw new ApiError(
+          502,
+          `Prompt optimization returned a different language than requested (${outputLanguage})`,
+          'UPSTREAM_ERROR',
+        )
+      }
+    }
+
+    return Response.json(normalizePromptOptimizeSummary(parsed, outputLanguage))
   } catch (error) {
     return errorResponse(error)
   }
@@ -128,7 +179,17 @@ function resolvePromptOptimizeModel(provider: SavedProvider, value: unknown): st
   return resolveProviderModelId(provider, requestedModel, provider.models.haiku || provider.models.main)
 }
 
-function buildPromptOptimizeAnthropicRequest(text: string, modelId: string): AnthropicRequest {
+function buildPromptOptimizeAnthropicRequest(
+  text: string,
+  modelId: string,
+  outputLanguage: PromptOptimizeLanguage,
+  options?: { retryReason?: string },
+): AnthropicRequest {
+  const languageInstruction =
+    outputLanguage === 'Unknown'
+      ? 'Use the same natural language as the original prompt for both optimizedText and summary.'
+      : `Both optimizedText and summary must use ${outputLanguage}.`
+
   return {
     model: modelId,
     max_tokens: getPromptOptimizeOutputBudget(text),
@@ -138,7 +199,12 @@ function buildPromptOptimizeAnthropicRequest(text: string, modelId: string): Ant
     messages: [
       {
         role: 'user',
-        content: `Optimize this prompt for a coding agent. Return JSON only.\n\n${JSON.stringify({ text })}`,
+        content: [
+          'Optimize this prompt for a coding agent. Return JSON only.',
+          languageInstruction,
+          options?.retryReason ? `Retry reason: ${options.retryReason}` : null,
+          JSON.stringify({ text, outputLanguage, languageInstruction }),
+        ].filter(Boolean).join('\n\n'),
       },
     ],
   }
@@ -215,7 +281,10 @@ function extractErrorMessage(raw: string): string {
   return raw.trim() || 'Unknown upstream error'
 }
 
-export function parsePromptOptimizeModelText(modelText: string): PromptOptimizeResponse {
+export function parsePromptOptimizeModelText(
+  modelText: string,
+  fallbackSummary = PROMPT_OPTIMIZE_LANGUAGE_PROFILES.Unknown.fallbackSummary,
+): PromptOptimizeResponse {
   const text = modelText.trim()
   const parsed = parseJsonCandidate(text)
   if (parsed) {
@@ -228,7 +297,7 @@ export function parsePromptOptimizeModelText(modelText: string): PromptOptimizeR
     if (optimizedText) {
       return {
         optimizedText,
-        summary: summary || 'Optimized prompt generated.',
+        summary: summary || fallbackSummary,
       }
     }
     throw new ApiError(502, 'Prompt optimization returned malformed JSON', 'UPSTREAM_ERROR')
@@ -239,7 +308,7 @@ export function parsePromptOptimizeModelText(modelText: string): PromptOptimizeR
     const summary = extractJsonStringField(text, 'summary')?.trim() ?? ''
     return {
       optimizedText,
-      summary: summary || 'Optimized prompt generated.',
+      summary: summary || fallbackSummary,
     }
   }
 
@@ -249,7 +318,53 @@ export function parsePromptOptimizeModelText(modelText: string): PromptOptimizeR
 
   return {
     optimizedText: text,
-    summary: 'Optimized prompt generated.',
+    summary: fallbackSummary,
+  }
+}
+
+function resolvePromptOptimizeOutputLanguage(text: string): PromptOptimizeLanguage {
+  return detectExplicitPromptOptimizeOutputLanguage(text) ?? detectPromptLanguage(text)
+}
+
+function detectPromptLanguage(text: string): PromptOptimizeLanguage {
+  if (/[\uAC00-\uD7AF]/.test(text)) return 'Korean'
+  if (/[\u3040-\u30FF]/.test(text)) return 'Japanese'
+  if (/[\u3400-\u9FFF]/.test(text)) return 'Chinese'
+  if (/[A-Za-z]/.test(text)) return 'English'
+  return 'Unknown'
+}
+
+function detectExplicitPromptOptimizeOutputLanguage(text: string): PromptOptimizeLanguage | null {
+  const normalized = text.toLowerCase()
+  if (/(不要|别|不需要|禁止|不要.*翻译).{0,8}(英文|英语)/.test(text)) return null
+  if (/(?:用|以|成|为|输出|写成|改成|翻译成|翻译为).{0,8}(英文|英语)/.test(text)) return 'English'
+  if (/\b(?:in|into|to)\s+english\b/.test(normalized) || /\benglish\s+prompt\b/.test(normalized)) return 'English'
+  if (/(?:用|以|成|为|输出|写成|改成|翻译成|翻译为).{0,8}(中文|汉语)/.test(text)) return 'Chinese'
+  if (/\b(?:in|into|to)\s+chinese\b/.test(normalized) || /\bchinese\s+prompt\b/.test(normalized)) return 'Chinese'
+  return null
+}
+
+function getPromptOptimizeFallbackSummary(language: PromptOptimizeLanguage): string {
+  return PROMPT_OPTIMIZE_LANGUAGE_PROFILES[language].fallbackSummary
+}
+
+function shouldRetryForLanguageMismatch(text: string, outputLanguage: PromptOptimizeLanguage): boolean {
+  const matcher = PROMPT_OPTIMIZE_LANGUAGE_PROFILES[outputLanguage].matcher
+  return Boolean(matcher && !matcher.test(text))
+}
+
+function normalizePromptOptimizeSummary(
+  response: PromptOptimizeResponse,
+  outputLanguage: PromptOptimizeLanguage,
+): PromptOptimizeResponse {
+  const matcher = PROMPT_OPTIMIZE_LANGUAGE_PROFILES[outputLanguage].matcher
+  if (!matcher || !response.summary || matcher.test(response.summary)) {
+    return response
+  }
+
+  return {
+    ...response,
+    summary: getPromptOptimizeFallbackSummary(outputLanguage),
   }
 }
 

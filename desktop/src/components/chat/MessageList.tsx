@@ -24,6 +24,7 @@ import type { AgentTaskNotification, UIMessage } from '../../types/chat'
 import { Modal } from '../shared/Modal'
 import { Button } from '../shared/Button'
 import { isHiddenToolErrorContent } from './toolResultDisplay'
+import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
@@ -128,12 +129,41 @@ type MessageListProps = {
 }
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 48
+const PLAN_CONFIRMATION_RECENT_MS = 5 * 60 * 1000
 
 function isNearScrollBottom(element: HTMLElement) {
   return (
     element.scrollHeight - element.scrollTop - element.clientHeight <=
     AUTO_SCROLL_BOTTOM_THRESHOLD_PX
   )
+}
+
+function getLatestAssistantPlanCandidate(messages: UIMessage[]): Extract<UIMessage, { type: 'assistant_text' }> | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message) continue
+    if (message.type === 'thinking' || message.type === 'system') continue
+    return message.type === 'assistant_text' ? message : null
+  }
+  return null
+}
+
+function isRecentLiveMessage(message: UIMessage): boolean {
+  return Date.now() - message.timestamp <= PLAN_CONFIRMATION_RECENT_MS
+}
+
+function looksLikePlanConfirmation(content: string): boolean {
+  const text = content.replace(/\s+/g, ' ').trim()
+  if (!text) return false
+
+  const hasPlanShape =
+    /(计划|规划|方案|范围|实施|步骤|plan|scope|approach|implementation)/i.test(text) ||
+    /(Stated|Inferred|Out of scope)\s*[:：]/i.test(text)
+  const asksForConfirmation =
+    /(是否|是不是|能否|确认|继续|实施|调整|修改|补充|删除).{0,24}(符合|可行|继续|实施|调整|修改|补充|意图|计划|方案)/u.test(text) ||
+    /(does this|is this|confirm|continue|implement|revise|adjust|update).{0,48}(plan|approach|scope|work|implementation|right|okay|ok)/i.test(text)
+
+  return hasPlanShape && asksForConfirmation
 }
 
 export function MessageList({ sessionId }: MessageListProps = {}) {
@@ -145,7 +175,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   )
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const reloadHistory = useChatStore((s) => s.reloadHistory)
+  const forgetLocalUserEcho = useChatStore((s) => s.forgetLocalUserEcho)
   const queueComposerPrefill = useChatStore((s) => s.queueComposerPrefill)
+  const sendMessage = useChatStore((s) => s.sendMessage)
   const forkSession = useSessionStore((s) => s.forkSession)
   const isMemberSession = useTeamStore((s) =>
     resolvedSessionId ? Boolean(s.getMemberBySessionId(resolvedSessionId)) : false,
@@ -155,6 +187,8 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const chatState = sessionState?.chatState ?? 'idle'
   const streamingText = sessionState?.streamingText ?? ''
   const activeThinkingId = sessionState?.activeThinkingId ?? null
+  const isWaitingForFirstResponseToken =
+    chatState === 'streaming' && streamingText.trim().length === 0
   const agentTaskNotifications = sessionState?.agentTaskNotifications ?? {}
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -180,6 +214,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const [forkError, setForkError] = useState<string | null>(null)
   const [isLoadingCheckpoints, setIsLoadingCheckpoints] = useState(false)
   const [isExecutingFork, setIsExecutingFork] = useState(false)
+  const [planConfirmationTarget, setPlanConfirmationTarget] = useState<Extract<UIMessage, { type: 'assistant_text' }> | null>(null)
+  const [planUpdateText, setPlanUpdateText] = useState('')
+  const dismissedPlanConfirmationIdsRef = useRef<Set<string>>(new Set())
 
   const updateAutoScrollState = useCallback(() => {
     const container = scrollContainerRef.current
@@ -284,6 +321,18 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     [messages],
   )
 
+  useEffect(() => {
+    if (!resolvedSessionId || isMemberSession || chatState !== 'idle') return
+    const candidate = getLatestAssistantPlanCandidate(messages)
+    if (!candidate) return
+    if (dismissedPlanConfirmationIdsRef.current.has(candidate.id)) return
+    if (!isRecentLiveMessage(candidate)) return
+    if (!looksLikePlanConfirmation(candidate.content)) return
+
+    setPlanUpdateText('')
+    setPlanConfirmationTarget(candidate)
+  }, [chatState, isMemberSession, messages, resolvedSessionId])
+
   const closeRewindModal = useCallback(() => {
     if (isExecutingRewind) return
     setRewindTarget(null)
@@ -299,6 +348,35 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     setForkError(null)
     setIsLoadingCheckpoints(false)
   }, [isExecutingFork])
+
+  const closePlanConfirmationModal = useCallback(() => {
+    if (planConfirmationTarget) {
+      dismissedPlanConfirmationIdsRef.current.add(planConfirmationTarget.id)
+    }
+    setPlanConfirmationTarget(null)
+    setPlanUpdateText('')
+  }, [planConfirmationTarget])
+
+  const handleImplementPlan = useCallback(() => {
+    if (!resolvedSessionId || !planConfirmationTarget) return
+    dismissedPlanConfirmationIdsRef.current.add(planConfirmationTarget.id)
+    setPlanConfirmationTarget(null)
+    setPlanUpdateText('')
+    sendMessage(resolvedSessionId, t('chat.planConfirm.implementPrompt'))
+  }, [planConfirmationTarget, resolvedSessionId, sendMessage, t])
+
+  const handleUpdatePlan = useCallback(() => {
+    if (!resolvedSessionId || !planConfirmationTarget) return
+    const notes = planUpdateText.trim()
+    if (!notes) return
+
+    dismissedPlanConfirmationIdsRef.current.add(planConfirmationTarget.id)
+    setPlanConfirmationTarget(null)
+    setPlanUpdateText('')
+    queueComposerPrefill(resolvedSessionId, {
+      text: t('chat.planConfirm.updatePrompt', { notes }),
+    })
+  }, [planConfirmationTarget, planUpdateText, queueComposerPrefill, resolvedSessionId, t])
 
   const handleConfirmRewind = useCallback(async () => {
     if (!resolvedSessionId || !rewindTarget || isExecutingRewind) return
@@ -317,6 +395,11 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
         expectedContent: rewindTarget.content,
       })
 
+      forgetLocalUserEcho(resolvedSessionId, {
+        id: rewindTarget.messageId,
+        content: rewindTarget.content,
+        attachments: rewindTarget.attachments,
+      })
       await reloadHistory(resolvedSessionId)
       queueComposerPrefill(resolvedSessionId, {
         text: rewindTarget.content,
@@ -352,6 +435,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   }, [
     addToast,
     chatState,
+    forgetLocalUserEcho,
     isExecutingRewind,
     queueComposerPrefill,
     reloadHistory,
@@ -484,10 +568,16 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
         {/* Show StreamingIndicator when:
             - tool_executing: tool is running
             - thinking but no active ThinkingBlock yet: the gap between
-              sending a message and receiving the first thinking delta */}
-        {(chatState === 'tool_executing' || (chatState === 'thinking' && !activeThinkingId)) && (
+              sending a message and receiving the first thinking delta
+            - streaming has started but the first visible answer token has not
+              arrived yet, so the UI does not appear to go blank */}
+        {(chatState === 'tool_executing' ||
+          (chatState === 'thinking' && !activeThinkingId) ||
+          isWaitingForFirstResponseToken) && (
           <StreamingIndicator
+            sessionId={resolvedSessionId}
             showAwaitingThinkingHint={chatState === 'thinking' && !activeThinkingId}
+            showPreResponseHint={isWaitingForFirstResponseToken}
           />
         )}
 
@@ -726,6 +816,63 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
               {forkError}
             </div>
           )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(planConfirmationTarget)}
+        onClose={closePlanConfirmationModal}
+        title={t('chat.planConfirm.title')}
+        width={720}
+        footer={
+          <>
+            <Button variant="ghost" onClick={closePlanConfirmationModal}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={handleUpdatePlan}
+              disabled={!planUpdateText.trim()}
+              icon={<span aria-hidden="true" className="material-symbols-outlined text-[16px]">edit_note</span>}
+            >
+              {t('chat.planConfirm.updatePlan')}
+            </Button>
+            <Button
+              onClick={handleImplementPlan}
+              icon={<span aria-hidden="true" className="material-symbols-outlined text-[16px]">play_arrow</span>}
+            >
+              {t('chat.planConfirm.implementPlan')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="max-h-[42vh] overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
+            <MarkdownRenderer
+              content={planConfirmationTarget?.content ?? ''}
+              variant="document"
+              className="text-[13px] leading-6 text-[var(--color-text-secondary)] [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_p]:text-[13px] [&_p]:leading-6"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="plan-confirmation-update"
+              className="mb-2 block text-sm font-medium text-[var(--color-text-primary)]"
+            >
+              {t('chat.planConfirm.updateLabel')}
+            </label>
+            <textarea
+              id="plan-confirmation-update"
+              value={planUpdateText}
+              onChange={(event) => setPlanUpdateText(event.target.value)}
+              placeholder={t('chat.planConfirm.updatePlaceholder')}
+              className="min-h-[96px] w-full resize-y rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm leading-6 text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-border-focus)] focus:shadow-[var(--shadow-focus-ring)]"
+            />
+            <p className="mt-2 text-xs leading-5 text-[var(--color-text-tertiary)]">
+              {t('chat.planConfirm.updateTip')}
+            </p>
+          </div>
         </div>
       </Modal>
     </div>

@@ -335,6 +335,21 @@ describe('chatStore history mapping', () => {
     ).toBe(true)
   })
 
+  it('does not resurrect a forgotten local echo after rewind history reloads', async () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'write a table')
+    useChatStore.getState().forgetLocalUserEcho(TEST_SESSION_ID, {
+      id: 'server-user-id',
+      content: 'write a table',
+    })
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({ messages: [] })
+
+    await useChatStore.getState().reloadHistory(TEST_SESSION_ID)
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toEqual([])
+  })
+
   it('keeps parent tool linkage for live tool events', () => {
     // Initialize the session first
     useChatStore.setState({
@@ -1095,8 +1110,71 @@ describe('chatStore history mapping', () => {
         type: 'user_text',
         content: '你是什么模型？',
       },
+      {
+        type: 'thinking',
+        content: '正在分析上下文',
+      },
     ])
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeTruthy()
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.streamingText).toBe('')
+  })
+
+  it('uses the visible text from CE wire prompts when the local display echo is blank', () => {
+    seedSession()
+    const prompt = '请构建一个小型网站，用于展示动漫女性角色排行，并设计美观界面。'
+    const { wire } = buildCeWorkflowMessage('standard', prompt)
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, wire, [], {
+      displayContent: '',
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toMatchObject([
+      {
+        type: 'user_text',
+        content: prompt,
+      },
+      {
+        type: 'thinking',
+        content: '正在规划步骤',
+      },
+    ])
+    if (messages?.[0]?.type === 'user_text') {
+      expect(messages[0].content).not.toContain('[Workflow:')
+    }
+  })
+
+  it('keeps an intentionally blank local echo for unrecognized attachment parser payloads', () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(
+      TEST_SESSION_ID,
+      'parsed wire prompt',
+      undefined,
+      {
+        displayContent: '',
+        displayAttachments: [
+          {
+            type: 'image',
+            name: 'screen.png',
+            data: 'aW1hZ2U=',
+            mimeType: 'image/png',
+          },
+        ],
+      },
+    )
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]).toMatchObject({
+      type: 'user_text',
+      content: '',
+      attachments: [
+        {
+          type: 'image',
+          name: 'screen.png',
+          data: 'data:image/png;base64,aW1hZ2U=',
+        },
+      ],
+    })
   })
 
   it('can display image attachments without sending them over the wire', () => {
@@ -1157,6 +1235,10 @@ describe('chatStore history mapping', () => {
           },
         ],
       },
+      {
+        type: 'thinking',
+        content: '正在检查附件',
+      },
     ])
   })
 
@@ -1204,6 +1286,10 @@ describe('chatStore history mapping', () => {
       {
         type: 'user_text',
         content: '继续下一轮',
+      },
+      {
+        type: 'thinking',
+        content: '正在分析上下文',
       },
     ])
   })
