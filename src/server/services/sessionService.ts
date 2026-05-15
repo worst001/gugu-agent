@@ -1172,14 +1172,13 @@ export class SessionService {
     const sessionFiles = await this.discoverSessionFiles(options?.project)
 
     // Build session list items with metadata from file stats & first entries
-    const items: SessionListItem[] = []
+    const items: Array<Omit<SessionListItem, 'workDirExists'>> = []
 
     for (const { filePath, projectDir, sessionId } of sessionFiles) {
       try {
         const stat = await fs.stat(filePath)
         const entries = await this.readJsonlFile(filePath)
         const workDir = this.resolveWorkDirFromEntries(entries, projectDir)
-        const workDirExists = await this.pathExists(workDir)
 
         // Count transcript messages only (user + assistant)
         const messageCount = entries.filter(
@@ -1205,7 +1204,6 @@ export class SessionService {
           messageCount,
           projectPath: projectDir,
           workDir,
-          workDirExists,
         })
       } catch {
         // Skip unreadable files
@@ -1218,7 +1216,12 @@ export class SessionService {
     const total = items.length
     const offset = options?.offset ?? 0
     const limit = options?.limit ?? 50
-    const paginated = items.slice(offset, offset + limit)
+    const paginated = await Promise.all(
+      items.slice(offset, offset + limit).map(async (item) => ({
+        ...item,
+        workDirExists: await this.pathExists(item.workDir),
+      })),
+    )
 
     return { sessions: paginated, total }
   }
@@ -1678,6 +1681,7 @@ export class SessionService {
     }
 
     const entries = await this.readJsonlFile(found.filePath)
+    const workDir = this.resolveWorkDirFromEntries(entries, found.projectDir)
     const activeMessages = this.entriesToMessages(entries)
     const startIndex = activeMessages.findIndex((message) => message.id === startMessageId)
 
@@ -1694,9 +1698,18 @@ export class SessionService {
     }
 
     const removedIds = new Set(removedMessageIds)
-    const filteredEntries = entries.filter(
+    const filteredEntries: RawEntry[] = entries.filter(
       (entry) => !(typeof entry.uuid === 'string' && removedIds.has(entry.uuid)),
     )
+    const hasSessionMeta = filteredEntries.some((entry) => entry.type === 'session-meta')
+    if (!hasSessionMeta && workDir) {
+      filteredEntries.unshift({
+        type: 'session-meta',
+        isMeta: true,
+        workDir,
+        timestamp: new Date().toISOString(),
+      })
+    }
 
     const content =
       filteredEntries.length > 0
@@ -1799,11 +1812,18 @@ export class SessionService {
   private async pathExists(targetPath: string | null): Promise<boolean> {
     if (!targetPath) return false
 
+    let timeout: ReturnType<typeof setTimeout> | null = null
     try {
-      const stat = await fs.stat(targetPath)
-      return stat.isDirectory()
+      return await Promise.race([
+        fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false),
+        new Promise<boolean>((resolve) => {
+          timeout = setTimeout(() => resolve(false), 1000)
+        }),
+      ])
     } catch {
       return false
+    } finally {
+      if (timeout) clearTimeout(timeout)
     }
   }
 }

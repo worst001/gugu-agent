@@ -570,6 +570,34 @@ describe('SessionService', () => {
     expect(workDir).toBe('/tmp/from-cwd')
   })
 
+  it('should preserve inferred workDir when trimming all transcript messages', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const workDir = path.join(tmpDir, 'workspace', 'rewind-project')
+    const userId = crypto.randomUUID()
+    await fs.mkdir(workDir, { recursive: true })
+    await writeSessionFile(sanitizePath(workDir), sessionId, [
+      makeSnapshotEntry(),
+      {
+        ...makeUserEntry('Hello', userId),
+        cwd: workDir,
+      },
+    ])
+
+    const trimResult = await service.trimSessionMessagesFrom(sessionId, userId)
+    expect(trimResult.removedMessageIds).toEqual([userId])
+
+    const preservedWorkDir = await service.getSessionWorkDir(sessionId)
+    expect(preservedWorkDir).toBe(workDir)
+
+    const listed = await service.listSessions()
+    expect(listed.sessions[0]).toMatchObject({
+      id: sessionId,
+      workDir,
+      workDirExists: true,
+      messageCount: 0,
+    })
+  })
+
   // --------------------------------------------------------------------------
   // createSession
   // --------------------------------------------------------------------------
