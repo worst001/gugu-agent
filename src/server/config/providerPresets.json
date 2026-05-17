@@ -17,6 +17,29 @@
     "agentCompatible": true
   },
   {
+    "id": "gugu-managed",
+    "name": "Gugu Managed",
+    "baseUrl": "gugu://managed",
+    "apiFormat": "gugu_managed",
+    "defaultModels": {
+      "main": "gugu-managed-main",
+      "haiku": "gugu-managed-fast",
+      "sonnet": "gugu-managed-main",
+      "opus": "gugu-managed-strong"
+    },
+    "needsApiKey": false,
+    "websiteUrl": "",
+    "category": "official",
+    "protocol": "gugu_managed",
+    "agentCompatible": true,
+    "routingHint": {
+      "fast": "haiku",
+      "balanced": "main",
+      "pro": "opus"
+    },
+    "promoText": "内置托管服务，新用户无需填写 DeepSeek 或 GLM Key。"
+  },
+  {
     "id": "chatgpt",
     "name": "ChatGPT Connect",
     "baseUrl": "https://chatgpt.com/backend-api/codex",

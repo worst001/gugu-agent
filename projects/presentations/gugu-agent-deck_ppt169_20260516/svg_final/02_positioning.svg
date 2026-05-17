@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA" />
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">产品定位</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">把 Claude Code 从单一终端扩展为本地开发者控制台</text>
+  </g>
+  <g id="core_statement">
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M80,162 H1200 A8,8 0 0 1 1208,170 V276 A8,8 0 0 1 1200,284 H80 A8,8 0 0 1 72,276 V170 A8,8 0 0 1 80,162 Z" />
+    <text x="112" y="215" font-family="Microsoft YaHei" font-size="28" font-weight="700" fill="#8F482F">一句话</text>
+    <text x="240" y="215" font-family="Microsoft YaHei" font-size="28" font-weight="700" fill="#1D2329">Gugu Agent 是面向本地、跨端、可扩展的 Claude Code 工作台。</text>
+    <text x="240" y="254" font-family="Microsoft YaHei" font-size="20" fill="#667085">它把模型接入、工具执行、桌面控制、远程消息与 Agent 编排放进同一条工作流。</text>
+  </g>
+  <g id="capability_map">
+    <path fill="#D9E8F6" stroke="#2D628F" d="M100,340 H314 A8,8 0 0 1 322,348 V502 A8,8 0 0 1 314,510 H100 A8,8 0 0 1 92,502 V348 A8,8 0 0 1 100,340 Z" />
+    <text x="122" y="386" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#183F5D">完整 TUI</text>
+    <text x="122" y="426" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">交互模式与 --print</text>
+    <text x="122" y="456" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">面向脚本和 CI</text>
+    <path fill="#F3E7DA" stroke="#8F482F" d="M370,340 H584 A8,8 0 0 1 592,348 V502 A8,8 0 0 1 584,510 H370 A8,8 0 0 1 362,502 V348 A8,8 0 0 1 370,340 Z" />
+    <text x="392" y="386" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#8F482F">多模型接入</text>
+    <text x="392" y="426" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">Anthropic 兼容 API</text>
+    <text x="392" y="456" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">OpenAI / Ollama 等</text>
+    <path fill="#E2EBDD" stroke="#4F6237" d="M640,340 H854 A8,8 0 0 1 862,348 V502 A8,8 0 0 1 854,510 H640 A8,8 0 0 1 632,502 V348 A8,8 0 0 1 640,340 Z" />
+    <text x="662" y="386" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#4F6237">桌面端</text>
+    <text x="662" y="426" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">多标签多会话</text>
+    <text x="662" y="456" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">权限和 Diff 可视化</text>
+    <path fill="#F4DAD4" stroke="#C9886B" d="M910,340 H1124 A8,8 0 0 1 1132,348 V502 A8,8 0 0 1 1124,510 H910 A8,8 0 0 1 902,502 V348 A8,8 0 0 1 910,340 Z" />
+    <text x="932" y="386" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#8F482F">远程控制</text>
+    <text x="932" y="426" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">Telegram / 飞书</text>
+    <text x="932" y="456" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">消息与权限中继</text>
+  </g>
+  <g id="bottom_signal">
+    <path fill="#1D2329" d="M80,574 H1200 A8,8 0 0 1 1208,582 V632 A8,8 0 0 1 1200,640 H80 A8,8 0 0 1 72,632 V582 A8,8 0 0 1 80,574 Z" />
+    <text x="112" y="616" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#FFFFFF">定位关键词：</text>
+    <text x="256" y="616" font-family="Microsoft YaHei" font-size="22" fill="#FFFFFF">本地优先 · 模型自由 · 跨端触达 · Agent 编排 · 可沉淀工作流</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">02 / 08</text>
+  </g>
+</svg>

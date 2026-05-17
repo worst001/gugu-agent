@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA"/>
+  <g id="background">
+    <rect x="0" y="0" width="1280" height="720" fill="#F7F8FA"/>
+    <path d="M0 530 C210 465 330 610 520 545 C735 472 835 330 1280 382 L1280 720 L0 720 Z" fill="#D9E8F6"/>
+    <path d="M870 0 L1280 0 L1280 300 C1140 282 1055 215 1010 130 C980 74 930 34 870 0 Z" fill="#E2EBDD"/>
+    <rect x="72" y="56" width="90" height="6" rx="3" fill="#8F482F"/>
+  </g>
+  <g id="title_block">
+    <text x="72" y="182" font-family="Microsoft YaHei" font-size="56" font-weight="700" fill="#1D2329">Gugu Agent</text>
+    <text x="72" y="230" font-family="Microsoft YaHei" font-size="28" fill="#2D628F">本地可运行的 Claude Code</text>
+    <text x="72" y="286" font-family="Microsoft YaHei" font-size="22" fill="#667085">兼容多模型 · 桌面端 · 多 Agent · Skills · Computer Use · IM 远程控制</text>
+  </g>
+  <g id="product_orbit">
+    <circle cx="938" cy="306" r="130" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="2"/>
+    <circle cx="938" cy="306" r="70" fill="#F3E7DA" stroke="#8F482F" stroke-width="3"/>
+    <text x="938" y="300" text-anchor="middle" font-family="Microsoft YaHei" font-size="28" font-weight="700" fill="#8F482F">本地</text>
+    <text x="938" y="332" text-anchor="middle" font-family="Microsoft YaHei" font-size="20" fill="#1D2329">Agent 控制台</text>
+    <circle cx="760" cy="210" r="44" fill="#2D628F"/>
+    <text x="760" y="216" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#FFFFFF">CLI</text>
+    <circle cx="1125" cy="232" r="44" fill="#4F6237"/>
+    <text x="1125" y="238" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#FFFFFF">桌面端</text>
+    <circle cx="1065" cy="455" r="44" fill="#F4C95D"/>
+    <text x="1065" y="461" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">IM</text>
+    <circle cx="778" cy="442" r="44" fill="#C9886B"/>
+    <text x="778" y="448" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#FFFFFF">Skills</text>
+    <line x1="803" y1="226" x2="872" y2="276" stroke="#D8DEE6" stroke-width="3"/>
+    <line x1="1082" y1="250" x2="1000" y2="286" stroke="#D8DEE6" stroke-width="3"/>
+    <line x1="1038" y1="422" x2="994" y2="360" stroke="#D8DEE6" stroke-width="3"/>
+    <line x1="819" y1="420" x2="884" y2="355" stroke="#D8DEE6" stroke-width="3"/>
+  </g>
+  <g id="footer">
+    <text x="72" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">产品与架构介绍 · 2026-05-16</text>
+  </g>
+</svg>

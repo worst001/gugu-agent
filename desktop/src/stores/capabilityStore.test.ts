@@ -69,6 +69,7 @@ describe('capabilityStore', () => {
     vi.mocked(attachmentParserApi.getConfig).mockResolvedValue({
       config: {
         enabled: true,
+        mode: 'managed',
         hasApiKey: true,
         apiKey: '******',
         baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
@@ -160,6 +161,7 @@ describe('capabilityStore', () => {
     vi.mocked(attachmentParserApi.getConfig).mockResolvedValueOnce({
       config: {
         enabled: true,
+        mode: 'custom',
         hasApiKey: false,
         apiKey: '',
         baseUrl: 'https://open.bigmodel.cn/api/paas/v4',

@@ -223,6 +223,19 @@ export const zh: Record<TranslationKey, string> = {
   'settings.chatgptConnect.disconnect': '断开连接',
   'settings.chatgptConnect.disconnecting': '断开中...',
 
+  'settings.providers.apiFormatGuguManaged': 'Gugu 托管服务（内置）',
+  'settings.providers.guguManagedNoApiKeyRequired': '无需 API Key。新用户默认使用内置托管服务和赠送额度。',
+  'settings.providers.protocolGuguManaged': 'Gugu 托管',
+  'settings.providers.agentReadyViaGugu': 'Agent 走 Gugu 托管可用',
+  'settings.attachmentParser.mode': '解析模式',
+  'settings.attachmentParser.modeManaged': 'Gugu 托管',
+  'settings.attachmentParser.modeManagedDesc': '开箱即用，使用赠送额度。',
+  'settings.attachmentParser.modeCustom': '自定义 GLM',
+  'settings.attachmentParser.modeCustomDesc': '使用自己的 GLM API Key 和接口地址。',
+  'chat.guguQuota.title': 'Gugu 额度已用完',
+  'chat.guguQuota.message': '购买或激活套餐后，再重新发送这条消息。',
+  'chat.guguQuota.action': '打开订阅',
+
   // Settings > Attachment Parser
   'settings.attachmentParser.title': 'GLM 文件与图片解析',
   'settings.attachmentParser.description': '上传文件或图片时，先用 GLM 解析成文本，再交给当前聊天模型。',
@@ -300,6 +313,11 @@ export const zh: Record<TranslationKey, string> = {
   'settings.billing.licenseInput': '激活码',
   'settings.billing.licensePlaceholder': '粘贴激活码',
   'settings.billing.activate': '激活',
+
+  'settings.billing.status.quotaExhausted': '额度已用完',
+  'settings.billing.credits': '额度',
+  'settings.billing.creditsRemaining': '剩余 {remaining} / {total}',
+  'settings.billing.trialCredits': '当前设备正在使用试用额度。',
 
   // Settings > Permissions
   'settings.permissions.title': '权限模式',

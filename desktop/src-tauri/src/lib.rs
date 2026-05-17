@@ -15,6 +15,7 @@
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
+use tauri::path::BaseDirectory;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Emitter;
@@ -669,6 +670,25 @@ fn resolve_app_root(_app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn resolve_bundled_agent_pack_dir(app: &AppHandle) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(path) = app
+        .path()
+        .resolve("gugu-agent-pack", BaseDirectory::Resource)
+    {
+        candidates.push(path);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("gugu-agent-pack"));
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|path| path.join("api-and-interface-design").join("SKILL.md").is_file())
+}
+
 fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let host = "127.0.0.1";
     let port = reserve_local_port()?;
@@ -683,6 +703,9 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
         .map_err(|err| format!("resolve sidecar: {err}"))?;
     for (key, value) in terminal_environment(&default_shell()) {
         sidecar = sidecar.env(key, value);
+    }
+    if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {
+        sidecar = sidecar.env("GUGU_AGENT_PACK_DIR", pack_dir.to_string_lossy().to_string());
     }
     let sidecar = sidecar.args([
         "server",
@@ -790,6 +813,9 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
         .map_err(|err| format!("resolve sidecar: {err}"))?;
     for (key, value) in terminal_environment(&default_shell()) {
         sidecar = sidecar.env(key, value);
+    }
+    if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {
+        sidecar = sidecar.env("GUGU_AGENT_PACK_DIR", pack_dir.to_string_lossy().to_string());
     }
     let sidecar = sidecar.env("ADAPTER_SERVER_URL", &server_ws_url).args([
         "adapters",

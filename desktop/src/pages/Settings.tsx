@@ -115,6 +115,7 @@ function TabButton({ icon, label, active, onClick }: { icon: string; label: stri
 
 type AttachmentParserFormState = {
   enabled: boolean
+  mode: 'managed' | 'custom'
   apiKey: string
   baseUrl: string
   visionModel: string
@@ -123,7 +124,8 @@ type AttachmentParserFormState = {
 }
 
 const DEFAULT_ATTACHMENT_PARSER_FORM: AttachmentParserFormState = {
-  enabled: false,
+  enabled: true,
+  mode: 'managed',
   apiKey: '',
   baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
   visionModel: 'glm-5v-turbo',
@@ -150,6 +152,7 @@ function AttachmentParserSettings() {
         setConfig(config)
         setForm({
           enabled: config.enabled,
+          mode: config.mode ?? 'managed',
           apiKey: '',
           baseUrl: config.baseUrl,
           visionModel: config.visionModel,
@@ -182,6 +185,7 @@ function AttachmentParserSettings() {
 
   const buildPayload = () => ({
     enabled: form.enabled,
+    mode: form.mode,
     ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
     ...(!config?.hasApiKey && !form.apiKey.trim() ? { apiKey: '' } : {}),
     baseUrl: form.baseUrl.trim(),
@@ -198,6 +202,7 @@ function AttachmentParserSettings() {
       setConfig(next)
       setForm({
         enabled: next.enabled,
+        mode: next.mode ?? 'managed',
         apiKey: '',
         baseUrl: next.baseUrl,
         visionModel: next.visionModel,
@@ -256,18 +261,49 @@ function AttachmentParserSettings() {
           </div>
         ) : (
           <div className="space-y-4">
-            <Input
-              label={t('settings.attachmentParser.apiKey')}
-              type="password"
-              value={form.apiKey}
-              placeholder={config?.hasApiKey ? config.apiKey : t('settings.attachmentParser.apiKeyPlaceholder')}
-              onChange={(event) => updateForm('apiKey', event.target.value)}
-            />
-            <Input
-              label={t('settings.attachmentParser.baseUrl')}
-              value={form.baseUrl}
-              onChange={(event) => updateForm('baseUrl', event.target.value)}
-            />
+            <div>
+              <label className="mb-2 block text-sm font-medium text-[var(--color-text-primary)]">
+                {t('settings.attachmentParser.mode')}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['managed', 'custom'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => updateForm('mode', mode)}
+                    className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                      form.mode === mode
+                        ? 'border-[var(--color-brand)] bg-[var(--color-brand)]/10 text-[var(--color-text-primary)]'
+                        : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-focus)]'
+                    }`}
+                  >
+                    <div className="font-medium">
+                      {mode === 'managed' ? t('settings.attachmentParser.modeManaged') : t('settings.attachmentParser.modeCustom')}
+                    </div>
+                    <div className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                      {mode === 'managed' ? t('settings.attachmentParser.modeManagedDesc') : t('settings.attachmentParser.modeCustomDesc')}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {form.mode === 'custom' && (
+              <>
+                <Input
+                  label={t('settings.attachmentParser.apiKey')}
+                  type="password"
+                  value={form.apiKey}
+                  placeholder={config?.hasApiKey ? config.apiKey : t('settings.attachmentParser.apiKeyPlaceholder')}
+                  onChange={(event) => updateForm('apiKey', event.target.value)}
+                />
+                <Input
+                  label={t('settings.attachmentParser.baseUrl')}
+                  value={form.baseUrl}
+                  onChange={(event) => updateForm('baseUrl', event.target.value)}
+                />
+              </>
+            )}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <Input
                 label={t('settings.attachmentParser.visionModel')}
@@ -652,7 +688,7 @@ function buildFallbackPreset(provider?: SavedProvider): ProviderPreset {
     baseUrl: provider?.baseUrl ?? '',
     apiFormat: provider?.apiFormat ?? 'anthropic',
     defaultModels: provider?.models ?? { main: '', haiku: '', sonnet: '', opus: '' },
-    needsApiKey: provider?.authKind === 'chatgpt_oauth' ? false : true,
+    needsApiKey: provider?.authKind === 'chatgpt_oauth' || provider?.authKind === 'gugu_managed' ? false : true,
     websiteUrl: '',
   }
 }
@@ -663,10 +699,21 @@ function isChatGPTProvider(provider: SavedProvider): boolean {
     provider.presetId === 'chatgpt'
 }
 
+function isGuguManagedApi(apiFormat: ApiFormat): boolean {
+  return apiFormat === 'gugu_managed'
+}
+
+function getProviderAuthKind(apiFormat: ApiFormat) {
+  if (apiFormat === 'chatgpt_codex') return 'chatgpt_oauth'
+  if (apiFormat === 'gugu_managed') return 'gugu_managed'
+  return 'api_key'
+}
+
 function formatApiFormatLabel(apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): string {
   if (apiFormat === 'openai_chat') return t('settings.providers.apiFormatOpenaiChat')
   if (apiFormat === 'openai_responses') return t('settings.providers.apiFormatOpenaiResponses')
   if (apiFormat === 'chatgpt_codex') return t('settings.providers.apiFormatChatgptCodex')
+  if (apiFormat === 'gugu_managed') return t('settings.providers.apiFormatGuguManaged')
   return t('settings.providers.apiFormatAnthropic')
 }
 
@@ -675,6 +722,7 @@ function inferPresetProtocol(preset: ProviderPreset | undefined, apiFormat: ApiF
   if (apiFormat === 'openai_chat') return 'openai_chat_proxy'
   if (apiFormat === 'openai_responses') return 'openai_responses_proxy'
   if (apiFormat === 'chatgpt_codex') return 'chatgpt_codex'
+  if (apiFormat === 'gugu_managed') return 'gugu_managed'
   return preset?.id === 'official' ? 'anthropic_native' : 'anthropic_compatible'
 }
 
@@ -713,6 +761,8 @@ function formatPresetProtocolLabel(
       return t('settings.providers.protocolOpenaiResponsesProxy')
     case 'chatgpt_codex':
       return t('settings.providers.protocolChatgptCodex')
+    case 'gugu_managed':
+      return t('settings.providers.protocolGuguManaged')
   }
 }
 
@@ -720,6 +770,7 @@ function formatPresetAgentLabel(preset: ProviderPreset | undefined, apiFormat: A
   if (preset?.agentCompatible === false) return t('settings.providers.agentNotReady')
   if (apiFormat === 'openai_chat' || apiFormat === 'openai_responses') return t('settings.providers.agentReadyViaProxy')
   if (apiFormat === 'chatgpt_codex') return t('settings.providers.agentReadyViaCodex')
+  if (apiFormat === 'gugu_managed') return t('settings.providers.agentReadyViaGugu')
   return t('settings.providers.agentReady')
 }
 
@@ -791,12 +842,15 @@ function formatEndpointPreview(baseUrl: string, apiFormat: ApiFormat): string | 
   if (apiFormat === 'anthropic') {
     return `${base}/v1/messages`
   }
+  if (apiFormat === 'gugu_managed') {
+    return 'http://127.0.0.1:3456/proxy/gugu-managed/v1/messages'
+  }
   return null
 }
 
 function getBaseUrlNotice(baseUrl: string, apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): BaseUrlNotice | null {
   const normalized = baseUrl.trim().replace(/\/+$/, '').toLowerCase()
-  if (!normalized || apiFormat === 'chatgpt_codex') return null
+  if (!normalized || apiFormat === 'chatgpt_codex' || apiFormat === 'gugu_managed') return null
 
   if (apiFormat === 'openai_chat' && normalized.endsWith('/chat/completions')) {
     return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullOpenaiChat') }
@@ -903,6 +957,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
     import('../api/providers').then(({ providersApi }) => {
       providersApi.getSettings().then((settings) => {
         const needsProxy = apiFormat !== 'anthropic'
+        const proxyPath = apiFormat === 'gugu_managed' ? '/proxy/gugu-managed' : '/proxy'
         const existingEnv = (settings.env as Record<string, string>) || {}
         const cleanedEnv = Object.fromEntries(
           Object.entries(existingEnv).filter(([key]) => !presetDefaultEnvKeys.has(key)),
@@ -913,7 +968,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           env: {
             ...cleanedEnv,
             ...(selectedPreset.defaultEnv ?? {}),
-            ANTHROPIC_BASE_URL: needsProxy ? 'http://127.0.0.1:3456/proxy' : baseUrl,
+            ANTHROPIC_BASE_URL: needsProxy ? `http://127.0.0.1:3456${proxyPath}` : baseUrl,
             ANTHROPIC_AUTH_TOKEN: needsProxy
               ? 'proxy-managed'
               : (apiKey || selectedPreset.defaultEnv?.ANTHROPIC_AUTH_TOKEN || (selectedPreset.needsApiKey ? '(your API key)' : '')),
@@ -941,7 +996,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   }
 
   const isCustom = selectedPreset.id === 'custom'
-  const requiresApiKey = selectedPreset.needsApiKey !== false && apiFormat !== 'chatgpt_codex'
+  const requiresApiKey = selectedPreset.needsApiKey !== false && apiFormat !== 'chatgpt_codex' && apiFormat !== 'gugu_managed'
   const canSubmit = name.trim() && baseUrl.trim() && (mode === 'edit' || !requiresApiKey || apiKey.trim()) && models.main.trim() && !settingsJsonError
   const apiKeyUrl = selectedPreset.apiKeyUrl?.trim()
   const promoText = selectedPreset.promoText?.trim()
@@ -968,6 +1023,11 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
       value: 'chatgpt_codex' as const,
       label: t('settings.providers.apiFormatChatgptCodex'),
       icon: <span className="material-symbols-outlined text-[17px]">smart_toy</span>,
+    },
+    {
+      value: 'gugu_managed' as const,
+      label: t('settings.providers.apiFormatGuguManaged'),
+      icon: <span className="material-symbols-outlined text-[17px]">workspace_premium</span>,
     },
   ]
   const selectedApiFormatLabel = apiFormatItems.find((item) => item.value === apiFormat)?.label ?? t('settings.providers.apiFormatAnthropic')
@@ -1015,7 +1075,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           apiKey: apiKey.trim(),
           baseUrl: baseUrl.trim(),
           apiFormat,
-          authKind: apiFormat === 'chatgpt_codex' ? 'chatgpt_oauth' : 'api_key',
+          authKind: getProviderAuthKind(apiFormat),
           models,
           notes: notes.trim() || undefined,
         })
@@ -1024,7 +1084,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           name: name.trim(),
           baseUrl: baseUrl.trim(),
           apiFormat,
-          authKind: apiFormat === 'chatgpt_codex' ? 'chatgpt_oauth' : 'api_key',
+          authKind: getProviderAuthKind(apiFormat),
           models,
           notes: notes.trim() || undefined,
         }
@@ -1207,7 +1267,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           </div>
         ) : (
           <div className="text-xs text-[var(--color-text-tertiary)] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container-low)] border border-[var(--color-border)]">
-            {t('settings.providers.noApiKeyRequired')}
+            {isGuguManagedApi(apiFormat) ? t('settings.providers.guguManagedNoApiKeyRequired') : t('settings.providers.noApiKeyRequired')}
           </div>
         )}
 
@@ -2048,6 +2108,7 @@ const BILLING_STATUS_LABEL_KEYS: Record<BillingStatus, TranslationKey> = {
   inactive: 'settings.billing.status.inactive',
   active: 'settings.billing.status.active',
   expired: 'settings.billing.status.expired',
+  quota_exhausted: 'settings.billing.status.quotaExhausted',
   check_failed: 'settings.billing.status.checkFailed',
 }
 
@@ -2056,6 +2117,7 @@ const BILLING_STATUS_ICON: Record<BillingStatus, string> = {
   inactive: 'workspace_premium',
   active: 'verified',
   expired: 'event_busy',
+  quota_exhausted: 'hourglass_disabled',
   check_failed: 'sync_problem',
 }
 
@@ -2064,6 +2126,7 @@ const BILLING_STATUS_TONE: Record<BillingStatus, string> = {
   inactive: 'border-[var(--color-border)] text-[var(--color-text-secondary)]',
   active: 'border-[var(--color-success)]/40 text-[var(--color-success)]',
   expired: 'border-[var(--color-warning)]/40 text-[var(--color-warning)]',
+  quota_exhausted: 'border-[var(--color-warning)]/40 text-[var(--color-warning)]',
   check_failed: 'border-[var(--color-error)]/40 text-[var(--color-error)]',
 }
 
@@ -2087,9 +2150,15 @@ function BillingSettings() {
 
   const currentStatus = status?.status ?? 'not_configured'
   const purchaseUrl = status?.purchaseUrl ?? config?.purchaseUrl ?? null
-  const verifyConfigured = Boolean(config?.verifyUrlConfigured)
+  const activationConfigured = Boolean(config?.verifyUrlConfigured || config?.gatewayUrlConfigured)
   const lastCheckedAt = status?.lastCheckedAt ? formatBillingDate(status.lastCheckedAt) : null
-  const canActivate = verifyConfigured && licenseKey.trim().length > 0 && !isSaving
+  const canActivate = activationConfigured && licenseKey.trim().length > 0 && !isSaving
+  const creditsTotal = status?.creditsTotal ?? null
+  const creditsRemaining = status?.creditsRemaining ?? null
+  const hasCredits = typeof creditsTotal === 'number' && creditsTotal > 0 && typeof creditsRemaining === 'number'
+  const creditsPercent = hasCredits
+    ? Math.max(0, Math.min(100, Math.round((creditsRemaining / creditsTotal) * 100)))
+    : 0
 
   const handleActivate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2153,6 +2222,28 @@ function BillingSettings() {
                 <BillingDetail label={t('settings.billing.license')} value={status?.maskedLicenseKey || t('settings.billing.noLicense')} />
               </div>
 
+              {hasCredits && (
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3">
+                  <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-[var(--color-text-primary)]">{t('settings.billing.credits')}</span>
+                    <span className="text-[var(--color-text-secondary)]">
+                      {t('settings.billing.creditsRemaining', { remaining: creditsRemaining, total: creditsTotal })}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-container-high)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--color-brand)] transition-all"
+                      style={{ width: `${creditsPercent}%` }}
+                    />
+                  </div>
+                  {(status?.isTrial || status?.quotaReason) && (
+                    <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
+                      {status.quotaReason || t('settings.billing.trialCredits')}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
                 {message || status?.message || t('settings.billing.defaultMessage')}
               </p>
@@ -2190,7 +2281,7 @@ function BillingSettings() {
             <div>
               <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.activationTitle')}</h3>
               <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
-                {verifyConfigured ? t('settings.billing.activationReady') : t('settings.billing.activationUnavailable')}
+                {activationConfigured ? t('settings.billing.activationReady') : t('settings.billing.activationUnavailable')}
               </p>
             </div>
 
@@ -2200,7 +2291,7 @@ function BillingSettings() {
               value={licenseKey}
               placeholder={t('settings.billing.licensePlaceholder')}
               onChange={(event) => setLicenseKey(event.target.value)}
-              disabled={!verifyConfigured || isSaving}
+              disabled={!activationConfigured || isSaving}
             />
 
             {error && (

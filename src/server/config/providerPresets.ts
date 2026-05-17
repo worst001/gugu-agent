@@ -28,6 +28,7 @@ const ProviderPresetProtocolSchema = z.enum([
   'openai_chat_proxy',
   'openai_responses_proxy',
   'chatgpt_codex',
+  'gugu_managed',
 ])
 
 const ProviderPresetModelRoleSchema = z.enum(['main', 'haiku', 'sonnet', 'opus'])

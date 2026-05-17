@@ -141,6 +141,7 @@ vi.mock('../components/chat/CodeViewer', () => ({
 
 const DEFAULT_ATTACHMENT_CONFIG = {
   enabled: false,
+  mode: 'managed',
   apiKey: '',
   hasApiKey: false,
   baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
@@ -517,6 +518,7 @@ describe('Settings > Attachment parser tab', () => {
     expect(await screen.findByText('GLM File & Image Parser')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByText('Custom GLM'))
     fireEvent.change(screen.getByLabelText('GLM API Key'), {
       target: { value: 'glm-secret-123456' },
     })
@@ -525,6 +527,7 @@ describe('Settings > Attachment parser tab', () => {
     await waitFor(() => {
       expect(MOCK_UPDATE_ATTACHMENT_CONFIG).toHaveBeenCalledWith(expect.objectContaining({
         enabled: true,
+        mode: 'custom',
         apiKey: 'glm-secret-123456',
         baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
         visionModel: 'glm-5v-turbo',
@@ -539,6 +542,7 @@ describe('Settings > Attachment parser tab', () => {
     render(<Settings />)
 
     await screen.findByText('GLM File & Image Parser')
+    fireEvent.click(screen.getByText('Custom GLM'))
     fireEvent.change(screen.getByLabelText('GLM API Key'), {
       target: { value: 'glm-secret-123456' },
     })
@@ -546,6 +550,7 @@ describe('Settings > Attachment parser tab', () => {
 
     await waitFor(() => {
       expect(MOCK_TEST_ATTACHMENT_CONFIG).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'custom',
         apiKey: 'glm-secret-123456',
         summarizeModel: 'glm-5.1',
       }))

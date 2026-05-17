@@ -1,5 +1,6 @@
 export type AttachmentParserConfig = {
   enabled: boolean
+  mode: 'managed' | 'custom'
   apiKey: string
   hasApiKey: boolean
   baseUrl: string
@@ -10,6 +11,7 @@ export type AttachmentParserConfig = {
 
 export type UpdateAttachmentParserConfigInput = {
   enabled?: boolean
+  mode?: 'managed' | 'custom'
   apiKey?: string
   baseUrl?: string
   visionModel?: string

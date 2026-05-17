@@ -14,11 +14,14 @@ import type { CreateProviderInput } from '../types/provider.js'
 
 let tmpDir: string
 let originalConfigDir: string | undefined
+let originalManagedDefaultFlag: string | undefined
 
 async function setup() {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'provider-test-'))
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  originalManagedDefaultFlag = process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   process.env.CLAUDE_CONFIG_DIR = tmpDir
+  process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = '1'
 }
 
 async function teardown() {
@@ -26,6 +29,11 @@ async function teardown() {
     process.env.CLAUDE_CONFIG_DIR = originalConfigDir
   } else {
     delete process.env.CLAUDE_CONFIG_DIR
+  }
+  if (originalManagedDefaultFlag !== undefined) {
+    process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = originalManagedDefaultFlag
+  } else {
+    delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   }
   await fs.rm(tmpDir, { recursive: true, force: true })
 }
@@ -88,6 +96,20 @@ describe('ProviderService', () => {
   // ─── listProviders ───────────────────────────────────────────────────────
 
   describe('listProviders', () => {
+    test('should create and activate Gugu Managed on first run', async () => {
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      const svc = new ProviderService()
+      const result = await svc.listProviders()
+
+      expect(result.activeId).toBe('gugu-managed')
+      expect(result.providers[0]).toMatchObject({
+        id: 'gugu-managed',
+        presetId: 'gugu-managed',
+        apiFormat: 'gugu_managed',
+        authKind: 'gugu_managed',
+      })
+    })
+
     test('should return empty array when no providers exist', async () => {
       const svc = new ProviderService()
       const result = await svc.listProviders()

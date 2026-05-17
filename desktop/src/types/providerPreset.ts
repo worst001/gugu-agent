@@ -14,6 +14,7 @@ export type ProviderPresetProtocol =
   | 'openai_chat_proxy'
   | 'openai_responses_proxy'
   | 'chatgpt_codex'
+  | 'gugu_managed'
 
 export type ProviderPresetModelRole = 'main' | 'haiku' | 'sonnet' | 'opus'
 

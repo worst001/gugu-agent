@@ -10,21 +10,25 @@ describe('BillingService', () => {
   let originalConfigDir: string | undefined
   let originalPurchaseUrl: string | undefined
   let originalVerifyUrl: string | undefined
+  let originalGatewayUrl: string | undefined
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-billing-'))
     originalConfigDir = process.env.CLAUDE_CONFIG_DIR
     originalPurchaseUrl = process.env.CC_GUGU_BILLING_PURCHASE_URL
     originalVerifyUrl = process.env.CC_GUGU_BILLING_VERIFY_URL
+    originalGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     delete process.env.CC_GUGU_BILLING_PURCHASE_URL
     delete process.env.CC_GUGU_BILLING_VERIFY_URL
+    delete process.env.CC_GUGU_GATEWAY_URL
   })
 
   afterEach(async () => {
     restoreEnv('CLAUDE_CONFIG_DIR', originalConfigDir)
     restoreEnv('CC_GUGU_BILLING_PURCHASE_URL', originalPurchaseUrl)
     restoreEnv('CC_GUGU_BILLING_VERIFY_URL', originalVerifyUrl)
+    restoreEnv('CC_GUGU_GATEWAY_URL', originalGatewayUrl)
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
@@ -56,7 +60,35 @@ describe('BillingService', () => {
 
     expect(called).toBe(false)
     expect(status.status).toBe('not_configured')
-    expect(status.message).toContain('订阅校验服务尚未配置')
+    expect(status.message).toContain('Billing verifier is not configured')
+  })
+
+  test('registers a gateway device and exposes additive quota fields', async () => {
+    process.env.CC_GUGU_GATEWAY_URL = 'https://gateway.example.com'
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('https://gateway.example.com/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 50,
+          creditsRemaining: 49,
+          isTrial: true,
+          purchaseUrl: 'https://buy.example.com',
+        },
+      })
+    })
+
+    const status = await service.getStatus()
+
+    expect(status.status).toBe('active')
+    expect(status.deviceId).toBe('device-1')
+    expect(status.creditsTotal).toBe(50)
+    expect(status.creditsRemaining).toBe(49)
+    expect(status.isTrial).toBe(true)
+    expect(status.purchaseUrl).toBe('https://buy.example.com')
   })
 
   test('activates a license with configured verifier and masks stored key', async () => {
@@ -69,7 +101,7 @@ describe('BillingService', () => {
         valid: true,
         plan: 'Pro',
         expiresAt: '2099-01-01T00:00:00.000Z',
-        message: '订阅已激活',
+        message: 'ok',
       })
     })
 
