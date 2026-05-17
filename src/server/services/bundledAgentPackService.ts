@@ -7,6 +7,12 @@ import {
   updateSettingsForSource,
 } from '../../utils/settings/settings.js'
 import { registerPluginInstallation } from '../../utils/plugins/pluginInstallationHelpers.js'
+import {
+  clearMarketplacesCache,
+  loadKnownMarketplacesConfig,
+  saveKnownMarketplacesConfig,
+} from '../../utils/plugins/marketplaceManager.js'
+import { clearPluginCache } from '../../utils/plugins/pluginLoader.js'
 
 type BundledSkillRecord = {
   sourceHash: string
@@ -41,6 +47,11 @@ type PluginSource = {
   version: string
 }
 
+type BundledMarketplace = {
+  marketplaceRoot: string
+  manifestPath: string
+}
+
 const MANIFEST_FILE = 'bundled-agent-pack.json'
 const BUNDLED_MARKETPLACE = 'gugu-bundled'
 const SKILL_MD = 'SKILL.md'
@@ -62,7 +73,11 @@ export async function bootstrapBundledAgentPack(): Promise<void> {
     await installSkillSource(source, nextManifest)
   }
 
-  const pluginSources = await discoverPluginSources(sourceRoot)
+  const bundledMarketplaces = await registerBundledMarketplaces(sourceRoot)
+  const pluginSources = await discoverPluginSources(
+    sourceRoot,
+    bundledMarketplaces,
+  )
   const enabledPlugins: Record<string, true> = {}
   for (const plugin of pluginSources) {
     registerPluginInstallation(
@@ -90,6 +105,7 @@ export async function bootstrapBundledAgentPack(): Promise<void> {
         ...enabledPlugins,
       },
     })
+    clearPluginCache('bundled agent pack plugins registered')
   }
 
   await writeManifest(nextManifest)
@@ -164,27 +180,117 @@ async function discoverSkillSources(sourceRoot: string): Promise<SkillSource[]> 
   return [...byName.values()]
 }
 
-async function discoverPluginSources(sourceRoot: string): Promise<PluginSource[]> {
-  const pluginRoot = path.join(sourceRoot, 'third-party')
-  const pluginJsonFiles = await findFilesIfExists(pluginRoot, 'plugin.json')
-  const plugins: PluginSource[] = []
+async function registerBundledMarketplaces(
+  sourceRoot: string,
+): Promise<BundledMarketplace[]> {
+  const marketplaces = await discoverBundledMarketplaces(sourceRoot)
+  if (marketplaces.length === 0) return []
 
-  for (const pluginJson of pluginJsonFiles) {
-    if (!pluginJson.includes(`${path.sep}.codex-plugin${path.sep}`)) continue
-    const pluginDir = path.dirname(path.dirname(pluginJson))
-    const pluginName = path.basename(pluginDir)
-    const manifest = await readJsonFile(pluginJson)
-    plugins.push({
-      pluginId: `${pluginName}@${BUNDLED_MARKETPLACE}`,
-      pluginName,
-      sourcePath: pluginDir,
-      version: typeof manifest.version === 'string' && manifest.version.trim()
-        ? manifest.version.trim()
-        : 'bundled',
-    })
+  const primaryMarketplace = marketplaces[0]
+  const knownMarketplaces = await loadKnownMarketplacesConfig()
+  const nextEntry = {
+    source: {
+      source: 'directory' as const,
+      path: primaryMarketplace.marketplaceRoot,
+    },
+    installLocation: primaryMarketplace.marketplaceRoot,
+    lastUpdated: new Date().toISOString(),
+    autoUpdate: false,
+  }
+  const current = knownMarketplaces[BUNDLED_MARKETPLACE]
+  const isCurrent =
+    current?.source.source === 'directory' &&
+    current.source.path === nextEntry.source.path &&
+    current.installLocation === nextEntry.installLocation &&
+    current.autoUpdate === nextEntry.autoUpdate
+
+  if (!isCurrent) {
+    knownMarketplaces[BUNDLED_MARKETPLACE] = nextEntry
+    await saveKnownMarketplacesConfig(knownMarketplaces)
+    clearMarketplacesCache()
   }
 
-  return plugins.sort((a, b) => a.pluginId.localeCompare(b.pluginId))
+  return marketplaces
+}
+
+async function discoverBundledMarketplaces(
+  sourceRoot: string,
+): Promise<BundledMarketplace[]> {
+  const thirdPartyRoot = path.join(sourceRoot, 'third-party')
+  const marketplaceJsonFiles = await findFilesIfExists(
+    thirdPartyRoot,
+    'marketplace.json',
+  )
+  const marketplaces = new Map<string, BundledMarketplace>()
+
+  for (const manifestPath of marketplaceJsonFiles) {
+    const parentDir = path.basename(path.dirname(manifestPath))
+    if (parentDir !== '.claude-plugin') continue
+
+    const marketplaceRoot = path.dirname(path.dirname(manifestPath))
+    const relative = path.relative(sourceRoot, marketplaceRoot)
+    const parts = relative.split(path.sep)
+    if (parts.includes('tests') || parts.includes('fixtures')) continue
+    if (!await pathExists(path.join(marketplaceRoot, 'plugins'))) continue
+
+    marketplaces.set(marketplaceRoot, { marketplaceRoot, manifestPath })
+  }
+
+  return [...marketplaces.values()].sort((a, b) =>
+    a.marketplaceRoot.localeCompare(b.marketplaceRoot),
+  )
+}
+
+async function discoverPluginSources(
+  sourceRoot: string,
+  bundledMarketplaces?: BundledMarketplace[],
+): Promise<PluginSource[]> {
+  bundledMarketplaces ??= await discoverBundledMarketplaces(sourceRoot)
+  const plugins: PluginSource[] = []
+
+  for (const marketplace of bundledMarketplaces) {
+    const manifest = await readJsonFile(marketplace.manifestPath)
+    const entries = Array.isArray(manifest.plugins) ? manifest.plugins : []
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue
+      const pluginEntry = entry as Record<string, unknown>
+      if (typeof pluginEntry.name !== 'string' || !pluginEntry.name.trim()) {
+        continue
+      }
+      if (typeof pluginEntry.source !== 'string') continue
+
+      const pluginName = pluginEntry.name.trim()
+      const pluginDir = path.resolve(marketplace.marketplaceRoot, pluginEntry.source)
+      if (!await pathExists(pluginDir)) continue
+
+      plugins.push({
+        pluginId: `${pluginName}@${BUNDLED_MARKETPLACE}`,
+        pluginName,
+        sourcePath: pluginDir,
+        version: await readPluginVersion(pluginDir),
+      })
+    }
+  }
+
+  const byId = new Map<string, PluginSource>()
+  for (const plugin of plugins.sort((a, b) => a.pluginId.localeCompare(b.pluginId))) {
+    if (!byId.has(plugin.pluginId)) byId.set(plugin.pluginId, plugin)
+  }
+  return [...byId.values()]
+}
+
+async function readPluginVersion(pluginDir: string): Promise<string> {
+  for (const relative of [
+    path.join('.codex-plugin', 'plugin.json'),
+    path.join('.claude-plugin', 'plugin.json'),
+    'plugin.json',
+  ]) {
+    const manifest = await readJsonFile(path.join(pluginDir, relative))
+    if (typeof manifest.version === 'string' && manifest.version.trim()) {
+      return manifest.version.trim()
+    }
+  }
+  return 'bundled'
 }
 
 async function resolveBundledAgentPackRoot(): Promise<string | null> {
