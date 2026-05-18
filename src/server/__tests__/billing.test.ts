@@ -9,26 +9,38 @@ describe('BillingService', () => {
   let tmpDir: string
   let originalConfigDir: string | undefined
   let originalPurchaseUrl: string | undefined
+  let originalLegacyPurchaseUrl: string | undefined
   let originalVerifyUrl: string | undefined
   let originalGatewayUrl: string | undefined
+  let originalLegacyGatewayUrl: string | undefined
+  let originalDefaultGatewayUrl: string | undefined
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-billing-'))
     originalConfigDir = process.env.CLAUDE_CONFIG_DIR
     originalPurchaseUrl = process.env.CC_GUGU_BILLING_PURCHASE_URL
+    originalLegacyPurchaseUrl = process.env.GUGU_PURCHASE_URL
     originalVerifyUrl = process.env.CC_GUGU_BILLING_VERIFY_URL
     originalGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
+    originalLegacyGatewayUrl = process.env.GUGU_GATEWAY_URL
+    originalDefaultGatewayUrl = process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     delete process.env.CC_GUGU_BILLING_PURCHASE_URL
+    delete process.env.GUGU_PURCHASE_URL
     delete process.env.CC_GUGU_BILLING_VERIFY_URL
     delete process.env.CC_GUGU_GATEWAY_URL
+    delete process.env.GUGU_GATEWAY_URL
+    delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
   })
 
   afterEach(async () => {
     restoreEnv('CLAUDE_CONFIG_DIR', originalConfigDir)
     restoreEnv('CC_GUGU_BILLING_PURCHASE_URL', originalPurchaseUrl)
+    restoreEnv('GUGU_PURCHASE_URL', originalLegacyPurchaseUrl)
     restoreEnv('CC_GUGU_BILLING_VERIFY_URL', originalVerifyUrl)
     restoreEnv('CC_GUGU_GATEWAY_URL', originalGatewayUrl)
+    restoreEnv('GUGU_GATEWAY_URL', originalLegacyGatewayUrl)
+    restoreEnv('GUGU_DESKTOP_DEFAULT_GATEWAY_URL', originalDefaultGatewayUrl)
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
@@ -89,6 +101,66 @@ describe('BillingService', () => {
     expect(status.creditsRemaining).toBe(49)
     expect(status.isTrial).toBe(true)
     expect(status.purchaseUrl).toBe('https://buy.example.com')
+  })
+
+  test('uses build-time default gateway when runtime gateway is absent', async () => {
+    process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://built.example.com/base/'
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('https://built.example.com/base/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 25,
+          creditsRemaining: 25,
+          isTrial: true,
+        },
+      })
+    })
+
+    const config = await service.getConfig()
+    const status = await service.getStatus()
+
+    expect(config.gatewayUrlConfigured).toBe(true)
+    expect(status.status).toBe('active')
+    expect(status.creditsTotal).toBe(25)
+  })
+
+  test('runtime gateway overrides build-time default gateway', async () => {
+    process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://built.example.com'
+    process.env.CC_GUGU_GATEWAY_URL = 'https://runtime.example.com'
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('https://runtime.example.com/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 10,
+          creditsRemaining: 10,
+          isTrial: true,
+        },
+      })
+    })
+
+    const status = await service.getStatus()
+
+    expect(status.status).toBe('active')
+  })
+
+  test('gateway connection failures surface as check_failed', async () => {
+    process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://gateway.example.com'
+    const service = new BillingService(async () => {
+      throw new Error('network down')
+    })
+
+    const status = await service.getStatus()
+
+    expect(status.status).toBe('check_failed')
+    expect(status.message).toContain('network down')
   })
 
   test('activates a license with configured verifier and masks stored key', async () => {

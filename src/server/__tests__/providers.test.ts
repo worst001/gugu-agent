@@ -110,6 +110,34 @@ describe('ProviderService', () => {
       })
     })
 
+    test('should activate Gugu Managed when no provider is active', async () => {
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      const svc = new ProviderService()
+      await svc.addProvider(sampleInput({ name: 'Custom Provider' }))
+
+      const result = await svc.listProviders()
+
+      expect(result.activeId).toBe('gugu-managed')
+      expect(result.providers.map((provider) => provider.name)).toContain('Custom Provider')
+      const settings = await readSettings()
+      expect(settings.env).toMatchObject({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456/proxy/gugu-managed',
+        ANTHROPIC_API_KEY: 'proxy-managed',
+      })
+    })
+
+    test('should move hidden ChatGPT Connect default back to Gugu Managed', async () => {
+      const svc = new ProviderService()
+      const chatgpt = await svc.ensureChatGPTProvider({ activate: true })
+      expect((await svc.listProviders()).activeId).toBe(chatgpt.id)
+
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      const result = await svc.listProviders()
+
+      expect(result.activeId).toBe('gugu-managed')
+      expect(result.providers.some((provider) => provider.id === chatgpt.id)).toBe(true)
+    })
+
     test('should return empty array when no providers exist', async () => {
       const svc = new ProviderService()
       const result = await svc.listProviders()

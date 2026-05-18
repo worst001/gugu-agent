@@ -252,7 +252,7 @@ describe('Settings > Providers tab', () => {
     providerStoreState.hasLoadedProviders = true
   })
 
-  it('does not query official OAuth status before providers finish loading', () => {
+  it('hides official OAuth while providers finish loading', () => {
     providerStoreState.providers = []
     providerStoreState.activeId = null
     providerStoreState.hasLoadedProviders = false
@@ -262,14 +262,50 @@ describe('Settings > Providers tab', () => {
     expect(screen.queryByTestId('claude-official-login')).not.toBeInTheDocument()
   })
 
-  it('shows official OAuth status only after official provider is confirmed active', () => {
-    providerStoreState.providers = []
-    providerStoreState.activeId = null
+  it('hides Claude Official and ChatGPT Connect from the provider list', () => {
+    providerStoreState.providers = [
+      {
+        id: 'gugu-managed',
+        name: 'Gugu Managed',
+        presetId: 'gugu-managed',
+        apiKey: '',
+        baseUrl: 'gugu://managed',
+        apiFormat: 'gugu_managed',
+        authKind: 'gugu_managed',
+        models: {
+          main: 'gugu-managed-main',
+          haiku: 'gugu-managed-fast',
+          sonnet: 'gugu-managed-main',
+          opus: 'gugu-managed-strong',
+        },
+        notes: '',
+      },
+      {
+        id: 'chatgpt-provider',
+        name: 'ChatGPT Connect',
+        presetId: 'chatgpt',
+        apiKey: '',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        apiFormat: 'chatgpt_codex',
+        authKind: 'chatgpt_oauth',
+        models: {
+          main: 'gpt-5.4',
+          haiku: 'gpt-5.4-mini',
+          sonnet: 'gpt-5.4',
+          opus: 'gpt-5.4',
+        },
+        notes: '',
+      },
+    ]
+    providerStoreState.activeId = 'gugu-managed'
     providerStoreState.hasLoadedProviders = true
 
     render(<Settings />)
 
-    expect(screen.getByTestId('claude-official-login')).toBeInTheDocument()
+    expect(screen.getByText('Gugu Managed')).toBeInTheDocument()
+    expect(screen.queryByText('Claude Official')).not.toBeInTheDocument()
+    expect(screen.queryByText('ChatGPT Connect')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('claude-official-login')).not.toBeInTheDocument()
   })
 
   it('requires confirmation before deleting a provider', async () => {

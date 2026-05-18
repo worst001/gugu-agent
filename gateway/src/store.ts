@@ -4,9 +4,11 @@ import * as path from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
 import type {
   GatewayConfig,
+  GatewayDeviceSummary,
   GatewayDeviceResponse,
   GatewayEntitlement,
   GatewayPlan,
+  GatewayUsageEvent,
 } from './types.js'
 
 type DeviceRow = {
@@ -17,6 +19,11 @@ type DeviceRow = {
   credits_remaining: number
   expires_at: string | null
   license_key: string | null
+  app_version: string | null
+  platform: string | null
+  created_at: string
+  updated_at: string
+  last_seen_at: string
 }
 
 type ActivationCodeRow = {
@@ -27,6 +34,18 @@ type ActivationCodeRow = {
   max_activations: number
   activations: number
   disabled_at: string | null
+}
+
+type UsageEventRow = {
+  id: number
+  device_id: string
+  kind: string
+  model: string
+  credits: number
+  input_tokens: number | null
+  output_tokens: number | null
+  created_at: string
+  metadata: string | null
 }
 
 export class GatewayQuotaError extends Error {
@@ -200,6 +219,47 @@ export class GatewayStore {
       .run(new Date().toISOString(), licenseKey.trim())
   }
 
+  getDeviceSummary(input: { deviceToken?: string; deviceId?: string }): GatewayDeviceSummary | null {
+    const row = input.deviceToken
+      ? this.db
+        .query('SELECT * FROM devices WHERE device_token = ?')
+        .get(input.deviceToken.trim()) as DeviceRow | null
+      : input.deviceId
+        ? this.getDeviceById(input.deviceId)
+        : null
+    return row ? this.toDeviceSummary(row) : null
+  }
+
+  listUsageEvents(input: {
+    deviceToken?: string
+    deviceId?: string
+    limit?: number
+  } = {}): GatewayUsageEvent[] {
+    const limit = normalizeLimit(input.limit)
+    const deviceId = input.deviceToken
+      ? this.requireDeviceByToken(input.deviceToken).device_id
+      : normalizeId(input.deviceId)
+
+    const rows = deviceId
+      ? this.db
+        .query(
+          `SELECT * FROM usage_events
+           WHERE device_id = ?
+           ORDER BY id DESC
+           LIMIT ?`,
+        )
+        .all(deviceId, limit) as UsageEventRow[]
+      : this.db
+        .query(
+          `SELECT * FROM usage_events
+           ORDER BY id DESC
+           LIMIT ?`,
+        )
+        .all(limit) as UsageEventRow[]
+
+    return rows.map(toUsageEvent)
+  }
+
   setDeviceCredits(deviceToken: string, creditsRemaining: number, creditsTotal?: number): GatewayEntitlement {
     const now = new Date().toISOString()
     if (creditsTotal === undefined) {
@@ -212,6 +272,14 @@ export class GatewayStore {
         .run(creditsRemaining, creditsTotal, now, deviceToken)
     }
     return this.getEntitlement(deviceToken)
+  }
+
+  setDeviceCreditsByDeviceId(deviceId: string, creditsRemaining: number, creditsTotal?: number): GatewayEntitlement {
+    const device = this.getDeviceById(deviceId)
+    if (!device) {
+      throw new GatewayAuthError('Device id is invalid.')
+    }
+    return this.setDeviceCredits(device.device_token, creditsRemaining, creditsTotal)
   }
 
   consumeCredit(deviceToken: string, kind: 'message' | 'attachment', model: string): GatewayEntitlement {
@@ -344,6 +412,21 @@ export class GatewayStore {
       ...(reason ? { reason } : {}),
     }
   }
+
+  private toDeviceSummary(row: DeviceRow): GatewayDeviceSummary {
+    return {
+      deviceId: row.device_id,
+      deviceToken: row.device_token,
+      plan: row.plan,
+      licenseKey: row.license_key,
+      appVersion: row.app_version,
+      platform: row.platform,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      lastSeenAt: row.last_seen_at,
+      entitlement: this.toEntitlement(row),
+    }
+  }
 }
 
 function createDeviceToken(): string {
@@ -354,6 +437,25 @@ function normalizeId(value: string | undefined): string | null {
   const trimmed = value?.trim()
   if (!trimmed) return null
   return trimmed.length <= 128 ? trimmed : trimmed.slice(0, 128)
+}
+
+function normalizeLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 50
+  return Math.min(500, Math.max(1, Math.trunc(value)))
+}
+
+function toUsageEvent(row: UsageEventRow): GatewayUsageEvent {
+  return {
+    id: row.id,
+    deviceId: row.device_id,
+    kind: row.kind,
+    model: row.model,
+    credits: row.credits,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    createdAt: row.created_at,
+    metadata: row.metadata,
+  }
 }
 
 function getEntitlementMessage(status: GatewayEntitlement['status']): string {

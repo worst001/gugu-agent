@@ -26,8 +26,6 @@ import { ComputerUseSettings } from './ComputerUseSettings'
 import { McpSettings } from './McpSettings'
 import { TerminalSettings } from './TerminalSettings'
 import { useUIStore, type SettingsTab } from '../stores/uiStore'
-import { ClaudeOfficialLogin } from '../components/settings/ClaudeOfficialLogin'
-import { ChatGPTConnect } from '../components/settings/ChatGPTConnect'
 import { useUpdateStore } from '../stores/updateStore'
 import { formatBytes } from '../lib/formatBytes'
 import { isTauriRuntime } from '../lib/desktopRuntime'
@@ -36,6 +34,8 @@ import type { AttachmentParserConfig, AttachmentParserTestResult } from '../type
 import { ConfigBackupSettings } from './ConfigBackupSettings'
 import { useBillingStore } from '../stores/billingStore'
 import type { BillingStatus } from '../types/billing'
+
+const HIDDEN_PROVIDER_PRESET_IDS = new Set(['official', 'chatgpt'])
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -368,7 +368,6 @@ function ProviderSettings() {
   const {
     providers,
     activeId,
-    hasLoadedProviders,
     presets,
     isLoading,
     isPresetsLoading,
@@ -376,7 +375,6 @@ function ProviderSettings() {
     fetchPresets,
     deleteProvider,
     activateProvider,
-    activateOfficial,
     testProvider,
   } = useProviderStore()
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
@@ -396,13 +394,9 @@ function ProviderSettings() {
     () => new Map(presets.map((preset) => [preset.id, preset])),
     [presets],
   )
-  const chatgptProvider = useMemo(
-    () => providers.find(isChatGPTProvider) ?? null,
-    [providers],
-  )
   const visibleProviders = useMemo(
-    () => providers.filter((provider) => provider.id !== chatgptProvider?.id),
-    [chatgptProvider?.id, providers],
+    () => providers.filter((provider) => !isChatGPTProvider(provider)),
+    [providers],
   )
 
   const handleDelete = async (provider: SavedProvider) => {
@@ -438,15 +432,6 @@ function ProviderSettings() {
     await fetchSettings()
   }
 
-  const handleActivateOfficial = async () => {
-    await activateOfficial()
-    await fetchSettings()
-  }
-
-  const isOfficialActive = hasLoadedProviders && activeId === null
-  const isChatGPTActive = chatgptProvider !== null && activeId === chatgptProvider.id
-  const chatgptTest = chatgptProvider ? testResults[chatgptProvider.id] : undefined
-
   return (
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-4">
@@ -458,96 +443,6 @@ function ProviderSettings() {
           <span className="material-symbols-outlined text-[16px]">add</span>
           {t('settings.providers.addProvider')}
         </Button>
-      </div>
-
-      {/* Official provider — always visible at top */}
-      <div
-        className={`relative flex flex-col rounded-xl border transition-all mb-2 ${
-          isOfficialActive
-            ? 'border-[var(--color-brand)] bg-[var(--color-surface-container)] shadow-[var(--shadow-focus-ring)]'
-            : 'border-[var(--color-border)] hover:border-[var(--color-border-focus)] cursor-pointer'
-        }`}
-      >
-        <div
-          className="flex items-center gap-4 px-4 py-3.5"
-          onClick={() => !isOfficialActive && handleActivateOfficial()}
-        >
-          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isOfficialActive ? 'bg-[var(--color-success)]' : 'bg-[var(--color-text-tertiary)]'}`} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.providers.officialName')}</span>
-              {isOfficialActive && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-[var(--color-brand)]/18 bg-[var(--color-brand)]/14 text-[var(--color-brand)] leading-none">{t('settings.providers.default')}</span>
-              )}
-            </div>
-            <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{t('settings.providers.officialDesc')}</div>
-          </div>
-        </div>
-
-        {isOfficialActive && (
-          <div className="px-4 pb-4 pt-3 border-t border-[var(--color-border-separator)]">
-            <ClaudeOfficialLogin />
-          </div>
-        )}
-      </div>
-
-      <div
-        onClick={() => {
-          if (chatgptProvider && !isChatGPTActive) void handleActivate(chatgptProvider.id)
-        }}
-        className={`relative flex flex-col rounded-xl border transition-all mb-2 group ${
-          isChatGPTActive
-            ? 'border-[var(--color-brand)] bg-[var(--color-surface-container)] shadow-[var(--shadow-focus-ring)]'
-            : 'border-[var(--color-border)] hover:border-[var(--color-border-focus)] cursor-pointer'
-        }`}
-      >
-        <div className="flex items-center gap-4 px-4 py-3.5">
-          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isChatGPTActive ? 'bg-[var(--color-success)]' : 'bg-[var(--color-text-tertiary)]'}`} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-                {t('settings.chatgptConnect.title')}
-              </span>
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-warning)] leading-none">
-                Codex
-              </span>
-              {isChatGPTActive && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-[var(--color-brand)]/18 bg-[var(--color-brand)]/14 text-[var(--color-brand)] leading-none">{t('settings.providers.default')}</span>
-              )}
-            </div>
-            <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-              {chatgptProvider
-                ? `${chatgptProvider.baseUrl} · ${chatgptProvider.models.main}`
-                : t('settings.chatgptConnect.description')}
-            </div>
-            {chatgptTest && !chatgptTest.loading && chatgptTest.result && (
-              <div className="text-xs mt-1 flex flex-col gap-0.5">
-                <span className={chatgptTest.result.connectivity.success ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}>
-                  {chatgptTest.result.connectivity.success
-                    ? t('settings.providers.connectivityOk', { latency: String(chatgptTest.result.connectivity.latencyMs) })
-                    : t('settings.providers.connectivityFailed', { error: chatgptTest.result.connectivity.error || '' })}
-                </span>
-              </div>
-            )}
-          </div>
-          {chatgptProvider && (
-            <div
-              className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {!isChatGPTActive && (
-                <Button variant="ghost" size="sm" onClick={() => handleActivate(chatgptProvider.id)}>{t('settings.providers.setDefault')}</Button>
-              )}
-              <Button variant="ghost" size="sm" onClick={() => handleTest(chatgptProvider)} loading={chatgptTest?.loading}>{t('settings.providers.test')}</Button>
-            </div>
-          )}
-        </div>
-        <div
-          className="px-4 pb-4 pt-3 border-t border-[var(--color-border-separator)]"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <ChatGPTConnect />
-        </div>
       </div>
 
       {/* Saved providers */}
@@ -916,7 +811,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
   const t = useTranslation()
 
-  const availablePresets = presets.filter((p) => p.id !== 'official')
+  const availablePresets = presets.filter((p) => !HIDDEN_PROVIDER_PRESET_IDS.has(p.id))
   const regularPresets = availablePresets.filter((p) => !p.featured)
   const featuredPresets = availablePresets.filter((p) => p.featured)
   const presetDefaultEnvKeys = useMemo(

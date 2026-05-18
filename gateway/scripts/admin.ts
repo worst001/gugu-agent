@@ -24,16 +24,32 @@ try {
     if (!licenseKey) usage('disable <licenseKey>')
     store.disableActivationCode(licenseKey!)
     console.log(JSON.stringify({ ok: true, licenseKey }, null, 2))
+  } else if (command === 'device') {
+    const deviceToken = readArg('--device-token', '')
+    const deviceId = readArg('--device-id', '')
+    if (!deviceToken && !deviceId) usage('device --device-token <token> | --device-id <id>')
+    const device = store.getDeviceSummary({ deviceToken, deviceId })
+    if (!device) throw new Error('Device not found.')
+    console.log(JSON.stringify(device, null, 2))
+  } else if (command === 'usage') {
+    const events = store.listUsageEvents({
+      deviceToken: readArg('--device-token', ''),
+      deviceId: readArg('--device-id', ''),
+      limit: readPositiveIntArg('--limit', 50),
+    })
+    console.log(JSON.stringify({ events }, null, 2))
   } else if (command === 'set-credits') {
     const deviceToken = readArg('--device-token', '')
+    const deviceId = readArg('--device-id', '')
     const remaining = Number.parseInt(readArg('--remaining', ''), 10)
     const totalRaw = readArg('--total', '')
-    if (!deviceToken || !Number.isFinite(remaining)) usage('set-credits --device-token <token> --remaining <n> [--total <n>]')
-    const entitlement = store.setDeviceCredits(
-      deviceToken,
-      remaining,
-      totalRaw ? Number.parseInt(totalRaw, 10) : undefined,
-    )
+    if ((!deviceToken && !deviceId) || !Number.isFinite(remaining)) {
+      usage('set-credits --device-token <token> | --device-id <id> --remaining <n> [--total <n>]')
+    }
+    const total = totalRaw ? Number.parseInt(totalRaw, 10) : undefined
+    const entitlement = deviceToken
+      ? store.setDeviceCredits(deviceToken, remaining, total)
+      : store.setDeviceCreditsByDeviceId(deviceId, remaining, total)
     console.log(JSON.stringify(entitlement, null, 2))
   } else {
     usage()
@@ -41,12 +57,20 @@ try {
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(1)
+} finally {
+  store.close()
 }
 
 function readArg(name: string, fallback: string): string {
   const index = args.indexOf(name)
   if (index === -1) return fallback
   return args[index + 1] ?? fallback
+}
+
+function readPositiveIntArg(name: string, fallback: number): number {
+  const value = Number.parseInt(readArg(name, String(fallback)), 10)
+  if (!Number.isFinite(value) || value <= 0) return fallback
+  return Math.min(500, Math.trunc(value))
 }
 
 function usage(detail?: string): never {
@@ -56,7 +80,9 @@ function usage(detail?: string): never {
       'Usage:',
       '  bun run scripts/admin.ts issue --plan pro --credits 1000 [--expires 2099-01-01T00:00:00.000Z] [--max-activations 1]',
       '  bun run scripts/admin.ts disable <licenseKey>',
-      '  bun run scripts/admin.ts set-credits --device-token <token> --remaining <n> [--total <n>]',
+      '  bun run scripts/admin.ts device --device-token <token> | --device-id <id>',
+      '  bun run scripts/admin.ts usage [--device-token <token> | --device-id <id>] [--limit 50]',
+      '  bun run scripts/admin.ts set-credits --device-token <token> | --device-id <id> --remaining <n> [--total <n>]',
     ].join('\n'))
   }
   process.exit(2)

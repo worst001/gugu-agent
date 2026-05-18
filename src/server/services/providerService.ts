@@ -108,6 +108,12 @@ export function isGuguManagedProvider(provider: Pick<SavedProvider, 'id' | 'pres
     provider.authKind === 'gugu_managed'
 }
 
+function isChatGPTConnectProvider(provider: Pick<SavedProvider, 'presetId' | 'apiFormat' | 'authKind'>): boolean {
+  return provider.presetId === CHATGPT_PROVIDER_PRESET_ID ||
+    provider.apiFormat === 'chatgpt_codex' ||
+    provider.authKind === 'chatgpt_oauth'
+}
+
 function getPresetDefaultEnv(presetId: string): Record<string, string> {
   return PROVIDER_PRESETS.find((preset) => preset.id === presetId)?.defaultEnv ?? {}
 }
@@ -212,7 +218,6 @@ export class ProviderService {
   private async ensureManagedProviderIndex(index: ProvidersIndex): Promise<ProvidersIndex> {
     if (process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT === '1') return index
 
-    const hadProviders = index.providers.length > 0
     let changed = false
     let provider = index.providers.find(isGuguManagedProvider)
 
@@ -253,14 +258,14 @@ export class ProviderService {
       }
     }
 
-    if (!hadProviders && index.activeId === null) {
+    if (index.activeId === null) {
       index.activeId = GUGU_MANAGED_PROVIDER_ID
       changed = true
     }
 
     if (index.activeId && index.activeId !== GUGU_MANAGED_PROVIDER_ID) {
       const active = index.providers.find((p) => p.id === index.activeId)
-      if (active && isGuguManagedProvider(active)) {
+      if (!active || isGuguManagedProvider(active) || isChatGPTConnectProvider(active)) {
         index.activeId = GUGU_MANAGED_PROVIDER_ID
         changed = true
       }

@@ -29,6 +29,7 @@ const SERVER_STARTUP_LOG_LIMIT: usize = 80;
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray_show";
 const TRAY_QUIT_ID: &str = "tray_quit";
+const DEFAULT_GATEWAY_URL: Option<&str> = option_env!("GUGU_DESKTOP_DEFAULT_GATEWAY_URL");
 
 #[derive(Default)]
 struct ServerState(Mutex<ServerStatus>);
@@ -456,6 +457,36 @@ fn terminal_environment(shell: &str) -> HashMap<String, String> {
     env
 }
 
+fn apply_default_gateway_url(env: &mut HashMap<String, String>, default_gateway_url: Option<&str>) {
+    if has_non_empty_env(env, "CC_GUGU_GATEWAY_URL") || has_non_empty_env(env, "GUGU_GATEWAY_URL")
+    {
+        return;
+    }
+
+    let Some(url) = normalize_gateway_url(default_gateway_url) else {
+        return;
+    };
+    env.insert("CC_GUGU_GATEWAY_URL".to_string(), url);
+}
+
+fn has_non_empty_env(env: &HashMap<String, String>, key: &str) -> bool {
+    env.get(key)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn normalize_gateway_url(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim().trim_end_matches('/');
+    if trimmed == "http:" || trimmed == "https:" {
+        return None;
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
 fn ensure_utf8_locale(env: &mut HashMap<String, String>) {
     let fallback = default_utf8_locale();
     for key in ["LANG", "LC_CTYPE", "LC_ALL"] {
@@ -701,7 +732,9 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
         .shell()
         .sidecar("claude-sidecar")
         .map_err(|err| format!("resolve sidecar: {err}"))?;
-    for (key, value) in terminal_environment(&default_shell()) {
+    let mut env = terminal_environment(&default_shell());
+    apply_default_gateway_url(&mut env, DEFAULT_GATEWAY_URL);
+    for (key, value) in env {
         sidecar = sidecar.env(key, value);
     }
     if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {
@@ -908,7 +941,10 @@ fn kill_windows_sidecars() {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_terminal_output, default_utf8_locale, ensure_utf8_locale, parse_env_block};
+    use super::{
+        apply_default_gateway_url, decode_terminal_output, default_utf8_locale, ensure_utf8_locale,
+        parse_env_block,
+    };
     use std::collections::HashMap;
 
     #[test]
@@ -986,6 +1022,49 @@ mod tests {
         assert_eq!(env.get("LANG").map(String::as_str), Some("zh_CN.UTF-8"));
         assert_eq!(env.get("LC_CTYPE").map(String::as_str), Some("en_US.UTF8"));
         assert_eq!(env.get("LC_ALL").map(String::as_str), Some("C.UTF-8"));
+    }
+
+    #[test]
+    fn default_gateway_url_is_injected_when_runtime_env_is_absent() {
+        let mut env = HashMap::new();
+
+        apply_default_gateway_url(&mut env, Some(" https://gateway.example.com/// "));
+
+        assert_eq!(
+            env.get("CC_GUGU_GATEWAY_URL").map(String::as_str),
+            Some("https://gateway.example.com")
+        );
+    }
+
+    #[test]
+    fn default_gateway_url_does_not_override_runtime_env() {
+        let mut env = HashMap::from([(
+            "CC_GUGU_GATEWAY_URL".to_string(),
+            "https://runtime.example.com".to_string(),
+        )]);
+
+        apply_default_gateway_url(&mut env, Some("https://built.example.com"));
+
+        assert_eq!(
+            env.get("CC_GUGU_GATEWAY_URL").map(String::as_str),
+            Some("https://runtime.example.com")
+        );
+    }
+
+    #[test]
+    fn default_gateway_url_does_not_override_legacy_runtime_env() {
+        let mut env = HashMap::from([(
+            "GUGU_GATEWAY_URL".to_string(),
+            "https://legacy-runtime.example.com".to_string(),
+        )]);
+
+        apply_default_gateway_url(&mut env, Some("https://built.example.com"));
+
+        assert_eq!(env.get("CC_GUGU_GATEWAY_URL"), None);
+        assert_eq!(
+            env.get("GUGU_GATEWAY_URL").map(String::as_str),
+            Some("https://legacy-runtime.example.com")
+        );
     }
 }
 

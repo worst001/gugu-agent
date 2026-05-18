@@ -24,6 +24,31 @@ export type GatewayDeviceResponse = {
   entitlement: GatewayEntitlement
 }
 
+export type GatewayDeviceSummary = {
+  deviceId: string
+  deviceToken: string
+  plan: GatewayPlan
+  licenseKey: string | null
+  appVersion: string | null
+  platform: string | null
+  createdAt: string
+  updatedAt: string
+  lastSeenAt: string
+  entitlement: GatewayEntitlement
+}
+
+export type GatewayUsageEvent = {
+  id: number
+  deviceId: string
+  kind: string
+  model: string
+  credits: number
+  inputTokens: number | null
+  outputTokens: number | null
+  createdAt: string
+  metadata: string | null
+}
+
 export type GatewayErrorBody = {
   error: {
     code: string

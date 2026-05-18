@@ -75,6 +75,7 @@ type GatewayEntitlement = {
   isTrial?: boolean
   purchaseUrl?: string | null
   quotaReason?: string | null
+  reason?: string | null
   message?: string
 }
 
@@ -255,7 +256,7 @@ export class BillingService {
       const current = await this.readBillingFile()
       return this.toPublicStatus({
         ...current,
-        status: current.deviceToken ? 'check_failed' : 'not_configured',
+        status: 'check_failed',
         lastCheckedAt: new Date().toISOString(),
         message: error instanceof Error ? error.message : 'Failed to contact Gugu Gateway.',
       })
@@ -492,7 +493,9 @@ function normalizeLicenseKey(value: string): string {
 }
 
 function readGatewayUrl(): string | null {
-  return readOptionalUrlEnv('CC_GUGU_GATEWAY_URL') || readOptionalUrlEnv('GUGU_GATEWAY_URL')
+  return readOptionalUrlEnv('CC_GUGU_GATEWAY_URL') ||
+    readOptionalUrlEnv('GUGU_GATEWAY_URL') ||
+    readOptionalUrlEnv('GUGU_DESKTOP_DEFAULT_GATEWAY_URL')
 }
 
 function readPurchaseUrl(): string | null {
@@ -505,7 +508,7 @@ function readOptionalUrlEnv(name: string): string | null {
   try {
     const url = new URL(value)
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
-    return url.toString().replace(/\/$/, '')
+    return url.toString().replace(/\/+$/, '')
   } catch {
     return null
   }
@@ -564,7 +567,7 @@ function normalizeGatewayEntitlement(value: unknown): GatewayEntitlement {
     creditsRemaining: numberOrNull(input.creditsRemaining) ?? 0,
     isTrial: input.isTrial === true,
     purchaseUrl: stringOrNull(input.purchaseUrl),
-    quotaReason: stringOrNull(input.quotaReason),
+    quotaReason: stringOrNull(input.quotaReason) || stringOrNull(input.reason),
     message: typeof input.message === 'string' && input.message.trim() ? input.message.trim() : undefined,
   }
 }

@@ -39,6 +39,7 @@ describe('Gugu Gateway', () => {
     expect(body.entitlement.creditsTotal).toBe(3)
     expect(body.entitlement.creditsRemaining).toBe(3)
     expect(body.entitlement.isTrial).toBe(true)
+    expect(body.entitlement.purchaseUrl).toBe('https://buy.example.com')
   })
 
   test('deducts free credits and returns 402 when exhausted', async () => {
@@ -94,6 +95,39 @@ describe('Gugu Gateway', () => {
     expect(body.entitlement.creditsTotal).toBe(100)
     expect(body.entitlement.creditsRemaining).toBe(100)
     expect(body.entitlement.isTrial).toBe(false)
+  })
+
+  test('tracks usage and exposes admin device summaries', async () => {
+    globalThis.fetch = (async () => jsonResponse({ id: 'msg_1', type: 'message', content: [] })) as typeof fetch
+
+    const { handler, store } = makeGateway({ freeCredits: 2, deepseekApiKey: 'deepseek-key' })
+    const registered = await (await handler(jsonRequest('/v1/devices', {
+      deviceId: 'device-1',
+      appVersion: '0.1.10',
+      platform: 'win32-x64',
+    }))).json() as {
+      deviceToken: string
+    }
+
+    await handler(jsonRequest('/v1/messages', {
+      model: 'gugu-managed-main',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'hi' }],
+    }, registered.deviceToken))
+
+    const summary = store.getDeviceSummary({ deviceToken: registered.deviceToken })
+    const events = store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })
+    const adjusted = store.setDeviceCreditsByDeviceId('device-1', 5, 10)
+
+    expect(summary?.deviceId).toBe('device-1')
+    expect(summary?.appVersion).toBe('0.1.10')
+    expect(summary?.platform).toBe('win32-x64')
+    expect(summary?.entitlement.creditsRemaining).toBe(1)
+    expect(events).toHaveLength(1)
+    expect(events[0].kind).toBe('message')
+    expect(events[0].model).toBe('deepseek-v4-pro')
+    expect(adjusted.creditsRemaining).toBe(5)
+    expect(adjusted.creditsTotal).toBe(10)
   })
 
   function makeGateway(overrides: Partial<GatewayConfig> = {}) {
