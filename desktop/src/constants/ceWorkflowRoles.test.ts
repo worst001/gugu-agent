@@ -55,15 +55,17 @@ describe('buildCeWorkflowMessage', () => {
 
   it('falls back to default role for unknown id', () => {
     const { wire } = buildCeWorkflowMessage('unknown-role-xyz', 'hi')
-    expect(wire).toContain('[Workflow: standard delivery]')
-    expect(wire).toContain('/ce-plan')
+    expect(wire).toContain('[Workflow: quick iteration]')
+    expect(wire).toContain('/ce-debug')
+    expect(wire).not.toContain('/ce-plan')
   })
 
   it('uses default role when role id is undefined', () => {
-    const { wire } = buildCeWorkflowMessage(undefined, 'hi')
-    expect(wire).toContain('[Workflow: standard delivery]')
-    expect(wire).toContain('/ce-plan')
+    const { wire, modelPreference } = buildCeWorkflowMessage(undefined, 'hi')
+    expect(wire).toContain('[Workflow: quick iteration]')
+    expect(wire).toContain('/ce-debug')
     expect(wire).toContain('User message:\nhi')
+    expect(modelPreference).toBe('fast')
   })
 
   it('attachment-only message still carries automation', () => {

@@ -8,7 +8,8 @@ import { useTabStore } from './tabStore'
 import { t } from '../i18n'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
 import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
-import { extractCeWorkflowDisplayText, type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
+import { type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
+import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
 import type { MessageEntry } from '../types/session'
 import type { EffortLevel, PermissionMode } from '../types/settings'
 import type {
@@ -479,7 +480,7 @@ function extractAttachmentParserDisplayText(content: string): string | null {
 function stripHiddenUserPromptScaffolding(content: string): string {
   let stripped = content
   for (let i = 0; i < 3; i += 1) {
-    const next = extractCeWorkflowDisplayText(stripped)
+  const next = extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
     if (next === null || next === stripped) return stripped
     stripped = next

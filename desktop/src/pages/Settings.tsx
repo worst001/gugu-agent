@@ -1300,11 +1300,11 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
 function PermissionSettings() {
   const { permissionMode, setPermissionMode } = useSettingsStore()
   const t = useTranslation()
+  const displayMode: PermissionMode = permissionMode === 'plan' ? 'default' : permissionMode
 
   const MODES: Array<{ mode: PermissionMode; icon: string; label: string; desc: string }> = [
     { mode: 'default', icon: 'verified_user', label: t('settings.permissions.default'), desc: t('settings.permissions.defaultDesc') },
     { mode: 'acceptEdits', icon: 'edit_note', label: t('settings.permissions.acceptEdits'), desc: t('settings.permissions.acceptEditsDesc') },
-    { mode: 'plan', icon: 'architecture', label: t('settings.permissions.plan'), desc: t('settings.permissions.planDesc') },
     { mode: 'bypassPermissions', icon: 'bolt', label: t('settings.permissions.bypass'), desc: t('settings.permissions.bypassDesc') },
   ]
 
@@ -1315,7 +1315,7 @@ function PermissionSettings() {
 
       <div className="flex flex-col gap-2">
         {MODES.map(({ mode, icon, label, desc }) => {
-          const isSelected = permissionMode === mode
+          const isSelected = displayMode === mode
           return (
             <button
               key={mode}

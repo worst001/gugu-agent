@@ -1279,7 +1279,17 @@ export const zh: Record<TranslationKey, string> = {
 
   // ─── Compound Engineering workflow (composer pill) ──────────────────────────────────────
   'ceWorkflow.panelTitle': 'CE 工作流',
-  'ceWorkflow.role.quick.label': '轻量速迭',
+  'agentMode.groupLabel': 'Agent 模式',
+  'agentMode.normal': '默认',
+  'agentMode.normalTitle': '默认模式',
+  'agentMode.normalDescription': '使用默认行为，不注入 CE 流程。',
+  'agentMode.plan': '计划',
+  'agentMode.planTitle': '先用 ce-plan 梳理方案',
+  'agentMode.planDescription': '先澄清范围并形成计划，再进入实现。',
+  'agentMode.ce': 'CE',
+  'agentMode.ceTitle': '启用 CE 工作流选择',
+  'agentMode.ceDescription': '按选定的 Compound Engineering 工作流推进。',
+  'ceWorkflow.role.quick.label': '轻量迭代',
   'ceWorkflow.role.quick.tag': '小改动 · 排错',
   'ceWorkflow.role.quick.description': '脚本、单文件修改、局部 bug 与小提交。',
   'ceWorkflow.role.standard.label': '标准交付',

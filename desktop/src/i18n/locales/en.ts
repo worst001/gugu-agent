@@ -1275,6 +1275,16 @@
 
   // ─── Compound Engineering workflow (composer pill) ──────────────────────────────────────
   'ceWorkflow.panelTitle': 'CE workflow',
+  'agentMode.groupLabel': 'Agent mode',
+  'agentMode.normal': 'Default',
+  'agentMode.normalTitle': 'Default mode',
+  'agentMode.normalDescription': 'Use the default behavior without a CE scaffold.',
+  'agentMode.plan': 'Plan',
+  'agentMode.planTitle': 'Plan with ce-plan before implementation',
+  'agentMode.planDescription': 'Clarify scope and produce a plan before edits.',
+  'agentMode.ce': 'CE',
+  'agentMode.ceTitle': 'Enable CE workflow selection',
+  'agentMode.ceDescription': 'Use a selected Compound Engineering workflow.',
   'ceWorkflow.role.quick.label': 'Light iteration',
   'ceWorkflow.role.quick.tag': 'Small fixes · debug',
   'ceWorkflow.role.quick.description': 'Scripts, single-file edits, and localized bug fixes.',

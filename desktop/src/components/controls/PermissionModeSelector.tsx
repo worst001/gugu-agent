@@ -37,6 +37,7 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
 
   const isControlled = value !== undefined
   const currentMode = isControlled ? value : storeMode
+  const displayMode: PermissionMode = currentMode === 'plan' ? 'default' : currentMode
 
   const PERMISSION_ITEMS: Array<{
     value: PermissionMode
@@ -56,13 +57,6 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
       label: t('permMode.autoAccept'),
       description: t('permMode.autoAcceptDesc'),
       icon: 'bolt',
-    },
-    {
-      value: 'plan',
-      label: t('permMode.planMode'),
-      description: t('permMode.planModeDesc'),
-      icon: 'architecture',
-      color: 'text-[var(--color-text-tertiary)]',
     },
     {
       value: 'bypassPermissions',
@@ -106,8 +100,8 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--color-surface-container-low)] hover:bg-[var(--color-surface-hover)] rounded-full text-xs font-medium text-[var(--color-text-secondary)] transition-colors"
       >
-        <span className="material-symbols-outlined text-[14px]">{MODE_ICONS[currentMode]}</span>
-        <span>{MODE_LABELS[currentMode]}</span>
+        <span className="material-symbols-outlined text-[14px]">{MODE_ICONS[displayMode]}</span>
+        <span>{MODE_LABELS[displayMode]}</span>
         <span className="material-symbols-outlined text-[12px]">expand_more</span>
       </button>
 
@@ -136,7 +130,7 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
               className={`
                 w-full flex items-start gap-3 px-4 py-3 text-left transition-colors
                 hover:bg-[var(--color-surface-hover)]
-                ${item.value === currentMode ? 'bg-[var(--color-surface-selected)]' : ''}
+                ${item.value === displayMode ? 'bg-[var(--color-surface-selected)]' : ''}
               `}
             >
               <span className={`material-symbols-outlined text-[20px] mt-0.5 ${item.color || 'text-[var(--color-text-secondary)]'}`}>
@@ -146,7 +140,7 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
                 <div className="text-sm font-semibold text-[var(--color-text-primary)]">{item.label}</div>
                 <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{item.description}</div>
               </div>
-              {item.value === currentMode && (
+              {item.value === displayMode && (
                 <span className="material-symbols-outlined text-[16px] text-[var(--color-brand)] mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>
                   check_circle
                 </span>

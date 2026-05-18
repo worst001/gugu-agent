@@ -42,6 +42,19 @@ describe('Gugu Gateway', () => {
     expect(body.entitlement.purchaseUrl).toBe('https://buy.example.com')
   })
 
+  test('serves the manual purchase page', async () => {
+    const { handler } = makeGateway()
+
+    const response = await handler(getRequest('/buy'))
+    const html = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
+    expect(html).toContain('Gugu Agent')
+    expect(html).toContain('人工发码')
+    expect(html).toContain('设置 → 订阅')
+  })
+
   test('deducts free credits and returns 402 when exhausted', async () => {
     let upstreamCalls = 0
     globalThis.fetch = (async () => {
@@ -158,6 +171,10 @@ function jsonRequest(pathname: string, body: unknown, token?: string): Request {
     },
     body: JSON.stringify(body),
   })
+}
+
+function getRequest(pathname: string): Request {
+  return new Request(`http://localhost${pathname}`)
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {

@@ -1,4 +1,4 @@
-import { extractCeWorkflowDisplayText } from '../constants/ceWorkflowRoles'
+import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
 
 const FALLBACK_SESSION_TITLE = 'New Session'
 const TITLE_MAX_LEN = 80
@@ -14,7 +14,7 @@ function extractAttachmentParserDisplayText(content: string): string | null {
 export function sanitizeSessionTitle(title: string): string {
   let stripped = title
   for (let i = 0; i < 3; i += 1) {
-    const next = extractCeWorkflowDisplayText(stripped)
+    const next = extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
     if (next === null || next === stripped) break
     stripped = next
@@ -24,6 +24,7 @@ export function sanitizeSessionTitle(title: string): string {
   if (
     !cleaned ||
     cleaned.startsWith('[Workflow:') ||
+    cleaned.startsWith('[Agent mode:') ||
     cleaned.includes('CE automation (binding)') ||
     cleaned.includes('<附件解析结果>')
   ) {

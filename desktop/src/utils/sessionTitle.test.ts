@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { buildPlanModeMessage } from '../constants/agentRunModes'
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
 import { sanitizeSessionTitle } from './sessionTitle'
 
@@ -11,6 +12,12 @@ describe('sanitizeSessionTitle', () => {
 
   it('falls back when a previously persisted title is only workflow scaffolding', () => {
     expect(sanitizeSessionTitle('[Workflow: standard delivery] When scope is unclear...')).toBe('New Session')
+  })
+
+  it('uses the visible user prompt for plan mode wire messages', () => {
+    const { wire } = buildPlanModeMessage('Plan the composer modes')
+
+    expect(sanitizeSessionTitle(wire)).toBe('Plan the composer modes')
   })
 
   it('uses the visible user prompt for attachment parser wire messages', () => {

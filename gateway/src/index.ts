@@ -1,4 +1,5 @@
 import { loadGatewayConfig } from './config.js'
+import { createBuyPageHtml } from './buyPage.js'
 import {
   GatewayAuthError,
   GatewayQuotaError,
@@ -9,6 +10,10 @@ import type { GatewayConfig, GatewayEntitlement, GatewayErrorBody } from './type
 type JsonRecord = Record<string, unknown>
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
+const HTML_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+}
 
 export function createGatewayHandler(config: GatewayConfig, store = new GatewayStore(config)) {
   return async function handleGatewayRequest(req: Request): Promise<Response> {
@@ -21,6 +26,10 @@ export function createGatewayHandler(config: GatewayConfig, store = new GatewayS
     try {
       if (req.method === 'GET' && url.pathname === '/health') {
         return json({ ok: true })
+      }
+
+      if (req.method === 'GET' && (url.pathname === '/buy' || url.pathname === '/buy/')) {
+        return html(createBuyPageHtml())
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/devices') {
@@ -230,6 +239,16 @@ function json(body: unknown, init?: ResponseInit): Response {
     headers: {
       ...JSON_HEADERS,
       ...corsHeaders(),
+      ...(init?.headers ?? {}),
+    },
+  })
+}
+
+function html(body: string, init?: ResponseInit): Response {
+  return new Response(body, {
+    status: init?.status ?? 200,
+    headers: {
+      ...HTML_HEADERS,
       ...(init?.headers ?? {}),
     },
   })

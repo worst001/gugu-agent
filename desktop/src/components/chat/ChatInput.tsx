@@ -9,9 +9,10 @@ import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi } from '../../api/sessions'
 import { promptOptimizeApi } from '../../api/promptOptimize'
-import { CeWorkflowRoleSelector } from '../controls/CeWorkflowRoleSelector'
+import { AgentRunModeControl } from '../controls/AgentRunModeControl'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
-import { buildCeWorkflowMessage } from '../../constants/ceWorkflowRoles'
+import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage } from '../../constants/agentRunModes'
+import { useAgentRunModeStore } from '../../stores/agentRunModeStore'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from './AttachmentGallery'
 import { ProjectContextChip } from '../shared/ProjectContextChip'
@@ -501,12 +502,21 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     }))
 
     if (!isMemberSession) {
+      const agentMode = useAgentRunModeStore.getState().selections[activeTabId] ?? AGENT_RUN_MODE_DEFAULT
       const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId]
-      const { wire, display, modelPreference } = buildCeWorkflowMessage(roleId, text)
+      const availableSkillNames = slashCommands.length > 0
+        ? slashCommands.map((command) => command.name)
+        : undefined
+      const { wire, display, modelPreference } = buildAgentRunModeMessage(
+        agentMode,
+        roleId,
+        text,
+        availableSkillNames,
+      )
       sendMessage(activeTabId, wire, attachmentPayload, {
         displayContent: display,
         displayAttachments: attachmentPayload,
-        ceModelPreference: modelPreference,
+        ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
       })
     } else {
       sendMessage(activeTabId, text)
@@ -1201,7 +1211,9 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
             <div className="flex items-center gap-2">
               {!isMemberSession && activeTabId && (
-                <CeWorkflowRoleSelector sessionKey={activeTabId} disabled={isWorkspaceMissing} />
+                <>
+                  <AgentRunModeControl sessionKey={activeTabId} disabled={isWorkspaceMissing} />
+                </>
               )}
               <button
                 onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : () => handleSubmit()}
@@ -1243,6 +1255,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   const { disconnectSession, connectToSession } = useChatStore.getState()
                   const newId = await createSession(newWorkDir)
                   useSessionRuntimeStore.getState().moveSelection(oldId, newId)
+                  useAgentRunModeStore.getState().moveMode(oldId, newId)
                   useCeWorkflowRoleStore.getState().moveRole(oldId, newId)
                   disconnectSession(oldId)
                   replaceTabSession(oldId, newId)

@@ -38,11 +38,16 @@ export function getTitleInputText(raw: string): string {
     return getTitleInputText(attachmentMatch[1])
   }
 
-  if (!text.startsWith('[Workflow:') && !text.includes('CE automation (binding)')) {
+  const isCeWorkflowScaffold =
+    text.startsWith('[Workflow:') && text.includes('CE automation (binding)')
+  const isPlanModeScaffold =
+    text.startsWith('[Agent mode: plan]') && text.includes('product-facing planning mode')
+
+  if (!isCeWorkflowScaffold && !isPlanModeScaffold) {
     return text
   }
 
-  const userMessages = [...text.matchAll(/(?:^|\n)User message:\s*\n([\s\S]*?)(?=\n\[Workflow:|$)/g)]
+  const userMessages = [...text.matchAll(/(?:^|\n)User message:\s*\n([\s\S]*?)(?=\n(?:\[Workflow:|\[Agent mode: plan\])|$)/g)]
     .map((match) => match[1]?.trim() ?? '')
     .filter(Boolean)
 

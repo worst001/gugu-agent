@@ -98,6 +98,7 @@ vi.mock('./cliTaskStore', () => ({
 
 import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } from './chatStore'
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
+import { buildPlanModeMessage } from '../constants/agentRunModes'
 import { sessionsApi } from '../api/sessions'
 
 const TEST_SESSION_ID = 'test-session-1'
@@ -843,6 +844,28 @@ describe('chatStore history mapping', () => {
         id: 'user-ce-1',
         type: 'user_text',
         content: '这是什么',
+      },
+    ])
+  })
+
+  it('strips hidden plan mode preamble when restoring user transcript history', () => {
+    const { wire } = buildPlanModeMessage('Plan the composer modes')
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-plan-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: wire,
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-plan-1',
+        type: 'user_text',
+        content: 'Plan the composer modes',
       },
     ])
   })
