@@ -1133,13 +1133,25 @@ describe('chatStore history mapping', () => {
         type: 'user_text',
         content: '你是什么模型？',
       },
+    ])
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeNull()
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.streamingText).toBe('')
+  })
+
+  it('does not add a local thinking block for casual default-mode chat', () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, '用掉点额度，随便回复几句')
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
       {
-        type: 'thinking',
-        content: '正在分析上下文',
+        type: 'user_text',
+        content: '用掉点额度，随便回复几句',
       },
     ])
-    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeTruthy()
-    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.streamingText).toBe('')
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages.some((message) => message.type === 'thinking')).toBe(false)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.chatState).toBe('thinking')
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeNull()
   })
 
   it('uses the visible text from CE wire prompts when the local display echo is blank', () => {
@@ -1310,11 +1322,8 @@ describe('chatStore history mapping', () => {
         type: 'user_text',
         content: '继续下一轮',
       },
-      {
-        type: 'thinking',
-        content: '正在分析上下文',
-      },
     ])
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeNull()
   })
 
   it('tracks Computer Use approval requests separately from generic tool permissions', () => {

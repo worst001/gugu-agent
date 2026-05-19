@@ -578,6 +578,29 @@ function createPendingThinkingMessage(
   }
 }
 
+function shouldCreatePendingThinkingMessage(
+  wireContent: string,
+  userFacingContent: string,
+  hasAttachments: boolean,
+): boolean {
+  if (hasAttachments) return true
+
+  const wire = wireContent.trim()
+  if (
+    wire.startsWith('[Workflow:') ||
+    wire.startsWith('[Agent mode: plan]') ||
+    wire.startsWith('[Agent mode: default + CE pre-route]')
+  ) {
+    return true
+  }
+
+  const visible = userFacingContent.trim()
+  if (!visible) return false
+  if (visible.length >= 80) return true
+
+  return /(?:\b(?:implement|debug|fix|error|bug|test|review|plan|design|ui|frontend|component|deploy|build|refactor|file|screenshot)\b|实现|修复|错误|报错|测试|评审|计划|方案|设计|界面|组件|部署|构建|重构|文件|截图)/iu.test(visible)
+}
+
 /** Helper: immutably update a specific session within the sessions record */
 function updateSessionIn(
   sessions: Record<string, PerSessionState>,
@@ -714,7 +737,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       timestamp: nowMs(),
       ...(isMemberSession ? { pending: true } : {}),
     }
-    const pendingThinkingMessage = !isMemberSession
+    const pendingThinkingMessage = !isMemberSession && shouldCreatePendingThinkingMessage(
+      content,
+      userFacingContent,
+      Boolean(uiAttachments?.length),
+    )
       ? createPendingThinkingMessage(userFacingContent, Boolean(uiAttachments?.length))
       : null
 
