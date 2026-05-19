@@ -14,6 +14,7 @@ describe('BillingService', () => {
   let originalGatewayUrl: string | undefined
   let originalLegacyGatewayUrl: string | undefined
   let originalDefaultGatewayUrl: string | undefined
+  let originalDisableDefaultGateway: string | undefined
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-billing-'))
@@ -24,6 +25,7 @@ describe('BillingService', () => {
     originalGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
     originalLegacyGatewayUrl = process.env.GUGU_GATEWAY_URL
     originalDefaultGatewayUrl = process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
+    originalDisableDefaultGateway = process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     delete process.env.CC_GUGU_BILLING_PURCHASE_URL
     delete process.env.GUGU_PURCHASE_URL
@@ -31,6 +33,7 @@ describe('BillingService', () => {
     delete process.env.CC_GUGU_GATEWAY_URL
     delete process.env.GUGU_GATEWAY_URL
     delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
+    process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY = '1'
   })
 
   afterEach(async () => {
@@ -41,6 +44,7 @@ describe('BillingService', () => {
     restoreEnv('CC_GUGU_GATEWAY_URL', originalGatewayUrl)
     restoreEnv('GUGU_GATEWAY_URL', originalLegacyGatewayUrl)
     restoreEnv('GUGU_DESKTOP_DEFAULT_GATEWAY_URL', originalDefaultGatewayUrl)
+    restoreEnv('CC_GUGU_DISABLE_DEFAULT_GATEWAY', originalDisableDefaultGateway)
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
@@ -58,7 +62,7 @@ describe('BillingService', () => {
 
     expect(status.maskedLicenseKey).toBe('gugu...3456')
     expect(serialized).not.toContain('gugu-license-secret-123456')
-    expect(status.purchaseUrl).toBe(null)
+    expect(status.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
   })
 
   test('does not call the network when verify URL is not configured', async () => {
@@ -128,6 +132,34 @@ describe('BillingService', () => {
     expect(status.creditsTotal).toBe(25)
   })
 
+  test('uses bundled gateway and purchase URL by default', async () => {
+    delete process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('http://139.196.214.54:8787/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 3,
+          creditsRemaining: 3,
+          isTrial: true,
+        },
+      })
+    })
+
+    const config = await service.getConfig()
+    const status = await service.getStatus()
+
+    expect(config.gatewayUrlConfigured).toBe(true)
+    expect(config.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
+    expect(status.status).toBe('active')
+    expect(status.creditsTotal).toBe(3)
+    expect(status.creditsRemaining).toBe(3)
+    expect(status.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
+  })
+
   test('runtime gateway overrides build-time default gateway', async () => {
     process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://built.example.com'
     process.env.CC_GUGU_GATEWAY_URL = 'https://runtime.example.com'
@@ -161,6 +193,38 @@ describe('BillingService', () => {
 
     expect(status.status).toBe('check_failed')
     expect(status.message).toContain('network down')
+  })
+
+  test('updates cached gateway credits from response headers', async () => {
+    await writeJson(path.join(tmpDir, 'cc-haha', 'billing.json'), {
+      deviceId: 'device-1',
+      deviceToken: 'token-1',
+      status: 'active',
+      plan: 'free',
+      creditsTotal: 50,
+      creditsRemaining: 50,
+      isTrial: true,
+      message: '网关订阅状态正常。',
+    })
+    const service = new BillingService(mockFetchJson({}))
+
+    await service.updateGatewayCreditsFromHeaders(new Headers({ 'x-gugu-credits-remaining': '37' }))
+    const activeRaw = JSON.parse(await fs.readFile(path.join(tmpDir, 'cc-haha', 'billing.json'), 'utf-8')) as {
+      status: string
+      creditsRemaining: number
+    }
+
+    expect(activeRaw.status).toBe('active')
+    expect(activeRaw.creditsRemaining).toBe(37)
+
+    await service.updateGatewayCreditsFromHeaders(new Headers({ 'x-gugu-credits-remaining': '0' }))
+    const exhaustedRaw = JSON.parse(await fs.readFile(path.join(tmpDir, 'cc-haha', 'billing.json'), 'utf-8')) as {
+      status: string
+      creditsRemaining: number
+    }
+
+    expect(exhaustedRaw.status).toBe('quota_exhausted')
+    expect(exhaustedRaw.creditsRemaining).toBe(0)
   })
 
   test('activates a license with configured verifier and masks stored key', async () => {

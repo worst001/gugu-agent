@@ -417,6 +417,7 @@ async function handleGuguManaged(
         { status: 502 },
       )
     }
+    await billingService.updateGatewayCreditsFromHeaders(upstream.headers).catch(() => {})
     return new Response(monitorAnthropicSseStream(upstream.body, abortUpstream), {
       status: upstream.status,
       headers: {
@@ -428,6 +429,7 @@ async function handleGuguManaged(
   }
 
   const responseBody = await upstream.text()
+  await billingService.updateGatewayCreditsFromHeaders(upstream.headers).catch(() => {})
   return new Response(responseBody, {
     status: upstream.status,
     headers: {

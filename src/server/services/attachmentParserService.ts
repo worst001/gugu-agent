@@ -614,6 +614,7 @@ export class AttachmentParserService {
       throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
     }
 
+    await billingService.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
     return parsed
   }
 }

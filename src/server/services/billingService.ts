@@ -100,6 +100,7 @@ const BILLING_CONFIG_DIR = 'cc-haha'
 const BILLING_FILE = 'billing.json'
 const VERIFY_TIMEOUT_MS = 20_000
 const MAX_LICENSE_KEY_LENGTH = 512
+const BUILTIN_GATEWAY_URL = 'http://139.196.214.54:8787'
 
 export class BillingService {
   constructor(private readonly fetchFn: FetchLike = fetch) {}
@@ -205,6 +206,14 @@ export class BillingService {
     return this.toPublicStatus({})
   }
 
+  async updateGatewayCreditsFromHeaders(headers: Headers): Promise<void> {
+    const raw = headers.get('x-gugu-credits-remaining')
+    if (!raw) return
+    const remaining = Number.parseInt(raw, 10)
+    if (!Number.isFinite(remaining)) return
+    await this.updateGatewayCreditsRemaining(remaining)
+  }
+
   async ensureGatewayDevice(): Promise<GatewayDeviceAuth> {
     const gatewayUrl = readGatewayUrl()
     if (!gatewayUrl) {
@@ -261,6 +270,21 @@ export class BillingService {
         message: error instanceof Error ? error.message : 'Failed to contact Gugu Gateway.',
       })
     }
+  }
+
+  private async updateGatewayCreditsRemaining(creditsRemaining: number): Promise<void> {
+    const current = await this.readBillingFile()
+    if (!current.deviceToken) return
+
+    const remaining = Math.max(0, Math.trunc(creditsRemaining))
+    const status: BillingStatus = remaining <= 0 ? 'quota_exhausted' : 'active'
+    await this.writeBillingFile({
+      ...current,
+      status,
+      creditsRemaining: remaining,
+      lastCheckedAt: new Date().toISOString(),
+      message: defaultStatusMessage(status),
+    })
   }
 
   private async activateGatewayLicense(
@@ -495,18 +519,30 @@ function normalizeLicenseKey(value: string): string {
 function readGatewayUrl(): string | null {
   return readOptionalUrlEnv('CC_GUGU_GATEWAY_URL') ||
     readOptionalUrlEnv('GUGU_GATEWAY_URL') ||
-    readOptionalUrlEnv('GUGU_DESKTOP_DEFAULT_GATEWAY_URL')
+    readOptionalUrlEnv('GUGU_DESKTOP_DEFAULT_GATEWAY_URL') ||
+    readBuiltinGatewayUrl()
 }
 
 function readPurchaseUrl(): string | null {
-  return readOptionalUrlEnv('CC_GUGU_BILLING_PURCHASE_URL') || readOptionalUrlEnv('GUGU_PURCHASE_URL')
+  return readOptionalUrlEnv('CC_GUGU_BILLING_PURCHASE_URL') ||
+    readOptionalUrlEnv('GUGU_PURCHASE_URL') ||
+    joinUrl(readGatewayUrl() || BUILTIN_GATEWAY_URL, '/buy')
+}
+
+function readBuiltinGatewayUrl(): string | null {
+  if (process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY === '1') return null
+  return readUrlValue(BUILTIN_GATEWAY_URL)
 }
 
 function readOptionalUrlEnv(name: string): string | null {
-  const value = process.env[name]?.trim()
-  if (!value) return null
+  return readUrlValue(process.env[name])
+}
+
+function readUrlValue(value: string | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
   try {
-    const url = new URL(value)
+    const url = new URL(trimmed)
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
     return url.toString().replace(/\/+$/, '')
   } catch {

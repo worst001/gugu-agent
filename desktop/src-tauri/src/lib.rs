@@ -30,6 +30,7 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray_show";
 const TRAY_QUIT_ID: &str = "tray_quit";
 const DEFAULT_GATEWAY_URL: Option<&str> = option_env!("GUGU_DESKTOP_DEFAULT_GATEWAY_URL");
+const BUILTIN_GATEWAY_URL: &str = "http://139.196.214.54:8787";
 
 #[derive(Default)]
 struct ServerState(Mutex<ServerStatus>);
@@ -733,7 +734,7 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
         .sidecar("claude-sidecar")
         .map_err(|err| format!("resolve sidecar: {err}"))?;
     let mut env = terminal_environment(&default_shell());
-    apply_default_gateway_url(&mut env, DEFAULT_GATEWAY_URL);
+    apply_default_gateway_url(&mut env, DEFAULT_GATEWAY_URL.or(Some(BUILTIN_GATEWAY_URL)));
     for (key, value) in env {
         sidecar = sidecar.env(key, value);
     }

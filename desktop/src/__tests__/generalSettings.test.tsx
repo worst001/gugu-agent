@@ -8,6 +8,7 @@ import { useUIStore } from '../stores/uiStore'
 import { useUpdateStore } from '../stores/updateStore'
 import type { SavedProvider } from '../types/provider'
 import type { ProviderPreset } from '../types/providerPreset'
+import type { BillingConfigResponse, BillingStatusResponse } from '../types/billing'
 
 const MOCK_DELETE_PROVIDER = vi.fn()
 const MOCK_GET_SETTINGS = vi.fn()
@@ -45,16 +46,8 @@ const providerStoreState = {
   testConfig: vi.fn(),
 }
 const billingStoreState = {
-  status: null as {
-    status: 'not_configured' | 'inactive' | 'active' | 'expired' | 'check_failed'
-    plan: string | null
-    expiresAt: string | null
-    maskedLicenseKey: string | null
-    purchaseUrl: string | null
-    lastCheckedAt: string | null
-    message: string
-  } | null,
-  config: null as { purchaseUrl: string | null; verifyUrlConfigured: boolean } | null,
+  status: null as BillingStatusResponse | null,
+  config: null as BillingConfigResponse | null,
   isLoading: false,
   isSaving: false,
   error: null as string | null,
@@ -719,10 +712,16 @@ describe('Settings > Billing tab', () => {
       purchaseUrl: null,
       lastCheckedAt: null,
       message: 'Subscription is coming soon.',
+      deviceId: null,
+      creditsTotal: null,
+      creditsRemaining: null,
+      isTrial: false,
+      quotaReason: null,
     }
     billingStoreState.config = {
       purchaseUrl: null,
       verifyUrlConfigured: false,
+      gatewayUrlConfigured: false,
     }
     billingStoreState.isLoading = false
     billingStoreState.isSaving = false
@@ -771,6 +770,7 @@ describe('Settings > Billing tab', () => {
     billingStoreState.config = {
       purchaseUrl: 'https://billing.example.com/gugu',
       verifyUrlConfigured: false,
+      gatewayUrlConfigured: false,
     }
 
     render(<Settings />)
@@ -786,6 +786,7 @@ describe('Settings > Billing tab', () => {
     billingStoreState.config = {
       purchaseUrl: null,
       verifyUrlConfigured: true,
+      gatewayUrlConfigured: false,
     }
 
     render(<Settings />)
@@ -799,6 +800,32 @@ describe('Settings > Billing tab', () => {
     await waitFor(() => {
       expect(billingStoreState.activateLicense).toHaveBeenCalledWith('license-123')
     })
+  })
+
+  it('shows remaining usage percentage without trial quota copy', async () => {
+    billingStoreState.status = {
+      ...billingStoreState.status!,
+      status: 'active',
+      creditsTotal: 50,
+      creditsRemaining: 38,
+      isTrial: true,
+      message: 'Gateway entitlement is active.',
+    }
+    billingStoreState.message = 'Gateway entitlement is active.'
+    billingStoreState.config = {
+      purchaseUrl: 'https://billing.example.com/gugu',
+      verifyUrlConfigured: false,
+      gatewayUrlConfigured: true,
+    }
+
+    render(<Settings />)
+
+    await screen.findByRole('heading', { name: 'Subscription' })
+
+    expect(screen.getByText('76% left')).toBeInTheDocument()
+    expect(screen.getByText('Your current plan can be used normally.')).toBeInTheDocument()
+    expect(screen.queryByText('Trial credits are active on this device.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Gateway entitlement is active.')).not.toBeInTheDocument()
   })
 })
 

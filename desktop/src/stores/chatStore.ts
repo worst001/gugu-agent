@@ -5,6 +5,7 @@ import { useTeamStore } from './teamStore'
 import { useSessionStore } from './sessionStore'
 import { useCLITaskStore } from './cliTaskStore'
 import { useTabStore } from './tabStore'
+import { useBillingStore } from './billingStore'
 import { t } from '../i18n'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
 import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
@@ -98,6 +99,13 @@ const LOCAL_USER_ECHO_MAX_PER_SESSION = 12
 
 function nowMs() {
   return Date.now()
+}
+
+function refreshBillingIfTracked() {
+  const billing = useBillingStore.getState()
+  if (billing.config?.gatewayUrlConfigured || typeof billing.status?.creditsTotal === 'number') {
+    void billing.fetchBilling()
+  }
 }
 
 function getLocalEchoStorage(): Storage | null {
@@ -1173,6 +1181,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           pendingComputerUsePermission: null,
           elapsedTimer: null,
         }))
+        refreshBillingIfTracked()
         break
       }
 
@@ -1201,6 +1210,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }
           })
           useTabStore.getState().updateTabStatus(sessionId, unsupportedAttachmentPrompt || agentRecoveryPrompt ? 'idle' : 'error')
+          if (msg.code === 'GUGU_QUOTA_EXHAUSTED' || msg.message.includes('[GUGU_QUOTA_EXHAUSTED]')) {
+            refreshBillingIfTracked()
+          }
         }
         {
           const session = get().sessions[sessionId]

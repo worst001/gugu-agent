@@ -30,7 +30,7 @@ describe('Gugu Gateway', () => {
     const body = await response.json() as {
       deviceId: string
       deviceToken: string
-      entitlement: { creditsTotal: number; creditsRemaining: number; isTrial: boolean }
+      entitlement: { creditsTotal: number; creditsRemaining: number; expiresAt: string | null; isTrial: boolean; purchaseUrl: string | null }
     }
 
     expect(response.status).toBe(200)
@@ -38,11 +38,12 @@ describe('Gugu Gateway', () => {
     expect(body.deviceToken.startsWith('gugu_')).toBe(true)
     expect(body.entitlement.creditsTotal).toBe(3)
     expect(body.entitlement.creditsRemaining).toBe(3)
+    expect(body.entitlement.expiresAt).toBeTruthy()
     expect(body.entitlement.isTrial).toBe(true)
     expect(body.entitlement.purchaseUrl).toBe('https://buy.example.com')
   })
 
-  test('serves the manual purchase page', async () => {
+  test('serves the package purchase page', async () => {
     const { handler } = makeGateway()
 
     const response = await handler(getRequest('/buy'))
@@ -51,8 +52,14 @@ describe('Gugu Gateway', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8')
     expect(html).toContain('Gugu Agent')
-    expect(html).toContain('人工发码')
-    expect(html).toContain('设置 → 订阅')
+    expect(html).toContain('light-monthly')
+    expect(html).toContain('pro-monthly')
+    expect(html).toContain('max-monthly')
+    expect(html).not.toContain('topup-large')
+    expect(html).not.toContain('点额度')
+    expect(html).not.toContain('补充包')
+    expect(html).not.toContain('31 天有效期')
+    expect(html).toContain('/v1/orders')
   })
 
   test('deducts free credits and returns 402 when exhausted', async () => {
@@ -96,9 +103,7 @@ describe('Gugu Gateway', () => {
       maxActivations: 1,
     })
 
-    const response = await handler(jsonRequest('/v1/activate', {
-      licenseKey,
-    }, registered.deviceToken))
+    const response = await handler(jsonRequest('/v1/activate', { licenseKey }, registered.deviceToken))
     const body = await response.json() as {
       entitlement: { plan: string; creditsTotal: number; creditsRemaining: number; isTrial: boolean }
     }
@@ -143,15 +148,206 @@ describe('Gugu Gateway', () => {
     expect(adjusted.creditsTotal).toBe(10)
   })
 
+  test('records DeepSeek JSON token usage without changing message forwarding', async () => {
+    globalThis.fetch = (async () => jsonResponse({
+      id: 'msg_1',
+      type: 'message',
+      content: [],
+      usage: { input_tokens: 11, output_tokens: 7 },
+    })) as typeof fetch
+
+    const { handler, store } = makeGateway({ freeCredits: 2, deepseekApiKey: 'deepseek-key' })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    const response = await handler(jsonRequest('/v1/messages', {
+      model: 'gugu-managed-main',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'hi' }],
+    }, registered.deviceToken))
+    const body = await response.json() as { id: string }
+    const events = store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })
+
+    expect(response.status).toBe(200)
+    expect(body.id).toBe('msg_1')
+    expect(events[0].inputTokens).toBe(11)
+    expect(events[0].outputTokens).toBe(7)
+  })
+
+  test('records DeepSeek SSE token usage without breaking streaming', async () => {
+    globalThis.fetch = (async () => new Response(
+      [
+        'event: message_start\n',
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":17,"output_tokens":1}}}\n\n',
+        'event: message_delta\n',
+        'data: {"type":"message_delta","usage":{"output_tokens":9}}\n\n',
+      ].join(''),
+      { headers: { 'Content-Type': 'text/event-stream' } },
+    )) as typeof fetch
+
+    const { handler, store } = makeGateway({ freeCredits: 2, deepseekApiKey: 'deepseek-key' })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    const response = await handler(jsonRequest('/v1/messages', {
+      model: 'gugu-managed-main',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'hi' }],
+    }, registered.deviceToken))
+    const text = await response.text()
+    const events = store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })
+
+    expect(response.status).toBe(200)
+    expect(text).toContain('message_delta')
+    expect(events[0].inputTokens).toBe(17)
+    expect(events[0].outputTokens).toBe(9)
+  })
+
+  test('deducts weighted attachment credits and records GLM usage tokens', async () => {
+    globalThis.fetch = (async () => jsonResponse({
+      ok: true,
+      usage: { prompt_tokens: 21, completion_tokens: 8 },
+    })) as typeof fetch
+
+    const { handler, store } = makeGateway({
+      freeCredits: 10,
+      glmApiKey: 'glm-key',
+      attachmentCreditCost: 6,
+    })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    const response = await handler(jsonRequest('/v1/attachments/parse', {
+      operation: 'chat_completions',
+      body: { model: 'glm-5v-turbo', messages: [] },
+    }, registered.deviceToken))
+    const summary = store.getDeviceSummary({ deviceToken: registered.deviceToken })
+    const events = store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-gugu-credits-remaining')).toBe('4')
+    expect(summary?.entitlement.creditsRemaining).toBe(4)
+    expect(events).toHaveLength(1)
+    expect(events[0].kind).toBe('vision')
+    expect(events[0].model).toBe('glm-5v-turbo')
+    expect(events[0].credits).toBe(6)
+    expect(events[0].inputTokens).toBe(21)
+    expect(events[0].outputTokens).toBe(8)
+  })
+
+  test('uses summary and OCR credit weights for GLM attachment operations', async () => {
+    globalThis.fetch = (async () => jsonResponse({ ok: true })) as typeof fetch
+
+    const { handler, store } = makeGateway({
+      freeCredits: 10,
+      glmApiKey: 'glm-key',
+      fileParseCreditCost: 3,
+      summarizeCreditCost: 4,
+    })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    await handler(jsonRequest('/v1/attachments/parse', {
+      operation: 'layout_parsing',
+      body: { model: 'glm-ocr' },
+    }, registered.deviceToken))
+    await handler(jsonRequest('/v1/attachments/parse', {
+      operation: 'chat_completions',
+      body: { model: 'glm-5.1', messages: [] },
+    }, registered.deviceToken))
+
+    const events = store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })
+    expect(events.map((event) => event.kind)).toEqual(['summarize', 'ocr'])
+    expect(events.map((event) => event.credits)).toEqual([4, 3])
+    expect(store.getEntitlement(registered.deviceToken).creditsRemaining).toBe(3)
+  })
+
+  test('creates manual orders and fulfills them idempotently', async () => {
+    const { handler, store } = makeGateway()
+
+    const created = await handler(jsonRequest('/v1/orders', {
+      packageId: 'pro-monthly',
+      contact: 'wechat: gugu',
+    }))
+    const createdBody = await created.json() as { order: { orderId: string; status: string; amountCents: number } }
+    const paid = store.markOrderPaid(createdBody.order.orderId)
+    const fulfilled = store.fulfillOrder(createdBody.order.orderId)
+    const fulfilledAgain = store.fulfillOrder(createdBody.order.orderId)
+
+    expect(created.status).toBe(200)
+    expect(createdBody.order.status).toBe('pending_payment')
+    expect(createdBody.order.amountCents).toBe(4900)
+    expect(paid.status).toBe('paid')
+    expect(fulfilled.status).toBe('fulfilled')
+    expect(fulfilled.licenseKey?.startsWith('GUGU-')).toBe(true)
+    expect(fulfilledAgain.licenseKey).toBe(fulfilled.licenseKey)
+  })
+
+  test('rejects removed topup packages from public orders', async () => {
+    const { handler } = makeGateway()
+
+    const response = await handler(jsonRequest('/v1/orders', {
+      packageId: 'topup-large',
+    }))
+    const body = await response.json() as { error: { code: string; message: string } }
+
+    expect(response.status).toBe(400)
+    expect(body.error.code).toBe('BAD_REQUEST')
+    expect(body.error.message).toContain('not available')
+  })
+
+  test('protects dashboard APIs with the admin token', async () => {
+    const disabled = makeGateway()
+    const disabledDashboard = await disabled.handler(getRequest('/admin/dashboard'))
+    const disabledSummary = await disabled.handler(getRequest('/admin/api/summary'))
+
+    const enabled = makeGateway({ adminToken: 'secret' })
+    const noToken = await enabled.handler(getRequest('/admin/api/summary'))
+    const withToken = await enabled.handler(getRequest('/admin/api/summary?range=30d', 'secret'))
+    const dashboard = await enabled.handler(getRequest('/admin/dashboard'))
+    const body = await withToken.json() as { range: string; devices: { total: number } }
+
+    expect(disabledDashboard.status).toBe(404)
+    expect(disabledSummary.status).toBe(404)
+    expect(noToken.status).toBe(401)
+    expect(withToken.status).toBe(200)
+    expect(body.range).toBe('30d')
+    expect(body.devices.total).toBe(0)
+    expect(dashboard.status).toBe(200)
+    expect(await dashboard.text()).toContain('/admin/api/summary')
+  })
+
+  test('issues package activation codes with package defaults', async () => {
+    const { store } = makeGateway()
+    const licenseKey = store.issueActivationCodeForPackage('pro-monthly')
+    const registered = store.registerDevice({ deviceId: 'device-1' })
+    const entitlement = store.activate(registered.deviceToken, licenseKey)
+
+    expect(licenseKey.startsWith('GUGU-')).toBe(true)
+    expect(entitlement.plan).toBe('pro')
+    expect(entitlement.creditsTotal).toBe(600)
+  })
+
   function makeGateway(overrides: Partial<GatewayConfig> = {}) {
     const config: GatewayConfig = {
       dbPath: path.join(tmpDir, 'gateway.sqlite'),
       freeCredits: 5,
       purchaseUrl: 'https://buy.example.com',
+      publicBaseUrl: null,
+      adminToken: '',
+      dashboardTokenPerCredit: null,
       deepseekApiKey: '',
       deepseekBaseUrl: 'https://deepseek.example.com/anthropic',
       deepseekMainModel: 'deepseek-v4-pro',
       deepseekFastModel: 'deepseek-v4-flash',
+      messageCreditCost: 1,
+      attachmentCreditCost: 6,
+      fileParseCreditCost: 3,
+      summarizeCreditCost: 4,
       glmApiKey: '',
       glmBaseUrl: 'https://glm.example.com/api/paas/v4',
       ...overrides,
@@ -173,8 +369,12 @@ function jsonRequest(pathname: string, body: unknown, token?: string): Request {
   })
 }
 
-function getRequest(pathname: string): Request {
-  return new Request(`http://localhost${pathname}`)
+function getRequest(pathname: string, token?: string): Request {
+  return new Request(`http://localhost${pathname}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  })
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {

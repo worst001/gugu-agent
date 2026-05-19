@@ -1106,21 +1106,23 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
           )}
 
           {isHeroComposer ? (
-            <div className="flex items-start gap-3">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                onCompositionStart={() => { composingRef.current = true }}
-                onCompositionEnd={() => { composingRef.current = false }}
-                onPaste={handlePaste}
-                placeholder={composerPlaceholder}
-                disabled={isWorkspaceMissing}
-                rows={2}
-                className="flex-1 resize-none border-none bg-transparent py-2 leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
-              />
-            </div>
+            <>
+              <div className="flex items-start gap-3">
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  onCompositionStart={() => { composingRef.current = true }}
+                  onCompositionEnd={() => { composingRef.current = false }}
+                  onPaste={handlePaste}
+                  placeholder={composerPlaceholder}
+                  disabled={isWorkspaceMissing}
+                  rows={2}
+                  className="flex-1 resize-none border-none bg-transparent py-2 leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
+                />
+              </div>
+            </>
           ) : (
             <textarea
               ref={textareaRef}

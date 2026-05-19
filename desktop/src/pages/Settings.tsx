@@ -2051,9 +2051,17 @@ function BillingSettings() {
   const creditsTotal = status?.creditsTotal ?? null
   const creditsRemaining = status?.creditsRemaining ?? null
   const hasCredits = typeof creditsTotal === 'number' && creditsTotal > 0 && typeof creditsRemaining === 'number'
-  const creditsPercent = hasCredits
-    ? Math.max(0, Math.min(100, Math.round((creditsRemaining / creditsTotal) * 100)))
+  const creditsRemainingPercent = hasCredits
+    ? Math.max(0, Math.min(100, Math.round((Math.max(0, Math.min(creditsTotal, creditsRemaining)) / creditsTotal) * 100)))
     : 0
+  const isCreditsExhausted = currentStatus === 'quota_exhausted' || (hasCredits && creditsRemaining <= 0)
+  const isCreditsLow = hasCredits && !isCreditsExhausted && creditsRemaining / creditsTotal <= 0.2
+  const creditsBarClass = isCreditsExhausted || isCreditsLow
+    ? 'bg-[var(--color-warning)]'
+    : 'bg-[var(--color-brand)]'
+  const transientMessage = getVisibleBillingMessage(message)
+  const statusMessage = getVisibleBillingMessage(status?.message)
+  const billingMessage = transientMessage || statusMessage || (currentStatus === 'active' ? null : t('settings.billing.defaultMessage'))
 
   const handleActivate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2112,7 +2120,7 @@ function BillingSettings() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <BillingDetail label={t('settings.billing.plan')} value={status?.plan || t('settings.billing.planFree')} />
+                <BillingDetail label={t('settings.billing.plan')} value={formatBillingPlan(status?.plan, t)} />
                 <BillingDetail label={t('settings.billing.expiresAt')} value={status?.expiresAt ? formatBillingDate(status.expiresAt) : t('settings.billing.noExpiry')} />
                 <BillingDetail label={t('settings.billing.license')} value={status?.maskedLicenseKey || t('settings.billing.noLicense')} />
               </div>
@@ -2122,26 +2130,37 @@ function BillingSettings() {
                   <div className="mb-2 flex items-center justify-between gap-3 text-sm">
                     <span className="font-medium text-[var(--color-text-primary)]">{t('settings.billing.credits')}</span>
                     <span className="text-[var(--color-text-secondary)]">
-                      {t('settings.billing.creditsRemaining', { remaining: creditsRemaining, total: creditsTotal })}
+                      {isCreditsExhausted
+                        ? t('settings.billing.creditsExhausted')
+                        : t('settings.billing.creditsPercent', { percent: creditsRemainingPercent })}
                     </span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-container-high)]">
                     <div
-                      className="h-full rounded-full bg-[var(--color-brand)] transition-all"
-                      style={{ width: `${creditsPercent}%` }}
+                      className={`h-full rounded-full transition-all ${creditsBarClass}`}
+                      style={{ width: `${creditsRemainingPercent}%` }}
                     />
                   </div>
-                  {(status?.isTrial || status?.quotaReason) && (
+                  <div className="mt-2 text-xs font-medium text-[var(--color-text-secondary)]">
+                    {isCreditsExhausted
+                      ? t('settings.billing.creditsExhaustedHint')
+                      : isCreditsLow
+                        ? t('settings.billing.creditsLow')
+                        : t('settings.billing.creditsHealthy')}
+                  </div>
+                  {status?.quotaReason && (
                     <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
-                      {status.quotaReason || t('settings.billing.trialCredits')}
+                      {status.quotaReason}
                     </p>
                   )}
                 </div>
               )}
 
-              <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
-                {message || status?.message || t('settings.billing.defaultMessage')}
-              </p>
+              {billingMessage && (
+                <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
+                  {billingMessage}
+                </p>
+              )}
 
               {lastCheckedAt && (
                 <p className="text-xs text-[var(--color-text-tertiary)]">
@@ -2152,7 +2171,11 @@ function BillingSettings() {
           )}
         </section>
 
-        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+        <section className={`rounded-xl border p-4 ${
+          isCreditsExhausted
+            ? 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10'
+            : 'border-[var(--color-border)] bg-[var(--color-surface-container-low)]'
+        }`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.purchaseTitle')}</h3>
@@ -2161,7 +2184,7 @@ function BillingSettings() {
               </p>
             </div>
             <Button
-              variant="secondary"
+              variant={isCreditsExhausted ? 'primary' : 'secondary'}
               disabled={!purchaseUrl}
               onClick={() => purchaseUrl && openExternalUrl(purchaseUrl)}
             >
@@ -2205,6 +2228,25 @@ function BillingSettings() {
       </div>
     </div>
   )
+}
+
+function getVisibleBillingMessage(message: string | null | undefined): string | null {
+  const trimmed = message?.trim()
+  if (!trimmed) return null
+  if (trimmed === 'Gateway entitlement is active.' || trimmed === '网关订阅状态正常。') {
+    return null
+  }
+  return trimmed
+}
+
+function formatBillingPlan(plan: string | null | undefined, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  const normalized = plan?.trim().toLowerCase()
+  if (!normalized || normalized === 'free') return t('settings.billing.planFree')
+  if (normalized === 'light') return 'Light'
+  if (normalized === 'pro') return 'Pro'
+  if (normalized === 'max') return 'Max'
+  if (normalized === 'team') return 'Team'
+  return plan!.trim()
 }
 
 function BillingDetail({ label, value }: { label: string; value: string }) {
