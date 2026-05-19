@@ -13,10 +13,12 @@ describe('desktop WebSocket watchdog', () => {
     originalSdkLivenessTimeout = process.env.CC_HAHA_SDK_LIVENESS_TIMEOUT_MS
     originalSdkReconnectGrace = process.env.CC_HAHA_SDK_RECONNECT_GRACE_MS
     __testing.clearTurnMonitor(SESSION_ID)
+    __testing.clearSessionCleanupTimer(SESSION_ID)
   })
 
   afterEach(() => {
     __testing.clearTurnMonitor(SESSION_ID)
+    __testing.clearSessionCleanupTimer(SESSION_ID)
     if (originalReconnectGrace === undefined) {
       delete process.env.CC_HAHA_ACTIVE_SESSION_RECONNECT_GRACE_MS
     } else {
@@ -42,6 +44,53 @@ describe('desktop WebSocket watchdog', () => {
     __testing.setTurnMonitor(SESSION_ID)
 
     expect(__testing.getReconnectGraceMs(SESSION_ID)).toBe(123456)
+  })
+
+  test('text message_stop does not end the server-side turn monitor before result', () => {
+    process.env.CC_HAHA_ACTIVE_SESSION_RECONNECT_GRACE_MS = '123456'
+    __testing.setTurnMonitor(SESSION_ID)
+
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: { type: 'message_start' },
+    })
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        content_block: { type: 'text' },
+      },
+    })
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: {
+        type: 'message_delta',
+        delta: { stop_reason: 'end_turn' },
+      },
+    })
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: { type: 'message_stop' },
+    })
+
+    expect(__testing.getTurnMonitorSnapshot(SESSION_ID)).not.toBeNull()
+    expect(__testing.getReconnectGraceMs(SESSION_ID)).toBe(123456)
+
+    __testing.noteTurnActivity(SESSION_ID, { type: 'result' })
+
+    expect(__testing.getTurnMonitorSnapshot(SESSION_ID)).toBeNull()
+    expect(__testing.getReconnectGraceMs(SESSION_ID)).toBe(30_000)
+  })
+
+  test('turn monitor startup extends a pending idle reconnect cleanup', () => {
+    process.env.CC_HAHA_ACTIVE_SESSION_RECONNECT_GRACE_MS = '123456'
+
+    __testing.scheduleSessionCleanup(SESSION_ID, 30_000)
+    expect(__testing.getSessionCleanupDelayMs(SESSION_ID)).toBe(30_000)
+
+    __testing.startTurnMonitor(SESSION_ID)
+
+    expect(__testing.getSessionCleanupDelayMs(SESSION_ID)).toBe(123456)
   })
 
   test('keep_alive is silent but updates watchdog liveness', () => {

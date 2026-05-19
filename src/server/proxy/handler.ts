@@ -99,6 +99,26 @@ function formatSse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
+function streamAnthropicErrorResponse(
+  message: string,
+  type: 'api_error' | 'quota_exceeded' | 'authentication_error' | 'invalid_request_error' = 'api_error',
+): Response {
+  return new Response(formatSse('error', {
+    type: 'error',
+    error: {
+      type,
+      message,
+    },
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
+}
+
 function getStreamIdleTimeoutMs(): number | undefined {
   return getTimeoutMs(
     'CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS',
@@ -378,7 +398,16 @@ async function handleGuguManaged(
 
   const isStream = body.stream === true
   const requestTimeoutMs = getRequestTimeoutHeader(req)
-  const auth = await billingService.ensureGatewayDevice()
+  let auth: Awaited<ReturnType<typeof billingService.ensureGatewayDevice>>
+  try {
+    auth = await billingService.ensureGatewayDevice()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (isStream) {
+      return streamAnthropicErrorResponse(message)
+    }
+    throw err
+  }
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${auth.deviceToken}`,
@@ -387,22 +416,39 @@ async function handleGuguManaged(
   const anthropicBeta = req.headers.get('anthropic-beta')
   if (anthropicBeta) headers['anthropic-beta'] = anthropicBeta
 
-  const { response: upstream, abort: abortUpstream } = await fetchUpstream(`${auth.gatewayUrl}/v1/messages`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  }, isStream, { requestTimeoutMs })
+  let upstream: Response
+  let abortUpstream: (() => void) | undefined
+  try {
+    const upstreamResult = await fetchUpstream(`${auth.gatewayUrl}/v1/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    }, isStream, { requestTimeoutMs })
+    upstream = upstreamResult.response
+    abortUpstream = upstreamResult.abort
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (isStream) {
+      return streamAnthropicErrorResponse(message)
+    }
+    throw err
+  }
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
     const errorBody = parseJsonObject(errText)
     const quotaMessage = readGatewayQuotaMessage(errorBody)
+    const errorType = upstream.status === 402 ? 'quota_exceeded' : 'api_error'
+    const message = quotaMessage || `Gugu Gateway returned HTTP ${upstream.status}: ${errText.slice(0, 500)}`
+    if (isStream) {
+      return streamAnthropicErrorResponse(message, errorType)
+    }
     return Response.json(
       {
         type: 'error',
         error: {
-          type: upstream.status === 402 ? 'quota_exceeded' : 'api_error',
-          message: quotaMessage || `Gugu Gateway returned HTTP ${upstream.status}: ${errText.slice(0, 500)}`,
+          type: errorType,
+          message,
         },
         ...(errorBody ? { gugu: errorBody } : {}),
       },
@@ -412,10 +458,7 @@ async function handleGuguManaged(
 
   if (isStream) {
     if (!upstream.body) {
-      return Response.json(
-        { type: 'error', error: { type: 'api_error', message: 'Gugu Gateway returned no body for stream' } },
-        { status: 502 },
-      )
+      return streamAnthropicErrorResponse('Gugu Gateway returned no body for stream')
     }
     await billingService.updateGatewayCreditsFromHeaders(upstream.headers).catch(() => {})
     return new Response(monitorAnthropicSseStream(upstream.body, abortUpstream), {
