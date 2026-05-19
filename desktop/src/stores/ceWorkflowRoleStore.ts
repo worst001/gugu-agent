@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { CE_WORKFLOW_DEFAULT_ROLE_ID } from '../constants/ceWorkflowRoles'
 
-const STORAGE_KEY = 'cc-haha-ce-workflow-role-v1'
+const STORAGE_KEY = 'cc-haha-ce-workflow-role-v2'
 
 export const DRAFT_CE_WORKFLOW_KEY = '__draft__'
 

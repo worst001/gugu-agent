@@ -1,0 +1,1 @@
+架构上是三层：Tauri 主进程和 React UI 承载用户体验，Bun server sidecar 负责 HTTP/WebSocket 和会话管理，CLI 子进程是真正执行 AI 对话和工具调用的核心。

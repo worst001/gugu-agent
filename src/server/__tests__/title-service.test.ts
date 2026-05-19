@@ -33,6 +33,19 @@ describe('titleService', () => {
     expect(deriveTitle(wire)).toBe('Review this file')
   })
 
+  test('extracts the visible prompt from plan mode scaffolding', () => {
+    const wire = [
+      '[Agent mode: plan]',
+      'The user selected a product-facing planning mode.',
+      '',
+      'User message:',
+      'Design the new composer modes',
+    ].join('\n')
+
+    expect(getTitleInputText(wire)).toBe('Design the new composer modes')
+    expect(deriveTitle(wire)).toBe('Design the new composer modes')
+  })
+
   test('extracts the visible prompt from nested attachment and CE workflow scaffolding', () => {
     const ceWire = [
       '[Workflow: standard delivery]',

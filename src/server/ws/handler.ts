@@ -45,6 +45,8 @@ const sessionSlashCommands = new Map<string, Array<{ name: string; description: 
  * If a client reconnects within 5 minutes, the timer is cancelled.
  */
 const sessionCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const sessionCleanupTimerDelays = new Map<string, number>()
+const sessionsStoppedAfterDisconnect = new Set<string>()
 
 /**
  * Track sessions where user requested stop — suppress the CLI_ERROR that
@@ -171,14 +173,24 @@ function scheduleSessionCleanup(sessionId: string, delayMs: number): void {
 
   const cleanupTimer = setTimeout(() => {
     sessionCleanupTimers.delete(sessionId)
+    sessionCleanupTimerDelays.delete(sessionId)
     if (!hasActiveClient(sessionId)) {
       console.log(`[WS] Session ${sessionId} not reconnected after ${delayMs}ms, stopping CLI subprocess`)
       stopTurnMonitor(sessionId)
       conversationService.stopSession(sessionId)
+      sessionsStoppedAfterDisconnect.add(sessionId)
       cleanupSessionRuntimeState(sessionId)
     }
   }, delayMs)
+  const unref = (cleanupTimer as { unref?: () => void }).unref
+  if (unref) unref.call(cleanupTimer)
   sessionCleanupTimers.set(sessionId, cleanupTimer)
+  sessionCleanupTimerDelays.set(sessionId, delayMs)
+}
+
+function extendPendingCleanupForActiveTurn(sessionId: string): void {
+  if (hasActiveClient(sessionId) || !sessionCleanupTimers.has(sessionId)) return
+  scheduleSessionCleanup(sessionId, getSessionReconnectGraceMs(sessionId))
 }
 
 function getFirstActiveClient(sessionId: string): ServerWebSocket<WebSocketData> | null {
@@ -222,6 +234,7 @@ function startTurnMonitor(sessionId: string): void {
 
   sessionTurnMonitors.set(sessionId, monitor)
   conversationService.onOutput(sessionId, monitor.callback)
+  extendPendingCleanupForActiveTurn(sessionId)
 }
 
 function stopTurnMonitor(sessionId: string): void {
@@ -277,9 +290,11 @@ function noteTurnActivity(sessionId: string, cliMsg: any): void {
         monitor.lastStopReason = cliMsg.event.delta.stop_reason
       }
     } else if (eventType === 'message_stop') {
-      if (!monitor.currentMessageHasToolUse && monitor.lastStopReason !== 'tool_use') {
-        completeTurnMonitor(sessionId)
-      }
+      // Claude Code can emit a text-only assistant message before continuing
+      // with task/tool work in the same user turn. The UI may treat this as a
+      // local message boundary, but the server must keep the turn alive until
+      // the SDK sends the final result event.
+      monitor.currentMessageHasToolUse = false
     }
     return
   }
@@ -466,6 +481,7 @@ export const handleWebSocket = {
     if (pendingTimer) {
       clearTimeout(pendingTimer)
       sessionCleanupTimers.delete(sessionId)
+      sessionCleanupTimerDelays.delete(sessionId)
     }
 
     addActiveClient(sessionId, ws)
@@ -477,7 +493,11 @@ export const handleWebSocket = {
 
     const msg: ServerMessage = { type: 'connected', sessionId }
     ws.send(JSON.stringify(msg))
-    syncTurnMonitorStatus(ws, sessionId)
+    if (sessionTurnMonitors.has(sessionId)) {
+      syncTurnMonitorStatus(ws, sessionId)
+    } else if (sessionsStoppedAfterDisconnect.delete(sessionId) && !conversationService.hasSession(sessionId)) {
+      sendMessage(ws, { type: 'status', state: 'idle' })
+    }
   },
 
   message(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer) {
@@ -2099,6 +2119,16 @@ export const __testing = {
   clearTurnMonitor(sessionId: string) {
     stopTurnMonitor(sessionId)
   },
+  clearSessionCleanupTimer(sessionId: string) {
+    const timer = sessionCleanupTimers.get(sessionId)
+    if (timer) clearTimeout(timer)
+    sessionCleanupTimers.delete(sessionId)
+    sessionCleanupTimerDelays.delete(sessionId)
+    sessionsStoppedAfterDisconnect.delete(sessionId)
+  },
+  getSessionCleanupDelayMs(sessionId: string) {
+    return sessionCleanupTimerDelays.get(sessionId) ?? null
+  },
   getReconnectGraceMs(sessionId: string) {
     return getSessionReconnectGraceMs(sessionId)
   },
@@ -2116,6 +2146,12 @@ export const __testing = {
   },
   noteTurnActivity(sessionId: string, cliMsg: any) {
     noteTurnActivity(sessionId, cliMsg)
+  },
+  scheduleSessionCleanup(sessionId: string, delayMs: number) {
+    scheduleSessionCleanup(sessionId, delayMs)
+  },
+  startTurnMonitor(sessionId: string) {
+    startTurnMonitor(sessionId)
   },
   shouldRecoverForMissingAgentHeartbeat(
     sessionId: string,
@@ -2139,6 +2175,8 @@ export const __testing = {
       startedAt: partial.startedAt ?? now,
       lastProgressAt: partial.lastProgressAt ?? now,
       lastKeepAliveAt: partial.lastKeepAliveAt ?? now,
+      lastStopReason: partial.lastStopReason ?? null,
+      currentMessageHasToolUse: partial.currentMessageHasToolUse ?? false,
       sdkDisconnectedAt: partial.sdkDisconnectedAt ?? null,
       nextNoticeAt: partial.nextNoticeAt ?? now + DEFAULT_TURN_PROGRESS_NOTICE_MS,
       modelStallNoticeSent: partial.modelStallNoticeSent ?? false,

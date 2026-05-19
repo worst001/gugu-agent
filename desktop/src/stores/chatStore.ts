@@ -5,10 +5,12 @@ import { useTeamStore } from './teamStore'
 import { useSessionStore } from './sessionStore'
 import { useCLITaskStore } from './cliTaskStore'
 import { useTabStore } from './tabStore'
+import { useBillingStore } from './billingStore'
 import { t } from '../i18n'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
 import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
-import { extractCeWorkflowDisplayText, type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
+import { type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
+import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
 import type { MessageEntry } from '../types/session'
 import type { EffortLevel, PermissionMode } from '../types/settings'
 import type {
@@ -97,6 +99,13 @@ const LOCAL_USER_ECHO_MAX_PER_SESSION = 12
 
 function nowMs() {
   return Date.now()
+}
+
+function refreshBillingIfTracked() {
+  const billing = useBillingStore.getState()
+  if (billing.config?.gatewayUrlConfigured || typeof billing.status?.creditsTotal === 'number') {
+    void billing.fetchBilling()
+  }
 }
 
 function getLocalEchoStorage(): Storage | null {
@@ -479,7 +488,7 @@ function extractAttachmentParserDisplayText(content: string): string | null {
 function stripHiddenUserPromptScaffolding(content: string): string {
   let stripped = content
   for (let i = 0; i < 3; i += 1) {
-    const next = extractCeWorkflowDisplayText(stripped)
+  const next = extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
     if (next === null || next === stripped) return stripped
     stripped = next
@@ -567,6 +576,29 @@ function createPendingThinkingMessage(
     rawContent: '',
     timestamp: Date.now(),
   }
+}
+
+function shouldCreatePendingThinkingMessage(
+  wireContent: string,
+  userFacingContent: string,
+  hasAttachments: boolean,
+): boolean {
+  if (hasAttachments) return true
+
+  const wire = wireContent.trim()
+  if (
+    wire.startsWith('[Workflow:') ||
+    wire.startsWith('[Agent mode: plan]') ||
+    wire.startsWith('[Agent mode: default + CE pre-route]')
+  ) {
+    return true
+  }
+
+  const visible = userFacingContent.trim()
+  if (!visible) return false
+  if (visible.length >= 80) return true
+
+  return /(?:\b(?:implement|debug|fix|error|bug|test|review|plan|design|ui|frontend|component|deploy|build|refactor|file|screenshot)\b|实现|修复|错误|报错|测试|评审|计划|方案|设计|界面|组件|部署|构建|重构|文件|截图)/iu.test(visible)
 }
 
 /** Helper: immutably update a specific session within the sessions record */
@@ -705,7 +737,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       timestamp: nowMs(),
       ...(isMemberSession ? { pending: true } : {}),
     }
-    const pendingThinkingMessage = !isMemberSession
+    const pendingThinkingMessage = !isMemberSession && shouldCreatePendingThinkingMessage(
+      content,
+      userFacingContent,
+      Boolean(uiAttachments?.length),
+    )
       ? createPendingThinkingMessage(userFacingContent, Boolean(uiAttachments?.length))
       : null
 
@@ -1172,6 +1208,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           pendingComputerUsePermission: null,
           elapsedTimer: null,
         }))
+        refreshBillingIfTracked()
         break
       }
 
@@ -1200,6 +1237,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }
           })
           useTabStore.getState().updateTabStatus(sessionId, unsupportedAttachmentPrompt || agentRecoveryPrompt ? 'idle' : 'error')
+          if (msg.code === 'GUGU_QUOTA_EXHAUSTED' || msg.message.includes('[GUGU_QUOTA_EXHAUSTED]')) {
+            refreshBillingIfTracked()
+          }
         }
         {
           const session = get().sessions[sessionId]

@@ -28,7 +28,7 @@ export type CeWorkflowRole = {
   modelPreference: CeWorkflowModelPreference
 }
 
-export const CE_WORKFLOW_DEFAULT_ROLE_ID = 'standard'
+export const CE_WORKFLOW_DEFAULT_ROLE_ID = 'quick'
 
 const PHASE_DETAIL: Record<
   CeAutomationPhase,

@@ -9,22 +9,42 @@ describe('BillingService', () => {
   let tmpDir: string
   let originalConfigDir: string | undefined
   let originalPurchaseUrl: string | undefined
+  let originalLegacyPurchaseUrl: string | undefined
   let originalVerifyUrl: string | undefined
+  let originalGatewayUrl: string | undefined
+  let originalLegacyGatewayUrl: string | undefined
+  let originalDefaultGatewayUrl: string | undefined
+  let originalDisableDefaultGateway: string | undefined
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-billing-'))
     originalConfigDir = process.env.CLAUDE_CONFIG_DIR
     originalPurchaseUrl = process.env.CC_GUGU_BILLING_PURCHASE_URL
+    originalLegacyPurchaseUrl = process.env.GUGU_PURCHASE_URL
     originalVerifyUrl = process.env.CC_GUGU_BILLING_VERIFY_URL
+    originalGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
+    originalLegacyGatewayUrl = process.env.GUGU_GATEWAY_URL
+    originalDefaultGatewayUrl = process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
+    originalDisableDefaultGateway = process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     delete process.env.CC_GUGU_BILLING_PURCHASE_URL
+    delete process.env.GUGU_PURCHASE_URL
     delete process.env.CC_GUGU_BILLING_VERIFY_URL
+    delete process.env.CC_GUGU_GATEWAY_URL
+    delete process.env.GUGU_GATEWAY_URL
+    delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
+    process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY = '1'
   })
 
   afterEach(async () => {
     restoreEnv('CLAUDE_CONFIG_DIR', originalConfigDir)
     restoreEnv('CC_GUGU_BILLING_PURCHASE_URL', originalPurchaseUrl)
+    restoreEnv('GUGU_PURCHASE_URL', originalLegacyPurchaseUrl)
     restoreEnv('CC_GUGU_BILLING_VERIFY_URL', originalVerifyUrl)
+    restoreEnv('CC_GUGU_GATEWAY_URL', originalGatewayUrl)
+    restoreEnv('GUGU_GATEWAY_URL', originalLegacyGatewayUrl)
+    restoreEnv('GUGU_DESKTOP_DEFAULT_GATEWAY_URL', originalDefaultGatewayUrl)
+    restoreEnv('CC_GUGU_DISABLE_DEFAULT_GATEWAY', originalDisableDefaultGateway)
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
@@ -42,7 +62,7 @@ describe('BillingService', () => {
 
     expect(status.maskedLicenseKey).toBe('gugu...3456')
     expect(serialized).not.toContain('gugu-license-secret-123456')
-    expect(status.purchaseUrl).toBe(null)
+    expect(status.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
   })
 
   test('does not call the network when verify URL is not configured', async () => {
@@ -56,7 +76,155 @@ describe('BillingService', () => {
 
     expect(called).toBe(false)
     expect(status.status).toBe('not_configured')
-    expect(status.message).toContain('订阅校验服务尚未配置')
+    expect(status.message).toContain('Billing verifier is not configured')
+  })
+
+  test('registers a gateway device and exposes additive quota fields', async () => {
+    process.env.CC_GUGU_GATEWAY_URL = 'https://gateway.example.com'
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('https://gateway.example.com/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 50,
+          creditsRemaining: 49,
+          isTrial: true,
+          purchaseUrl: 'https://buy.example.com',
+        },
+      })
+    })
+
+    const status = await service.getStatus()
+
+    expect(status.status).toBe('active')
+    expect(status.deviceId).toBe('device-1')
+    expect(status.creditsTotal).toBe(50)
+    expect(status.creditsRemaining).toBe(49)
+    expect(status.isTrial).toBe(true)
+    expect(status.purchaseUrl).toBe('https://buy.example.com')
+  })
+
+  test('uses build-time default gateway when runtime gateway is absent', async () => {
+    process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://built.example.com/base/'
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('https://built.example.com/base/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 25,
+          creditsRemaining: 25,
+          isTrial: true,
+        },
+      })
+    })
+
+    const config = await service.getConfig()
+    const status = await service.getStatus()
+
+    expect(config.gatewayUrlConfigured).toBe(true)
+    expect(status.status).toBe('active')
+    expect(status.creditsTotal).toBe(25)
+  })
+
+  test('uses bundled gateway and purchase URL by default', async () => {
+    delete process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('http://139.196.214.54:8787/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 3,
+          creditsRemaining: 3,
+          isTrial: true,
+        },
+      })
+    })
+
+    const config = await service.getConfig()
+    const status = await service.getStatus()
+
+    expect(config.gatewayUrlConfigured).toBe(true)
+    expect(config.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
+    expect(status.status).toBe('active')
+    expect(status.creditsTotal).toBe(3)
+    expect(status.creditsRemaining).toBe(3)
+    expect(status.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
+  })
+
+  test('runtime gateway overrides build-time default gateway', async () => {
+    process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://built.example.com'
+    process.env.CC_GUGU_GATEWAY_URL = 'https://runtime.example.com'
+    const service = new BillingService(async (url) => {
+      expect(String(url)).toBe('https://runtime.example.com/v1/devices')
+      return jsonResponse({
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: {
+          status: 'active',
+          plan: 'free',
+          creditsTotal: 10,
+          creditsRemaining: 10,
+          isTrial: true,
+        },
+      })
+    })
+
+    const status = await service.getStatus()
+
+    expect(status.status).toBe('active')
+  })
+
+  test('gateway connection failures surface as check_failed', async () => {
+    process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://gateway.example.com'
+    const service = new BillingService(async () => {
+      throw new Error('network down')
+    })
+
+    const status = await service.getStatus()
+
+    expect(status.status).toBe('check_failed')
+    expect(status.message).toContain('network down')
+  })
+
+  test('updates cached gateway credits from response headers', async () => {
+    await writeJson(path.join(tmpDir, 'cc-haha', 'billing.json'), {
+      deviceId: 'device-1',
+      deviceToken: 'token-1',
+      status: 'active',
+      plan: 'free',
+      creditsTotal: 50,
+      creditsRemaining: 50,
+      isTrial: true,
+      message: '网关订阅状态正常。',
+    })
+    const service = new BillingService(mockFetchJson({}))
+
+    await service.updateGatewayCreditsFromHeaders(new Headers({ 'x-gugu-credits-remaining': '37' }))
+    const activeRaw = JSON.parse(await fs.readFile(path.join(tmpDir, 'cc-haha', 'billing.json'), 'utf-8')) as {
+      status: string
+      creditsRemaining: number
+    }
+
+    expect(activeRaw.status).toBe('active')
+    expect(activeRaw.creditsRemaining).toBe(37)
+
+    await service.updateGatewayCreditsFromHeaders(new Headers({ 'x-gugu-credits-remaining': '0' }))
+    const exhaustedRaw = JSON.parse(await fs.readFile(path.join(tmpDir, 'cc-haha', 'billing.json'), 'utf-8')) as {
+      status: string
+      creditsRemaining: number
+    }
+
+    expect(exhaustedRaw.status).toBe('quota_exhausted')
+    expect(exhaustedRaw.creditsRemaining).toBe(0)
   })
 
   test('activates a license with configured verifier and masks stored key', async () => {
@@ -69,7 +237,7 @@ describe('BillingService', () => {
         valid: true,
         plan: 'Pro',
         expiresAt: '2099-01-01T00:00:00.000Z',
-        message: '订阅已激活',
+        message: 'ok',
       })
     })
 

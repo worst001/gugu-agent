@@ -157,7 +157,7 @@ export function ActiveSession() {
         <>
           {!isMemberSession && (
             <div className="mx-auto flex w-full max-w-[860px] items-center border-b border-outline-variant/10 px-8 py-3">
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <h1 className="text-lg font-bold font-headline text-on-surface leading-tight">
                   {session?.title || t('session.untitled')}
                 </h1>

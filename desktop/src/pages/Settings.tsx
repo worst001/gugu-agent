@@ -26,8 +26,6 @@ import { ComputerUseSettings } from './ComputerUseSettings'
 import { McpSettings } from './McpSettings'
 import { TerminalSettings } from './TerminalSettings'
 import { useUIStore, type SettingsTab } from '../stores/uiStore'
-import { ClaudeOfficialLogin } from '../components/settings/ClaudeOfficialLogin'
-import { ChatGPTConnect } from '../components/settings/ChatGPTConnect'
 import { useUpdateStore } from '../stores/updateStore'
 import { formatBytes } from '../lib/formatBytes'
 import { isTauriRuntime } from '../lib/desktopRuntime'
@@ -36,6 +34,8 @@ import type { AttachmentParserConfig, AttachmentParserTestResult } from '../type
 import { ConfigBackupSettings } from './ConfigBackupSettings'
 import { useBillingStore } from '../stores/billingStore'
 import type { BillingStatus } from '../types/billing'
+
+const HIDDEN_PROVIDER_PRESET_IDS = new Set(['official', 'chatgpt'])
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -115,6 +115,7 @@ function TabButton({ icon, label, active, onClick }: { icon: string; label: stri
 
 type AttachmentParserFormState = {
   enabled: boolean
+  mode: 'managed' | 'custom'
   apiKey: string
   baseUrl: string
   visionModel: string
@@ -123,7 +124,8 @@ type AttachmentParserFormState = {
 }
 
 const DEFAULT_ATTACHMENT_PARSER_FORM: AttachmentParserFormState = {
-  enabled: false,
+  enabled: true,
+  mode: 'managed',
   apiKey: '',
   baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
   visionModel: 'glm-5v-turbo',
@@ -150,6 +152,7 @@ function AttachmentParserSettings() {
         setConfig(config)
         setForm({
           enabled: config.enabled,
+          mode: config.mode ?? 'managed',
           apiKey: '',
           baseUrl: config.baseUrl,
           visionModel: config.visionModel,
@@ -182,6 +185,7 @@ function AttachmentParserSettings() {
 
   const buildPayload = () => ({
     enabled: form.enabled,
+    mode: form.mode,
     ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
     ...(!config?.hasApiKey && !form.apiKey.trim() ? { apiKey: '' } : {}),
     baseUrl: form.baseUrl.trim(),
@@ -198,6 +202,7 @@ function AttachmentParserSettings() {
       setConfig(next)
       setForm({
         enabled: next.enabled,
+        mode: next.mode ?? 'managed',
         apiKey: '',
         baseUrl: next.baseUrl,
         visionModel: next.visionModel,
@@ -256,18 +261,49 @@ function AttachmentParserSettings() {
           </div>
         ) : (
           <div className="space-y-4">
-            <Input
-              label={t('settings.attachmentParser.apiKey')}
-              type="password"
-              value={form.apiKey}
-              placeholder={config?.hasApiKey ? config.apiKey : t('settings.attachmentParser.apiKeyPlaceholder')}
-              onChange={(event) => updateForm('apiKey', event.target.value)}
-            />
-            <Input
-              label={t('settings.attachmentParser.baseUrl')}
-              value={form.baseUrl}
-              onChange={(event) => updateForm('baseUrl', event.target.value)}
-            />
+            <div>
+              <label className="mb-2 block text-sm font-medium text-[var(--color-text-primary)]">
+                {t('settings.attachmentParser.mode')}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {(['managed', 'custom'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => updateForm('mode', mode)}
+                    className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                      form.mode === mode
+                        ? 'border-[var(--color-brand)] bg-[var(--color-brand)]/10 text-[var(--color-text-primary)]'
+                        : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-focus)]'
+                    }`}
+                  >
+                    <div className="font-medium">
+                      {mode === 'managed' ? t('settings.attachmentParser.modeManaged') : t('settings.attachmentParser.modeCustom')}
+                    </div>
+                    <div className="mt-1 text-xs text-[var(--color-text-tertiary)]">
+                      {mode === 'managed' ? t('settings.attachmentParser.modeManagedDesc') : t('settings.attachmentParser.modeCustomDesc')}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {form.mode === 'custom' && (
+              <>
+                <Input
+                  label={t('settings.attachmentParser.apiKey')}
+                  type="password"
+                  value={form.apiKey}
+                  placeholder={config?.hasApiKey ? config.apiKey : t('settings.attachmentParser.apiKeyPlaceholder')}
+                  onChange={(event) => updateForm('apiKey', event.target.value)}
+                />
+                <Input
+                  label={t('settings.attachmentParser.baseUrl')}
+                  value={form.baseUrl}
+                  onChange={(event) => updateForm('baseUrl', event.target.value)}
+                />
+              </>
+            )}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <Input
                 label={t('settings.attachmentParser.visionModel')}
@@ -332,7 +368,6 @@ function ProviderSettings() {
   const {
     providers,
     activeId,
-    hasLoadedProviders,
     presets,
     isLoading,
     isPresetsLoading,
@@ -340,7 +375,6 @@ function ProviderSettings() {
     fetchPresets,
     deleteProvider,
     activateProvider,
-    activateOfficial,
     testProvider,
   } = useProviderStore()
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
@@ -360,13 +394,9 @@ function ProviderSettings() {
     () => new Map(presets.map((preset) => [preset.id, preset])),
     [presets],
   )
-  const chatgptProvider = useMemo(
-    () => providers.find(isChatGPTProvider) ?? null,
-    [providers],
-  )
   const visibleProviders = useMemo(
-    () => providers.filter((provider) => provider.id !== chatgptProvider?.id),
-    [chatgptProvider?.id, providers],
+    () => providers.filter((provider) => !isChatGPTProvider(provider)),
+    [providers],
   )
 
   const handleDelete = async (provider: SavedProvider) => {
@@ -402,15 +432,6 @@ function ProviderSettings() {
     await fetchSettings()
   }
 
-  const handleActivateOfficial = async () => {
-    await activateOfficial()
-    await fetchSettings()
-  }
-
-  const isOfficialActive = hasLoadedProviders && activeId === null
-  const isChatGPTActive = chatgptProvider !== null && activeId === chatgptProvider.id
-  const chatgptTest = chatgptProvider ? testResults[chatgptProvider.id] : undefined
-
   return (
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-4">
@@ -422,96 +443,6 @@ function ProviderSettings() {
           <span className="material-symbols-outlined text-[16px]">add</span>
           {t('settings.providers.addProvider')}
         </Button>
-      </div>
-
-      {/* Official provider — always visible at top */}
-      <div
-        className={`relative flex flex-col rounded-xl border transition-all mb-2 ${
-          isOfficialActive
-            ? 'border-[var(--color-brand)] bg-[var(--color-surface-container)] shadow-[var(--shadow-focus-ring)]'
-            : 'border-[var(--color-border)] hover:border-[var(--color-border-focus)] cursor-pointer'
-        }`}
-      >
-        <div
-          className="flex items-center gap-4 px-4 py-3.5"
-          onClick={() => !isOfficialActive && handleActivateOfficial()}
-        >
-          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isOfficialActive ? 'bg-[var(--color-success)]' : 'bg-[var(--color-text-tertiary)]'}`} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.providers.officialName')}</span>
-              {isOfficialActive && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-[var(--color-brand)]/18 bg-[var(--color-brand)]/14 text-[var(--color-brand)] leading-none">{t('settings.providers.default')}</span>
-              )}
-            </div>
-            <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">{t('settings.providers.officialDesc')}</div>
-          </div>
-        </div>
-
-        {isOfficialActive && (
-          <div className="px-4 pb-4 pt-3 border-t border-[var(--color-border-separator)]">
-            <ClaudeOfficialLogin />
-          </div>
-        )}
-      </div>
-
-      <div
-        onClick={() => {
-          if (chatgptProvider && !isChatGPTActive) void handleActivate(chatgptProvider.id)
-        }}
-        className={`relative flex flex-col rounded-xl border transition-all mb-2 group ${
-          isChatGPTActive
-            ? 'border-[var(--color-brand)] bg-[var(--color-surface-container)] shadow-[var(--shadow-focus-ring)]'
-            : 'border-[var(--color-border)] hover:border-[var(--color-border-focus)] cursor-pointer'
-        }`}
-      >
-        <div className="flex items-center gap-4 px-4 py-3.5">
-          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isChatGPTActive ? 'bg-[var(--color-success)]' : 'bg-[var(--color-text-tertiary)]'}`} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-                {t('settings.chatgptConnect.title')}
-              </span>
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-warning)] leading-none">
-                Codex
-              </span>
-              {isChatGPTActive && (
-                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-[var(--color-brand)]/18 bg-[var(--color-brand)]/14 text-[var(--color-brand)] leading-none">{t('settings.providers.default')}</span>
-              )}
-            </div>
-            <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
-              {chatgptProvider
-                ? `${chatgptProvider.baseUrl} · ${chatgptProvider.models.main}`
-                : t('settings.chatgptConnect.description')}
-            </div>
-            {chatgptTest && !chatgptTest.loading && chatgptTest.result && (
-              <div className="text-xs mt-1 flex flex-col gap-0.5">
-                <span className={chatgptTest.result.connectivity.success ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}>
-                  {chatgptTest.result.connectivity.success
-                    ? t('settings.providers.connectivityOk', { latency: String(chatgptTest.result.connectivity.latencyMs) })
-                    : t('settings.providers.connectivityFailed', { error: chatgptTest.result.connectivity.error || '' })}
-                </span>
-              </div>
-            )}
-          </div>
-          {chatgptProvider && (
-            <div
-              className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {!isChatGPTActive && (
-                <Button variant="ghost" size="sm" onClick={() => handleActivate(chatgptProvider.id)}>{t('settings.providers.setDefault')}</Button>
-              )}
-              <Button variant="ghost" size="sm" onClick={() => handleTest(chatgptProvider)} loading={chatgptTest?.loading}>{t('settings.providers.test')}</Button>
-            </div>
-          )}
-        </div>
-        <div
-          className="px-4 pb-4 pt-3 border-t border-[var(--color-border-separator)]"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <ChatGPTConnect />
-        </div>
       </div>
 
       {/* Saved providers */}
@@ -652,7 +583,7 @@ function buildFallbackPreset(provider?: SavedProvider): ProviderPreset {
     baseUrl: provider?.baseUrl ?? '',
     apiFormat: provider?.apiFormat ?? 'anthropic',
     defaultModels: provider?.models ?? { main: '', haiku: '', sonnet: '', opus: '' },
-    needsApiKey: provider?.authKind === 'chatgpt_oauth' ? false : true,
+    needsApiKey: provider?.authKind === 'chatgpt_oauth' || provider?.authKind === 'gugu_managed' ? false : true,
     websiteUrl: '',
   }
 }
@@ -663,10 +594,21 @@ function isChatGPTProvider(provider: SavedProvider): boolean {
     provider.presetId === 'chatgpt'
 }
 
+function isGuguManagedApi(apiFormat: ApiFormat): boolean {
+  return apiFormat === 'gugu_managed'
+}
+
+function getProviderAuthKind(apiFormat: ApiFormat) {
+  if (apiFormat === 'chatgpt_codex') return 'chatgpt_oauth'
+  if (apiFormat === 'gugu_managed') return 'gugu_managed'
+  return 'api_key'
+}
+
 function formatApiFormatLabel(apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): string {
   if (apiFormat === 'openai_chat') return t('settings.providers.apiFormatOpenaiChat')
   if (apiFormat === 'openai_responses') return t('settings.providers.apiFormatOpenaiResponses')
   if (apiFormat === 'chatgpt_codex') return t('settings.providers.apiFormatChatgptCodex')
+  if (apiFormat === 'gugu_managed') return t('settings.providers.apiFormatGuguManaged')
   return t('settings.providers.apiFormatAnthropic')
 }
 
@@ -675,6 +617,7 @@ function inferPresetProtocol(preset: ProviderPreset | undefined, apiFormat: ApiF
   if (apiFormat === 'openai_chat') return 'openai_chat_proxy'
   if (apiFormat === 'openai_responses') return 'openai_responses_proxy'
   if (apiFormat === 'chatgpt_codex') return 'chatgpt_codex'
+  if (apiFormat === 'gugu_managed') return 'gugu_managed'
   return preset?.id === 'official' ? 'anthropic_native' : 'anthropic_compatible'
 }
 
@@ -713,6 +656,8 @@ function formatPresetProtocolLabel(
       return t('settings.providers.protocolOpenaiResponsesProxy')
     case 'chatgpt_codex':
       return t('settings.providers.protocolChatgptCodex')
+    case 'gugu_managed':
+      return t('settings.providers.protocolGuguManaged')
   }
 }
 
@@ -720,6 +665,7 @@ function formatPresetAgentLabel(preset: ProviderPreset | undefined, apiFormat: A
   if (preset?.agentCompatible === false) return t('settings.providers.agentNotReady')
   if (apiFormat === 'openai_chat' || apiFormat === 'openai_responses') return t('settings.providers.agentReadyViaProxy')
   if (apiFormat === 'chatgpt_codex') return t('settings.providers.agentReadyViaCodex')
+  if (apiFormat === 'gugu_managed') return t('settings.providers.agentReadyViaGugu')
   return t('settings.providers.agentReady')
 }
 
@@ -791,12 +737,15 @@ function formatEndpointPreview(baseUrl: string, apiFormat: ApiFormat): string | 
   if (apiFormat === 'anthropic') {
     return `${base}/v1/messages`
   }
+  if (apiFormat === 'gugu_managed') {
+    return 'http://127.0.0.1:3456/proxy/gugu-managed/v1/messages'
+  }
   return null
 }
 
 function getBaseUrlNotice(baseUrl: string, apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): BaseUrlNotice | null {
   const normalized = baseUrl.trim().replace(/\/+$/, '').toLowerCase()
-  if (!normalized || apiFormat === 'chatgpt_codex') return null
+  if (!normalized || apiFormat === 'chatgpt_codex' || apiFormat === 'gugu_managed') return null
 
   if (apiFormat === 'openai_chat' && normalized.endsWith('/chat/completions')) {
     return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullOpenaiChat') }
@@ -862,7 +811,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
   const t = useTranslation()
 
-  const availablePresets = presets.filter((p) => p.id !== 'official')
+  const availablePresets = presets.filter((p) => !HIDDEN_PROVIDER_PRESET_IDS.has(p.id))
   const regularPresets = availablePresets.filter((p) => !p.featured)
   const featuredPresets = availablePresets.filter((p) => p.featured)
   const presetDefaultEnvKeys = useMemo(
@@ -903,6 +852,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
     import('../api/providers').then(({ providersApi }) => {
       providersApi.getSettings().then((settings) => {
         const needsProxy = apiFormat !== 'anthropic'
+        const proxyPath = apiFormat === 'gugu_managed' ? '/proxy/gugu-managed' : '/proxy'
         const existingEnv = (settings.env as Record<string, string>) || {}
         const cleanedEnv = Object.fromEntries(
           Object.entries(existingEnv).filter(([key]) => !presetDefaultEnvKeys.has(key)),
@@ -913,7 +863,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           env: {
             ...cleanedEnv,
             ...(selectedPreset.defaultEnv ?? {}),
-            ANTHROPIC_BASE_URL: needsProxy ? 'http://127.0.0.1:3456/proxy' : baseUrl,
+            ANTHROPIC_BASE_URL: needsProxy ? `http://127.0.0.1:3456${proxyPath}` : baseUrl,
             ANTHROPIC_AUTH_TOKEN: needsProxy
               ? 'proxy-managed'
               : (apiKey || selectedPreset.defaultEnv?.ANTHROPIC_AUTH_TOKEN || (selectedPreset.needsApiKey ? '(your API key)' : '')),
@@ -941,7 +891,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   }
 
   const isCustom = selectedPreset.id === 'custom'
-  const requiresApiKey = selectedPreset.needsApiKey !== false && apiFormat !== 'chatgpt_codex'
+  const requiresApiKey = selectedPreset.needsApiKey !== false && apiFormat !== 'chatgpt_codex' && apiFormat !== 'gugu_managed'
   const canSubmit = name.trim() && baseUrl.trim() && (mode === 'edit' || !requiresApiKey || apiKey.trim()) && models.main.trim() && !settingsJsonError
   const apiKeyUrl = selectedPreset.apiKeyUrl?.trim()
   const promoText = selectedPreset.promoText?.trim()
@@ -968,6 +918,11 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
       value: 'chatgpt_codex' as const,
       label: t('settings.providers.apiFormatChatgptCodex'),
       icon: <span className="material-symbols-outlined text-[17px]">smart_toy</span>,
+    },
+    {
+      value: 'gugu_managed' as const,
+      label: t('settings.providers.apiFormatGuguManaged'),
+      icon: <span className="material-symbols-outlined text-[17px]">workspace_premium</span>,
     },
   ]
   const selectedApiFormatLabel = apiFormatItems.find((item) => item.value === apiFormat)?.label ?? t('settings.providers.apiFormatAnthropic')
@@ -1015,7 +970,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           apiKey: apiKey.trim(),
           baseUrl: baseUrl.trim(),
           apiFormat,
-          authKind: apiFormat === 'chatgpt_codex' ? 'chatgpt_oauth' : 'api_key',
+          authKind: getProviderAuthKind(apiFormat),
           models,
           notes: notes.trim() || undefined,
         })
@@ -1024,7 +979,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           name: name.trim(),
           baseUrl: baseUrl.trim(),
           apiFormat,
-          authKind: apiFormat === 'chatgpt_codex' ? 'chatgpt_oauth' : 'api_key',
+          authKind: getProviderAuthKind(apiFormat),
           models,
           notes: notes.trim() || undefined,
         }
@@ -1207,7 +1162,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           </div>
         ) : (
           <div className="text-xs text-[var(--color-text-tertiary)] px-3 py-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container-low)] border border-[var(--color-border)]">
-            {t('settings.providers.noApiKeyRequired')}
+            {isGuguManagedApi(apiFormat) ? t('settings.providers.guguManagedNoApiKeyRequired') : t('settings.providers.noApiKeyRequired')}
           </div>
         )}
 
@@ -1345,11 +1300,11 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
 function PermissionSettings() {
   const { permissionMode, setPermissionMode } = useSettingsStore()
   const t = useTranslation()
+  const displayMode: PermissionMode = permissionMode === 'plan' ? 'default' : permissionMode
 
   const MODES: Array<{ mode: PermissionMode; icon: string; label: string; desc: string }> = [
     { mode: 'default', icon: 'verified_user', label: t('settings.permissions.default'), desc: t('settings.permissions.defaultDesc') },
     { mode: 'acceptEdits', icon: 'edit_note', label: t('settings.permissions.acceptEdits'), desc: t('settings.permissions.acceptEditsDesc') },
-    { mode: 'plan', icon: 'architecture', label: t('settings.permissions.plan'), desc: t('settings.permissions.planDesc') },
     { mode: 'bypassPermissions', icon: 'bolt', label: t('settings.permissions.bypass'), desc: t('settings.permissions.bypassDesc') },
   ]
 
@@ -1360,7 +1315,7 @@ function PermissionSettings() {
 
       <div className="flex flex-col gap-2">
         {MODES.map(({ mode, icon, label, desc }) => {
-          const isSelected = permissionMode === mode
+          const isSelected = displayMode === mode
           return (
             <button
               key={mode}
@@ -2048,6 +2003,7 @@ const BILLING_STATUS_LABEL_KEYS: Record<BillingStatus, TranslationKey> = {
   inactive: 'settings.billing.status.inactive',
   active: 'settings.billing.status.active',
   expired: 'settings.billing.status.expired',
+  quota_exhausted: 'settings.billing.status.quotaExhausted',
   check_failed: 'settings.billing.status.checkFailed',
 }
 
@@ -2056,6 +2012,7 @@ const BILLING_STATUS_ICON: Record<BillingStatus, string> = {
   inactive: 'workspace_premium',
   active: 'verified',
   expired: 'event_busy',
+  quota_exhausted: 'hourglass_disabled',
   check_failed: 'sync_problem',
 }
 
@@ -2064,6 +2021,7 @@ const BILLING_STATUS_TONE: Record<BillingStatus, string> = {
   inactive: 'border-[var(--color-border)] text-[var(--color-text-secondary)]',
   active: 'border-[var(--color-success)]/40 text-[var(--color-success)]',
   expired: 'border-[var(--color-warning)]/40 text-[var(--color-warning)]',
+  quota_exhausted: 'border-[var(--color-warning)]/40 text-[var(--color-warning)]',
   check_failed: 'border-[var(--color-error)]/40 text-[var(--color-error)]',
 }
 
@@ -2087,9 +2045,23 @@ function BillingSettings() {
 
   const currentStatus = status?.status ?? 'not_configured'
   const purchaseUrl = status?.purchaseUrl ?? config?.purchaseUrl ?? null
-  const verifyConfigured = Boolean(config?.verifyUrlConfigured)
+  const activationConfigured = Boolean(config?.verifyUrlConfigured || config?.gatewayUrlConfigured)
   const lastCheckedAt = status?.lastCheckedAt ? formatBillingDate(status.lastCheckedAt) : null
-  const canActivate = verifyConfigured && licenseKey.trim().length > 0 && !isSaving
+  const canActivate = activationConfigured && licenseKey.trim().length > 0 && !isSaving
+  const creditsTotal = status?.creditsTotal ?? null
+  const creditsRemaining = status?.creditsRemaining ?? null
+  const hasCredits = typeof creditsTotal === 'number' && creditsTotal > 0 && typeof creditsRemaining === 'number'
+  const creditsRemainingPercent = hasCredits
+    ? Math.max(0, Math.min(100, Math.round((Math.max(0, Math.min(creditsTotal, creditsRemaining)) / creditsTotal) * 100)))
+    : 0
+  const isCreditsExhausted = currentStatus === 'quota_exhausted' || (hasCredits && creditsRemaining <= 0)
+  const isCreditsLow = hasCredits && !isCreditsExhausted && creditsRemaining / creditsTotal <= 0.2
+  const creditsBarClass = isCreditsExhausted || isCreditsLow
+    ? 'bg-[var(--color-warning)]'
+    : 'bg-[var(--color-brand)]'
+  const transientMessage = getVisibleBillingMessage(message)
+  const statusMessage = getVisibleBillingMessage(status?.message)
+  const billingMessage = transientMessage || statusMessage || (currentStatus === 'active' ? null : t('settings.billing.defaultMessage'))
 
   const handleActivate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2148,14 +2120,47 @@ function BillingSettings() {
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <BillingDetail label={t('settings.billing.plan')} value={status?.plan || t('settings.billing.planFree')} />
+                <BillingDetail label={t('settings.billing.plan')} value={formatBillingPlan(status?.plan, t)} />
                 <BillingDetail label={t('settings.billing.expiresAt')} value={status?.expiresAt ? formatBillingDate(status.expiresAt) : t('settings.billing.noExpiry')} />
                 <BillingDetail label={t('settings.billing.license')} value={status?.maskedLicenseKey || t('settings.billing.noLicense')} />
               </div>
 
-              <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
-                {message || status?.message || t('settings.billing.defaultMessage')}
-              </p>
+              {hasCredits && (
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3">
+                  <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-[var(--color-text-primary)]">{t('settings.billing.credits')}</span>
+                    <span className="text-[var(--color-text-secondary)]">
+                      {isCreditsExhausted
+                        ? t('settings.billing.creditsExhausted')
+                        : t('settings.billing.creditsPercent', { percent: creditsRemainingPercent })}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-container-high)]">
+                    <div
+                      className={`h-full rounded-full transition-all ${creditsBarClass}`}
+                      style={{ width: `${creditsRemainingPercent}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 text-xs font-medium text-[var(--color-text-secondary)]">
+                    {isCreditsExhausted
+                      ? t('settings.billing.creditsExhaustedHint')
+                      : isCreditsLow
+                        ? t('settings.billing.creditsLow')
+                        : t('settings.billing.creditsHealthy')}
+                  </div>
+                  {status?.quotaReason && (
+                    <p className="mt-2 text-xs text-[var(--color-text-tertiary)]">
+                      {status.quotaReason}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {billingMessage && (
+                <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
+                  {billingMessage}
+                </p>
+              )}
 
               {lastCheckedAt && (
                 <p className="text-xs text-[var(--color-text-tertiary)]">
@@ -2166,7 +2171,11 @@ function BillingSettings() {
           )}
         </section>
 
-        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+        <section className={`rounded-xl border p-4 ${
+          isCreditsExhausted
+            ? 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10'
+            : 'border-[var(--color-border)] bg-[var(--color-surface-container-low)]'
+        }`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.purchaseTitle')}</h3>
@@ -2175,7 +2184,7 @@ function BillingSettings() {
               </p>
             </div>
             <Button
-              variant="secondary"
+              variant={isCreditsExhausted ? 'primary' : 'secondary'}
               disabled={!purchaseUrl}
               onClick={() => purchaseUrl && openExternalUrl(purchaseUrl)}
             >
@@ -2190,7 +2199,7 @@ function BillingSettings() {
             <div>
               <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.activationTitle')}</h3>
               <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
-                {verifyConfigured ? t('settings.billing.activationReady') : t('settings.billing.activationUnavailable')}
+                {activationConfigured ? t('settings.billing.activationReady') : t('settings.billing.activationUnavailable')}
               </p>
             </div>
 
@@ -2200,7 +2209,7 @@ function BillingSettings() {
               value={licenseKey}
               placeholder={t('settings.billing.licensePlaceholder')}
               onChange={(event) => setLicenseKey(event.target.value)}
-              disabled={!verifyConfigured || isSaving}
+              disabled={!activationConfigured || isSaving}
             />
 
             {error && (
@@ -2219,6 +2228,25 @@ function BillingSettings() {
       </div>
     </div>
   )
+}
+
+function getVisibleBillingMessage(message: string | null | undefined): string | null {
+  const trimmed = message?.trim()
+  if (!trimmed) return null
+  if (trimmed === 'Gateway entitlement is active.' || trimmed === '网关订阅状态正常。') {
+    return null
+  }
+  return trimmed
+}
+
+function formatBillingPlan(plan: string | null | undefined, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  const normalized = plan?.trim().toLowerCase()
+  if (!normalized || normalized === 'free') return t('settings.billing.planFree')
+  if (normalized === 'light') return 'Light'
+  if (normalized === 'pro') return 'Pro'
+  if (normalized === 'max') return 'Max'
+  if (normalized === 'team') return 'Team'
+  return plan!.trim()
 }
 
 function BillingDetail({ label, value }: { label: string; value: string }) {
@@ -2244,11 +2272,10 @@ function formatBillingDate(value: string): string {
 
 // ─── About Settings ──────────────────────────────────────
 
-const CODE_REPO = 'https://gitee.com/xiyouwangluo/claude-code-gugu'
-const CODE_ISSUES = `${CODE_REPO}/issues`
-const CODE_RELEASES = `${CODE_REPO}/releases`
+const OFFICIAL_SITE_URL = 'http://139.196.214.54:8787/'
+const OFFICIAL_DOWNLOAD_URL = `${OFFICIAL_SITE_URL}download`
+const FEEDBACK_ISSUES_URL = 'https://gitee.com/xiyouwangluo/claude-code-gugu/issues'
 const STUDIO_NAME = '谷星曜工作室'
-const AUTHOR_PROFILE = 'https://gitee.com/xiyouwangluo'
 const SOCIAL_LINKS = [
   { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/434377496', label: STUDIO_NAME },
   { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAATJPY7LAlaa5X-c8uNdWkvz0jUGgpw4eeXIwu_8BhvqE', label: STUDIO_NAME },
@@ -2334,7 +2361,7 @@ function AboutSettings() {
           <span>{t('settings.about.version')} {version}</span>
           <span className="text-[var(--color-border)]">·</span>
           <button
-            onClick={() => openUrl(CODE_RELEASES)}
+            onClick={() => openUrl(OFFICIAL_DOWNLOAD_URL)}
             className="rounded-[var(--radius-sm)] text-[var(--color-text-accent)] transition-colors hover:text-[var(--color-brand)] focus:outline-none focus:shadow-[var(--shadow-focus-ring)]"
           >
             {t('settings.about.changelog')}
@@ -2342,15 +2369,15 @@ function AboutSettings() {
         </div>
       )}
 
-      {/* Code Repository */}
+      {/* Official Site */}
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(CODE_REPO)}
+          onClick={() => openUrl(OFFICIAL_SITE_URL)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">source</span>
+          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">public</span>
           <div className="flex-1 text-left">
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">xiyouwangluo/claude-code-gugu</div>
+            <div className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.about.repo')}</div>
             <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.starHint')}</div>
           </div>
         </button>
@@ -2458,21 +2485,8 @@ function AboutSettings() {
       {/* Divider */}
       <div className="w-full border-t border-[var(--color-border)]/40 my-6" />
 
-      {/* Author */}
-      <div className="w-full">
-        <h3 className="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider mb-3">{t('settings.about.author')}</h3>
-        <button
-          onClick={() => openUrl(AUTHOR_PROFILE)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
-        >
-          <span className="material-symbols-outlined text-[18px] text-[var(--color-text-tertiary)]">business_center</span>
-          <span className="text-sm text-[var(--color-text-primary)]">{STUDIO_NAME}</span>
-          <span className="text-xs text-[var(--color-text-tertiary)] ml-auto">Gitee</span>
-        </button>
-      </div>
-
       {/* Social Media */}
-      <div className="w-full mt-4">
+      <div className="w-full">
         <h3 className="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider mb-3">{t('settings.about.socialMedia')}</h3>
         <div className="flex flex-col gap-0.5">
           {SOCIAL_LINKS.map((link) => (
@@ -2491,10 +2505,10 @@ function AboutSettings() {
 
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(CODE_ISSUES)}
+          onClick={() => openUrl(FEEDBACK_ISSUES_URL)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">feedback</span>
+          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">support_agent</span>
           <div className="flex-1 text-left">
             <div className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.about.feedback')}</div>
             <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.feedbackDesc')}</div>

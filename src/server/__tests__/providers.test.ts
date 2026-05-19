@@ -14,11 +14,14 @@ import type { CreateProviderInput } from '../types/provider.js'
 
 let tmpDir: string
 let originalConfigDir: string | undefined
+let originalManagedDefaultFlag: string | undefined
 
 async function setup() {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'provider-test-'))
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  originalManagedDefaultFlag = process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   process.env.CLAUDE_CONFIG_DIR = tmpDir
+  process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = '1'
 }
 
 async function teardown() {
@@ -26,6 +29,11 @@ async function teardown() {
     process.env.CLAUDE_CONFIG_DIR = originalConfigDir
   } else {
     delete process.env.CLAUDE_CONFIG_DIR
+  }
+  if (originalManagedDefaultFlag !== undefined) {
+    process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = originalManagedDefaultFlag
+  } else {
+    delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   }
   await fs.rm(tmpDir, { recursive: true, force: true })
 }
@@ -88,6 +96,48 @@ describe('ProviderService', () => {
   // ─── listProviders ───────────────────────────────────────────────────────
 
   describe('listProviders', () => {
+    test('should create and activate Gugu Managed on first run', async () => {
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      const svc = new ProviderService()
+      const result = await svc.listProviders()
+
+      expect(result.activeId).toBe('gugu-managed')
+      expect(result.providers[0]).toMatchObject({
+        id: 'gugu-managed',
+        presetId: 'gugu-managed',
+        apiFormat: 'gugu_managed',
+        authKind: 'gugu_managed',
+      })
+    })
+
+    test('should activate Gugu Managed when no provider is active', async () => {
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      const svc = new ProviderService()
+      await svc.addProvider(sampleInput({ name: 'Custom Provider' }))
+
+      const result = await svc.listProviders()
+
+      expect(result.activeId).toBe('gugu-managed')
+      expect(result.providers.map((provider) => provider.name)).toContain('Custom Provider')
+      const settings = await readSettings()
+      expect(settings.env).toMatchObject({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456/proxy/gugu-managed',
+        ANTHROPIC_API_KEY: 'proxy-managed',
+      })
+    })
+
+    test('should move hidden ChatGPT Connect default back to Gugu Managed', async () => {
+      const svc = new ProviderService()
+      const chatgpt = await svc.ensureChatGPTProvider({ activate: true })
+      expect((await svc.listProviders()).activeId).toBe(chatgpt.id)
+
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      const result = await svc.listProviders()
+
+      expect(result.activeId).toBe('gugu-managed')
+      expect(result.providers.some((provider) => provider.id === chatgpt.id)).toBe(true)
+    })
+
     test('should return empty array when no providers exist', async () => {
       const svc = new ProviderService()
       const result = await svc.listProviders()

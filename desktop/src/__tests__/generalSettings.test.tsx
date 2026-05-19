@@ -8,6 +8,7 @@ import { useUIStore } from '../stores/uiStore'
 import { useUpdateStore } from '../stores/updateStore'
 import type { SavedProvider } from '../types/provider'
 import type { ProviderPreset } from '../types/providerPreset'
+import type { BillingConfigResponse, BillingStatusResponse } from '../types/billing'
 
 const MOCK_DELETE_PROVIDER = vi.fn()
 const MOCK_GET_SETTINGS = vi.fn()
@@ -45,16 +46,8 @@ const providerStoreState = {
   testConfig: vi.fn(),
 }
 const billingStoreState = {
-  status: null as {
-    status: 'not_configured' | 'inactive' | 'active' | 'expired' | 'check_failed'
-    plan: string | null
-    expiresAt: string | null
-    maskedLicenseKey: string | null
-    purchaseUrl: string | null
-    lastCheckedAt: string | null
-    message: string
-  } | null,
-  config: null as { purchaseUrl: string | null; verifyUrlConfigured: boolean } | null,
+  status: null as BillingStatusResponse | null,
+  config: null as BillingConfigResponse | null,
   isLoading: false,
   isSaving: false,
   error: null as string | null,
@@ -141,6 +134,7 @@ vi.mock('../components/chat/CodeViewer', () => ({
 
 const DEFAULT_ATTACHMENT_CONFIG = {
   enabled: false,
+  mode: 'managed',
   apiKey: '',
   hasApiKey: false,
   baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
@@ -251,7 +245,7 @@ describe('Settings > Providers tab', () => {
     providerStoreState.hasLoadedProviders = true
   })
 
-  it('does not query official OAuth status before providers finish loading', () => {
+  it('hides official OAuth while providers finish loading', () => {
     providerStoreState.providers = []
     providerStoreState.activeId = null
     providerStoreState.hasLoadedProviders = false
@@ -261,14 +255,50 @@ describe('Settings > Providers tab', () => {
     expect(screen.queryByTestId('claude-official-login')).not.toBeInTheDocument()
   })
 
-  it('shows official OAuth status only after official provider is confirmed active', () => {
-    providerStoreState.providers = []
-    providerStoreState.activeId = null
+  it('hides Claude Official and ChatGPT Connect from the provider list', () => {
+    providerStoreState.providers = [
+      {
+        id: 'gugu-managed',
+        name: 'Gugu Managed',
+        presetId: 'gugu-managed',
+        apiKey: '',
+        baseUrl: 'gugu://managed',
+        apiFormat: 'gugu_managed',
+        authKind: 'gugu_managed',
+        models: {
+          main: 'gugu-managed-main',
+          haiku: 'gugu-managed-fast',
+          sonnet: 'gugu-managed-main',
+          opus: 'gugu-managed-strong',
+        },
+        notes: '',
+      },
+      {
+        id: 'chatgpt-provider',
+        name: 'ChatGPT Connect',
+        presetId: 'chatgpt',
+        apiKey: '',
+        baseUrl: 'https://chatgpt.com/backend-api/codex',
+        apiFormat: 'chatgpt_codex',
+        authKind: 'chatgpt_oauth',
+        models: {
+          main: 'gpt-5.4',
+          haiku: 'gpt-5.4-mini',
+          sonnet: 'gpt-5.4',
+          opus: 'gpt-5.4',
+        },
+        notes: '',
+      },
+    ]
+    providerStoreState.activeId = 'gugu-managed'
     providerStoreState.hasLoadedProviders = true
 
     render(<Settings />)
 
-    expect(screen.getByTestId('claude-official-login')).toBeInTheDocument()
+    expect(screen.getByText('Gugu Managed')).toBeInTheDocument()
+    expect(screen.queryByText('Claude Official')).not.toBeInTheDocument()
+    expect(screen.queryByText('ChatGPT Connect')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('claude-official-login')).not.toBeInTheDocument()
   })
 
   it('requires confirmation before deleting a provider', async () => {
@@ -517,6 +547,7 @@ describe('Settings > Attachment parser tab', () => {
     expect(await screen.findByText('GLM File & Image Parser')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByText('Custom GLM'))
     fireEvent.change(screen.getByLabelText('GLM API Key'), {
       target: { value: 'glm-secret-123456' },
     })
@@ -525,6 +556,7 @@ describe('Settings > Attachment parser tab', () => {
     await waitFor(() => {
       expect(MOCK_UPDATE_ATTACHMENT_CONFIG).toHaveBeenCalledWith(expect.objectContaining({
         enabled: true,
+        mode: 'custom',
         apiKey: 'glm-secret-123456',
         baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
         visionModel: 'glm-5v-turbo',
@@ -539,6 +571,7 @@ describe('Settings > Attachment parser tab', () => {
     render(<Settings />)
 
     await screen.findByText('GLM File & Image Parser')
+    fireEvent.click(screen.getByText('Custom GLM'))
     fireEvent.change(screen.getByLabelText('GLM API Key'), {
       target: { value: 'glm-secret-123456' },
     })
@@ -546,6 +579,7 @@ describe('Settings > Attachment parser tab', () => {
 
     await waitFor(() => {
       expect(MOCK_TEST_ATTACHMENT_CONFIG).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'custom',
         apiKey: 'glm-secret-123456',
         summarizeModel: 'glm-5.1',
       }))
@@ -678,10 +712,16 @@ describe('Settings > Billing tab', () => {
       purchaseUrl: null,
       lastCheckedAt: null,
       message: 'Subscription is coming soon.',
+      deviceId: null,
+      creditsTotal: null,
+      creditsRemaining: null,
+      isTrial: false,
+      quotaReason: null,
     }
     billingStoreState.config = {
       purchaseUrl: null,
       verifyUrlConfigured: false,
+      gatewayUrlConfigured: false,
     }
     billingStoreState.isLoading = false
     billingStoreState.isSaving = false
@@ -730,6 +770,7 @@ describe('Settings > Billing tab', () => {
     billingStoreState.config = {
       purchaseUrl: 'https://billing.example.com/gugu',
       verifyUrlConfigured: false,
+      gatewayUrlConfigured: false,
     }
 
     render(<Settings />)
@@ -745,6 +786,7 @@ describe('Settings > Billing tab', () => {
     billingStoreState.config = {
       purchaseUrl: null,
       verifyUrlConfigured: true,
+      gatewayUrlConfigured: false,
     }
 
     render(<Settings />)
@@ -758,6 +800,32 @@ describe('Settings > Billing tab', () => {
     await waitFor(() => {
       expect(billingStoreState.activateLicense).toHaveBeenCalledWith('license-123')
     })
+  })
+
+  it('shows remaining usage percentage without trial quota copy', async () => {
+    billingStoreState.status = {
+      ...billingStoreState.status!,
+      status: 'active',
+      creditsTotal: 50,
+      creditsRemaining: 38,
+      isTrial: true,
+      message: 'Gateway entitlement is active.',
+    }
+    billingStoreState.message = 'Gateway entitlement is active.'
+    billingStoreState.config = {
+      purchaseUrl: 'https://billing.example.com/gugu',
+      verifyUrlConfigured: false,
+      gatewayUrlConfigured: true,
+    }
+
+    render(<Settings />)
+
+    await screen.findByRole('heading', { name: 'Subscription' })
+
+    expect(screen.getByText('76% left')).toBeInTheDocument()
+    expect(screen.getByText('Your current plan can be used normally.')).toBeInTheDocument()
+    expect(screen.queryByText('Trial credits are active on this device.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Gateway entitlement is active.')).not.toBeInTheDocument()
   })
 })
 

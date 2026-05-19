@@ -11,6 +11,8 @@
     "cc-gugu": "bun run ./bin/cc-gugu",
     "claude-gugu": "bun run ./bin/claude-gugu",
     "start": "bun run ./bin/cc-gugu",
+    "gateway": "bun run gateway/src/index.ts",
+    "gateway:admin": "bun run gateway/scripts/admin.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA" />
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">Computer Use 与安全边界</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">用 Python Bridge 替代私有原生模块，让 macOS / Windows 都能跑桌面控制闭环</text>
+  </g>
+  <g id="loop">
+    <circle cx="360" cy="360" r="154" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="2" />
+    <path fill="#D9E8F6" stroke="#2D628F" d="M286,182 H434 A8,8 0 0 1 442,190 V234 A8,8 0 0 1 434,242 H286 A8,8 0 0 1 278,234 V190 A8,8 0 0 1 286,182 Z" />
+    <text x="360" y="219" text-anchor="middle" font-family="Microsoft YaHei" font-size="19" font-weight="700" fill="#183F5D">截图</text>
+    <path fill="#F3E7DA" stroke="#8F482F" d="M528,332 H676 A8,8 0 0 1 684,340 V384 A8,8 0 0 1 676,392 H528 A8,8 0 0 1 520,384 V340 A8,8 0 0 1 528,332 Z" />
+    <text x="602" y="369" text-anchor="middle" font-family="Microsoft YaHei" font-size="19" font-weight="700" fill="#8F482F">模型识别</text>
+    <path fill="#E2EBDD" stroke="#4F6237" d="M286,482 H434 A8,8 0 0 1 442,490 V534 A8,8 0 0 1 434,542 H286 A8,8 0 0 1 278,534 V490 A8,8 0 0 1 286,482 Z" />
+    <text x="360" y="519" text-anchor="middle" font-family="Microsoft YaHei" font-size="19" font-weight="700" fill="#4F6237">执行动作</text>
+    <path fill="#F4DAD4" stroke="#C9886B" d="M44,332 H192 A8,8 0 0 1 200,340 V384 A8,8 0 0 1 192,392 H44 A8,8 0 0 1 36,384 V340 A8,8 0 0 1 44,332 Z" />
+    <text x="118" y="369" text-anchor="middle" font-family="Microsoft YaHei" font-size="19" font-weight="700" fill="#8F482F">结果确认</text>
+    <path d="M410 237 C500 256 555 286 590 330" fill="none" stroke="#2D628F" stroke-width="4" />
+    <path d="M592 392 C560 450 510 488 442 507" fill="none" stroke="#8F482F" stroke-width="4" />
+    <path d="M278 512 C210 494 160 454 128 394" fill="none" stroke="#4F6237" stroke-width="4" />
+    <path d="M126 332 C160 276 215 244 278 222" fill="none" stroke="#C9886B" stroke-width="4" />
+    <text x="360" y="354" text-anchor="middle" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#1D2329">Screenshot</text>
+    <text x="360" y="386" text-anchor="middle" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#1D2329">Analyze</text>
+    <text x="360" y="418" text-anchor="middle" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#1D2329">Act</text>
+  </g>
+  <g id="security_panel">
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M768,176 H1172 A8,8 0 0 1 1180,184 V560 A8,8 0 0 1 1172,568 H768 A8,8 0 0 1 760,560 V184 A8,8 0 0 1 768,176 Z" />
+    <text x="800" y="222" font-family="Microsoft YaHei" font-size="28" font-weight="700" fill="#1D2329">安全机制</text>
+    <path fill="#D9E8F6" d="M808,260 H1122 A8,8 0 0 1 1130,268 V304 A8,8 0 0 1 1122,312 H808 A8,8 0 0 1 800,304 V268 A8,8 0 0 1 808,260 Z" />
+    <text x="826" y="293" font-family="Microsoft YaHei" font-size="18" fill="#183F5D">应用白名单与会话授权</text>
+    <path fill="#F3E7DA" d="M808,330 H1122 A8,8 0 0 1 1130,338 V374 A8,8 0 0 1 1122,382 H808 A8,8 0 0 1 800,374 V338 A8,8 0 0 1 808,330 Z" />
+    <text x="826" y="363" font-family="Microsoft YaHei" font-size="18" fill="#8F482F">敏感操作权限确认</text>
+    <path fill="#E2EBDD" d="M808,400 H1122 A8,8 0 0 1 1130,408 V444 A8,8 0 0 1 1122,452 H808 A8,8 0 0 1 800,444 V408 A8,8 0 0 1 808,400 Z" />
+    <text x="826" y="433" font-family="Microsoft YaHei" font-size="18" fill="#4F6237">同一时间只允许一个控制会话</text>
+    <path fill="#F4DAD4" d="M808,470 H1122 A8,8 0 0 1 1130,478 V514 A8,8 0 0 1 1122,522 H808 A8,8 0 0 1 800,514 V478 A8,8 0 0 1 808,470 Z" />
+    <text x="826" y="503" font-family="Microsoft YaHei" font-size="18" fill="#8F482F">剪贴板自动保存与恢复</text>
+  </g>
+  <g id="platforms">
+    <path fill="#1D2329" d="M768,596 H950 A8,8 0 0 1 958,604 V634 A8,8 0 0 1 950,642 H768 A8,8 0 0 1 760,634 V604 A8,8 0 0 1 768,596 Z" />
+    <text x="859" y="625" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#FFFFFF">macOS 支持</text>
+    <path fill="#1D2329" d="M990,596 H1172 A8,8 0 0 1 1180,604 V634 A8,8 0 0 1 1172,642 H990 A8,8 0 0 1 982,634 V604 A8,8 0 0 1 990,596 Z" />
+    <text x="1081" y="625" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#FFFFFF">Windows 支持</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">07 / 08</text>
+  </g>
+</svg>
