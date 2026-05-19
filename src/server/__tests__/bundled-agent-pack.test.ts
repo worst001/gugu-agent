@@ -61,11 +61,15 @@ describe('bundled agent pack bootstrap', () => {
     expect(
       installedPlugins.plugins['coding-tutor@gugu-bundled'][0].installPath,
     ).toBe(path.join(marketplaceRoot, 'plugins', 'coding-tutor'))
+    expect(
+      installedPlugins.plugins['engineering-skills@gugu-bundled'][0].installPath,
+    ).toBe(path.join(marketplaceRoot, 'plugins', 'engineering-skills'))
 
     const settings = await readJson(path.join(configDir, 'settings.json'))
     expect(settings.enabledPlugins).toMatchObject({
       'compound-engineering@gugu-bundled': true,
       'coding-tutor@gugu-bundled': true,
+      'engineering-skills@gugu-bundled': true,
     })
 
     const pluginList = await new PluginService().listPlugins()
@@ -75,6 +79,7 @@ describe('bundled agent pack bootstrap', () => {
     expect(bundledPlugins.map((plugin) => plugin.id).sort()).toEqual([
       'coding-tutor@gugu-bundled',
       'compound-engineering@gugu-bundled',
+      'engineering-skills@gugu-bundled',
     ])
     expect(bundledPlugins.every((plugin) => plugin.enabled)).toBe(true)
     expect(bundledPlugins.every((plugin) => plugin.errors.length === 0)).toBe(true)
@@ -111,6 +116,11 @@ async function writeFixturePack(root: string): Promise<void> {
           description: 'Coding Tutor',
           source: './plugins/coding-tutor',
         },
+        {
+          name: 'engineering-skills',
+          description: 'Engineering Skills',
+          source: './plugins/engineering-skills',
+        },
       ],
     },
   )
@@ -124,6 +134,11 @@ async function writeFixturePack(root: string): Promise<void> {
     path.join(marketplaceRoot, 'plugins', 'coding-tutor'),
     'coding-tutor',
     '1.0.0',
+  )
+  await writePluginManifest(
+    path.join(marketplaceRoot, 'plugins', 'engineering-skills'),
+    'engineering-skills',
+    '2.2.3',
   )
 }
 

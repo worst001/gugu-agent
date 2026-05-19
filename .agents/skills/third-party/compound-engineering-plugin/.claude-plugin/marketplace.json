@@ -45,6 +45,51 @@
         "education"
       ],
       "source": "./plugins/coding-tutor"
+    },
+    {
+      "name": "engineering-advanced-skills",
+      "description": "Advanced engineering skills for agent design, workflow design, architecture, release management, observability, CI/CD, browser automation, security, and production operations.",
+      "author": {
+        "name": "Claude Code Skills"
+      },
+      "tags": [
+        "engineering",
+        "architecture",
+        "devops",
+        "release",
+        "observability",
+        "automation"
+      ],
+      "source": "./plugins/engineering-advanced-skills"
+    },
+    {
+      "name": "engineering-skills",
+      "description": "Production engineering skills for frontend, backend, fullstack, QA, DevOps, security, cloud, data, and AI/ML workflows.",
+      "author": {
+        "name": "Claude Code Skills"
+      },
+      "tags": [
+        "engineering",
+        "frontend",
+        "backend",
+        "qa",
+        "security",
+        "cloud"
+      ],
+      "source": "./plugins/engineering-skills"
+    },
+    {
+      "name": "claude-mem",
+      "description": "Memory compression system for Claude Code that helps preserve useful project context across sessions.",
+      "author": {
+        "name": "Claude Mem"
+      },
+      "tags": [
+        "memory",
+        "context",
+        "sessions"
+      ],
+      "source": "./plugins/claude-mem"
     }
   ]
 }
