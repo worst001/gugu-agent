@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA"/>
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">桌面端与 IM：把 Agent 放进日常工作入口</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">可视化管理本地会话，也能通过 Telegram / 飞书远程推进任务</text>
+  </g>
+  <g id="desktop_window">
+    <rect x="88" y="170" width="550" height="372" rx="10" fill="#FFFFFF" stroke="#D8DEE6" stroke-width="2"/>
+    <rect x="88" y="170" width="550" height="46" rx="10" fill="#1D2329"/>
+    <circle cx="122" cy="194" r="6" fill="#F4DAD4"/>
+    <circle cx="146" cy="194" r="6" fill="#F4C95D"/>
+    <circle cx="170" cy="194" r="6" fill="#E2EBDD"/>
+    <text x="210" y="201" font-family="Microsoft YaHei" font-size="16" fill="#FFFFFF">Gugu Agent Desktop</text>
+    <rect x="116" y="248" width="180" height="56" rx="8" fill="#D9E8F6"/>
+    <text x="206" y="283" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#183F5D">多标签会话</text>
+    <rect x="322" y="248" width="180" height="56" rx="8" fill="#F3E7DA"/>
+    <text x="412" y="283" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#8F482F">权限审批</text>
+    <rect x="116" y="328" width="180" height="56" rx="8" fill="#E2EBDD"/>
+    <text x="206" y="363" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#4F6237">提供商管理</text>
+    <rect x="322" y="328" width="180" height="56" rx="8" fill="#F4DAD4"/>
+    <text x="412" y="363" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#8F482F">Skills / Agents</text>
+    <rect x="116" y="408" width="386" height="74" rx="8" fill="#EEF1F5" stroke="#D8DEE6"/>
+    <text x="140" y="438" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">Diff、工具调用、Markdown、Mermaid、定时任务</text>
+    <text x="140" y="466" font-family="Microsoft YaHei" font-size="16" fill="#667085">让本地 Agent 操作看得见、批得准、追得上。</text>
+  </g>
+  <g id="im_phone">
+    <rect x="775" y="160" width="310" height="430" rx="36" fill="#1D2329"/>
+    <rect x="800" y="206" width="260" height="338" rx="18" fill="#FFFFFF"/>
+    <rect x="824" y="238" width="178" height="46" rx="12" fill="#D9E8F6"/>
+    <text x="842" y="267" font-family="Microsoft YaHei" font-size="16" fill="#183F5D">/new 项目路径</text>
+    <rect x="858" y="306" width="178" height="62" rx="12" fill="#F3E7DA"/>
+    <text x="876" y="333" font-family="Microsoft YaHei" font-size="15" fill="#8F482F">请审批写文件</text>
+    <text x="876" y="356" font-family="Microsoft YaHei" font-size="15" fill="#8F482F">允许 / 拒绝</text>
+    <rect x="824" y="394" width="198" height="74" rx="12" fill="#E2EBDD"/>
+    <text x="842" y="423" font-family="Microsoft YaHei" font-size="15" fill="#4F6237">任务完成：</text>
+    <text x="842" y="448" font-family="Microsoft YaHei" font-size="15" fill="#4F6237">返回摘要和文件路径</text>
+    <circle cx="930" cy="568" r="10" fill="#667085"/>
+  </g>
+  <g id="bridge">
+    <line x1="650" y1="360" x2="760" y2="360" stroke="#2D628F" stroke-width="4"/>
+    <path d="M760 360 L738 348 L738 372 Z" fill="#2D628F"/>
+    <text x="704" y="334" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#667085">Adapter Sidecar</text>
+    <text x="704" y="393" text-anchor="middle" font-family="Microsoft YaHei" font-size="16" fill="#667085">Telegram / 飞书</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">06 / 08</text>
+  </g>
+</svg>

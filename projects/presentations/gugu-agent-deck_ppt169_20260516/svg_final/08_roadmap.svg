@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA" />
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">下一步：从可运行到可交付、可扩展</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">围绕稳定性、体验、生态和发布流程持续收敛</text>
+  </g>
+  <g id="roadmap">
+    <line x1="142" y1="348" x2="1138" y2="348" stroke="#D8DEE6" stroke-width="8" />
+    <circle cx="206" cy="348" r="26" fill="#2D628F" />
+    <circle cx="466" cy="348" r="26" fill="#8F482F" />
+    <circle cx="726" cy="348" r="26" fill="#4F6237" />
+    <circle cx="986" cy="348" r="26" fill="#F4C95D" />
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M106,196 H308 A8,8 0 0 1 316,204 V298 A8,8 0 0 1 308,306 H106 A8,8 0 0 1 98,298 V204 A8,8 0 0 1 106,196 Z" />
+    <text x="126" y="236" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#183F5D">体验打磨</text>
+    <text x="126" y="272" font-family="Microsoft YaHei" font-size="17" fill="#667085">桌面端、多标签、权限、Diff</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M366,390 H568 A8,8 0 0 1 576,398 V502 A8,8 0 0 1 568,510 H366 A8,8 0 0 1 358,502 V398 A8,8 0 0 1 366,390 Z" />
+    <text x="386" y="430" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#8F482F">生态扩展</text>
+    <text x="386" y="466" font-family="Microsoft YaHei" font-size="17" fill="#667085">插件、Skills、MCP、模板</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M626,196 H828 A8,8 0 0 1 836,204 V298 A8,8 0 0 1 828,306 H626 A8,8 0 0 1 618,298 V204 A8,8 0 0 1 626,196 Z" />
+    <text x="646" y="236" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#4F6237">协作增强</text>
+    <text x="646" y="272" font-family="Microsoft YaHei" font-size="17" fill="#667085">Teams、IM、后台任务、记忆</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M886,390 H1088 A8,8 0 0 1 1096,398 V502 A8,8 0 0 1 1088,510 H886 A8,8 0 0 1 878,502 V398 A8,8 0 0 1 886,390 Z" />
+    <text x="906" y="430" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#1D2329">发布闭环</text>
+    <text x="906" y="466" font-family="Microsoft YaHei" font-size="17" fill="#667085">桌面构建、版本、文档、FAQ</text>
+    <line x1="206" y1="322" x2="206" y2="306" stroke="#2D628F" stroke-width="3" />
+    <line x1="466" y1="374" x2="466" y2="390" stroke="#8F482F" stroke-width="3" />
+    <line x1="726" y1="322" x2="726" y2="306" stroke="#4F6237" stroke-width="3" />
+    <line x1="986" y1="374" x2="986" y2="390" stroke="#F4C95D" stroke-width="3" />
+  </g>
+  <g id="closing">
+    <path fill="#1D2329" d="M104,580 H1176 A8,8 0 0 1 1184,588 V636 A8,8 0 0 1 1176,644 H104 A8,8 0 0 1 96,636 V588 A8,8 0 0 1 104,580 Z" />
+    <text x="134" y="621" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#FFFFFF">最终目标：</text>
+    <text x="244" y="621" font-family="Microsoft YaHei" font-size="22" fill="#FFFFFF">成为团队可以长期运行、持续扩展、跨端协作的本地 AI 工程工作台。</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">08 / 08</text>
+  </g>
+</svg>

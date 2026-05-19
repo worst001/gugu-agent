@@ -12,12 +12,14 @@ export const ApiFormatSchema = z.enum([
   'openai_chat',       // OpenAI Chat Completions /v1/chat/completions
   'openai_responses',  // OpenAI Responses API /v1/responses
   'chatgpt_codex',     // ChatGPT web OAuth → Codex Responses backend
+  'gugu_managed',      // Gugu Gateway managed Anthropic-compatible service
 ])
 export type ApiFormat = z.infer<typeof ApiFormatSchema>
 
 export const ProviderAuthKindSchema = z.enum([
   'api_key',
   'chatgpt_oauth',
+  'gugu_managed',
 ])
 export type ProviderAuthKind = z.infer<typeof ProviderAuthKindSchema>
 

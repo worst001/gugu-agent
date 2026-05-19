@@ -1,0 +1,1 @@
+多 Agent 与 Skills 是系统可扩展性的中心。Agent 负责并行执行、团队协作和后台任务，Skills 用 Markdown 把经验和流程沉淀成可重复调用的能力。
