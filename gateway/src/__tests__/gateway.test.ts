@@ -62,6 +62,28 @@ describe('Gugu Gateway', () => {
     expect(html).toContain('/v1/orders')
   })
 
+  test('serves the public home and download pages', async () => {
+    const { handler } = makeGateway({
+      downloadUrl: 'https://downloads.example.com/Gugu-Agent.exe',
+      downloadVersion: '0.1.0',
+      downloadSha256: 'abc123',
+    })
+
+    const home = await handler(getRequest('/'))
+    const download = await handler(getRequest('/download'))
+    const homeHtml = await home.text()
+    const downloadHtml = await download.text()
+
+    expect(home.status).toBe(200)
+    expect(homeHtml).toContain('Gugu Agent')
+    expect(homeHtml).toContain('/buy')
+    expect(homeHtml).toContain('/download')
+    expect(download.status).toBe(200)
+    expect(downloadHtml).toContain('https://downloads.example.com/Gugu-Agent.exe')
+    expect(downloadHtml).toContain('0.1.0')
+    expect(downloadHtml).toContain('abc123')
+  })
+
   test('deducts free credits and returns 402 when exhausted', async () => {
     let upstreamCalls = 0
     globalThis.fetch = (async () => {
@@ -267,13 +289,15 @@ describe('Gugu Gateway', () => {
   })
 
   test('creates manual orders and fulfills them idempotently', async () => {
-    const { handler, store } = makeGateway()
+    const { handler, store } = makeGateway({ adminToken: 'secret' })
 
     const created = await handler(jsonRequest('/v1/orders', {
       packageId: 'pro-monthly',
       contact: 'wechat: gugu',
     }))
     const createdBody = await created.json() as { order: { orderId: string; status: string; amountCents: number } }
+    const listed = await handler(getRequest('/admin/api/orders?q=gugu', 'secret'))
+    const listedBody = await listed.json() as { data: Array<{ orderId: string; contact: string | null }> }
     const paid = store.markOrderPaid(createdBody.order.orderId)
     const fulfilled = store.fulfillOrder(createdBody.order.orderId)
     const fulfilledAgain = store.fulfillOrder(createdBody.order.orderId)
@@ -281,6 +305,8 @@ describe('Gugu Gateway', () => {
     expect(created.status).toBe(200)
     expect(createdBody.order.status).toBe('pending_payment')
     expect(createdBody.order.amountCents).toBe(4900)
+    expect(listedBody.data[0]?.orderId).toBe(createdBody.order.orderId)
+    expect(listedBody.data[0]?.contact).toBe('wechat: gugu')
     expect(paid.status).toBe('paid')
     expect(fulfilled.status).toBe('fulfilled')
     expect(fulfilled.licenseKey?.startsWith('GUGU-')).toBe(true)
@@ -308,17 +334,22 @@ describe('Gugu Gateway', () => {
     const enabled = makeGateway({ adminToken: 'secret' })
     const noToken = await enabled.handler(getRequest('/admin/api/summary'))
     const withToken = await enabled.handler(getRequest('/admin/api/summary?range=30d', 'secret'))
+    const downloadInfo = await enabled.handler(getRequest('/admin/api/download', 'secret'))
     const dashboard = await enabled.handler(getRequest('/admin/dashboard'))
     const body = await withToken.json() as { range: string; devices: { total: number } }
+    const downloadBody = await downloadInfo.json() as { downloadUrl: string | null }
 
     expect(disabledDashboard.status).toBe(404)
     expect(disabledSummary.status).toBe(404)
     expect(noToken.status).toBe(401)
     expect(withToken.status).toBe(200)
+    expect(downloadInfo.status).toBe(200)
+    expect(downloadBody.downloadUrl).toBeNull()
     expect(body.range).toBe('30d')
     expect(body.devices.total).toBe(0)
     expect(dashboard.status).toBe(200)
     expect(await dashboard.text()).toContain('/admin/api/summary')
+    expect(await (await enabled.handler(getRequest('/admin/dashboard'))).text()).toContain('/admin/api/download')
   })
 
   test('issues package activation codes with package defaults', async () => {
@@ -338,6 +369,9 @@ describe('Gugu Gateway', () => {
       freeCredits: 5,
       purchaseUrl: 'https://buy.example.com',
       publicBaseUrl: null,
+      downloadUrl: null,
+      downloadVersion: null,
+      downloadSha256: null,
       adminToken: '',
       dashboardTokenPerCredit: null,
       deepseekApiKey: '',

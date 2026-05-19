@@ -17,7 +17,7 @@ export function createBuyPageHtml(): string {
       <div class="price">
         <strong>${escapeHtml(formatAmountCny(pkg.amountCents))}</strong>
       </div>
-      <button type="button" data-buy="${escapeHtml(pkg.id)}">提交订单</button>
+      <button type="button" data-buy="${escapeHtml(pkg.id)}">选择套餐</button>
     </article>
   `).join('')
 
@@ -161,6 +161,15 @@ export function createBuyPageHtml(): string {
       border-radius: 18px;
       background: var(--surface-strong);
       padding: 18px;
+      transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+    }
+    .plan:hover {
+      border-color: rgba(155, 90, 50, 0.42);
+      transform: translateY(-1px);
+    }
+    .plan.selected {
+      border-color: rgba(47, 125, 105, 0.66);
+      box-shadow: 0 0 0 3px rgba(47, 125, 105, 0.12);
     }
     .plan-copy {
       min-width: 0;
@@ -311,7 +320,7 @@ export function createBuyPageHtml(): string {
         createOrder.disabled = false
         orderResult.classList.remove('show')
         orderError.textContent = ''
-        document.querySelectorAll('.plan').forEach((item) => item.style.outline = item.dataset.packageId === selected.id ? '3px solid rgba(47, 125, 105, 0.22)' : 'none')
+        document.querySelectorAll('.plan').forEach((item) => item.classList.toggle('selected', item.dataset.packageId === selected.id))
       })
     })
 
@@ -341,6 +350,7 @@ export function createBuyPageHtml(): string {
         '<strong>订单号：' + escapeHtml(order.orderId) + '</strong>',
         '<p>套餐：' + escapeHtml(order.packageName) + '，金额：' + formatCny(order.amountCents) + '。</p>',
         '<p>请付款后把订单号和联系方式发送给客服。管理员确认收款后，会发你一个 GUGU 激活码。</p>',
+        '<button class="secondary" type="button" onclick="navigator.clipboard && navigator.clipboard.writeText(\\'' + escapeAttr(order.orderId) + '\\')">复制订单号</button>',
       ].join('')
     }
 
@@ -350,6 +360,7 @@ export function createBuyPageHtml(): string {
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]))
     }
+    function escapeAttr(value) { return escapeHtml(value) }
   </script>
 </body>
 </html>`

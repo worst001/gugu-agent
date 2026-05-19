@@ -422,6 +422,7 @@ export class GatewayStore {
 
   listOrders(input: {
     status?: GatewayOrderStatus | ''
+    q?: string
     limit?: number
     cursor?: number
   } = {}): GatewayListResponse<GatewayOrder> {
@@ -437,6 +438,12 @@ export class GatewayStore {
     if (input.status) {
       filters.push('status = ?')
       values.push(input.status)
+    }
+    const q = normalizeSearch(input.q)
+    if (q) {
+      filters.push('(order_id LIKE ? OR contact LIKE ? OR license_key LIKE ? OR package_name LIKE ?)')
+      const like = `%${q}%`
+      values.push(like, like, like, like)
     }
 
     const rows = this.db
@@ -947,6 +954,12 @@ function normalizeContact(value: string | null | undefined): string | null {
   const trimmed = value?.trim()
   if (!trimmed) return null
   return trimmed.length <= 256 ? trimmed : trimmed.slice(0, 256)
+}
+
+function normalizeSearch(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  return trimmed.length <= 128 ? trimmed : trimmed.slice(0, 128)
 }
 
 function createOrderId(): string {

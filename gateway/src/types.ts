@@ -153,6 +153,9 @@ export type GatewayConfig = {
   freeCredits: number
   purchaseUrl: string | null
   publicBaseUrl: string | null
+  downloadUrl: string | null
+  downloadVersion: string | null
+  downloadSha256: string | null
   adminToken: string
   dashboardTokenPerCredit: number | null
   deepseekApiKey: string

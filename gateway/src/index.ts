@@ -1,6 +1,7 @@
 import { loadGatewayConfig } from './config.js'
 import { createBuyPageHtml } from './buyPage.js'
 import { createDashboardPageHtml } from './dashboardPage.js'
+import { createDownloadPageHtml, createHomePageHtml } from './sitePages.js'
 import { isPurchasablePackageId } from './packages.js'
 import {
   GatewayAuthError,
@@ -44,6 +45,14 @@ export function createGatewayHandler(config: GatewayConfig, store = new GatewayS
     try {
       if (req.method === 'GET' && url.pathname === '/health') {
         return json({ ok: true })
+      }
+
+      if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
+        return html(createHomePageHtml(config))
+      }
+
+      if (req.method === 'GET' && (url.pathname === '/download' || url.pathname === '/download/')) {
+        return html(createDownloadPageHtml(config))
       }
 
       if (req.method === 'GET' && (url.pathname === '/buy' || url.pathname === '/buy/')) {
@@ -354,9 +363,19 @@ function handleAdminApi(
     if (req.method === 'GET' && url.pathname === '/admin/api/orders') {
       return adminJson(store.listOrders({
         status: asString(url.searchParams.get('status')) as GatewayOrderStatus | undefined,
+        q: asString(url.searchParams.get('q')),
         limit: asPositiveInt(url.searchParams.get('limit')),
         cursor: asPositiveInt(url.searchParams.get('cursor')),
       }))
+    }
+
+    if (req.method === 'GET' && url.pathname === '/admin/api/download') {
+      return adminJson({
+        downloadUrl: config.downloadUrl,
+        downloadVersion: config.downloadVersion,
+        downloadSha256: config.downloadSha256,
+        publicBaseUrl: config.publicBaseUrl,
+      })
     }
 
     const orderAction = url.pathname.match(/^\/admin\/api\/orders\/([^/]+)\/(pay|fulfill|cancel)$/)
