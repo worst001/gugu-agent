@@ -2272,11 +2272,10 @@ function formatBillingDate(value: string): string {
 
 // ─── About Settings ──────────────────────────────────────
 
-const CODE_REPO = 'https://gitee.com/xiyouwangluo/claude-code-gugu'
-const CODE_ISSUES = `${CODE_REPO}/issues`
-const CODE_RELEASES = `${CODE_REPO}/releases`
+const OFFICIAL_SITE_URL = 'http://139.196.214.54:8787/'
+const OFFICIAL_DOWNLOAD_URL = `${OFFICIAL_SITE_URL}download`
+const FEEDBACK_ISSUES_URL = 'https://gitee.com/xiyouwangluo/claude-code-gugu/issues'
 const STUDIO_NAME = '谷星曜工作室'
-const AUTHOR_PROFILE = 'https://gitee.com/xiyouwangluo'
 const SOCIAL_LINKS = [
   { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/434377496', label: STUDIO_NAME },
   { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAATJPY7LAlaa5X-c8uNdWkvz0jUGgpw4eeXIwu_8BhvqE', label: STUDIO_NAME },
@@ -2362,7 +2361,7 @@ function AboutSettings() {
           <span>{t('settings.about.version')} {version}</span>
           <span className="text-[var(--color-border)]">·</span>
           <button
-            onClick={() => openUrl(CODE_RELEASES)}
+            onClick={() => openUrl(OFFICIAL_DOWNLOAD_URL)}
             className="rounded-[var(--radius-sm)] text-[var(--color-text-accent)] transition-colors hover:text-[var(--color-brand)] focus:outline-none focus:shadow-[var(--shadow-focus-ring)]"
           >
             {t('settings.about.changelog')}
@@ -2370,15 +2369,15 @@ function AboutSettings() {
         </div>
       )}
 
-      {/* Code Repository */}
+      {/* Official Site */}
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(CODE_REPO)}
+          onClick={() => openUrl(OFFICIAL_SITE_URL)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">source</span>
+          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">public</span>
           <div className="flex-1 text-left">
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">xiyouwangluo/claude-code-gugu</div>
+            <div className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.about.repo')}</div>
             <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.starHint')}</div>
           </div>
         </button>
@@ -2486,21 +2485,8 @@ function AboutSettings() {
       {/* Divider */}
       <div className="w-full border-t border-[var(--color-border)]/40 my-6" />
 
-      {/* Author */}
-      <div className="w-full">
-        <h3 className="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider mb-3">{t('settings.about.author')}</h3>
-        <button
-          onClick={() => openUrl(AUTHOR_PROFILE)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
-        >
-          <span className="material-symbols-outlined text-[18px] text-[var(--color-text-tertiary)]">business_center</span>
-          <span className="text-sm text-[var(--color-text-primary)]">{STUDIO_NAME}</span>
-          <span className="text-xs text-[var(--color-text-tertiary)] ml-auto">Gitee</span>
-        </button>
-      </div>
-
       {/* Social Media */}
-      <div className="w-full mt-4">
+      <div className="w-full">
         <h3 className="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider mb-3">{t('settings.about.socialMedia')}</h3>
         <div className="flex flex-col gap-0.5">
           {SOCIAL_LINKS.map((link) => (
@@ -2519,10 +2505,10 @@ function AboutSettings() {
 
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(CODE_ISSUES)}
+          onClick={() => openUrl(FEEDBACK_ISSUES_URL)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">feedback</span>
+          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">support_agent</span>
           <div className="flex-1 text-left">
             <div className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.about.feedback')}</div>
             <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.feedbackDesc')}</div>

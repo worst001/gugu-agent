@@ -697,15 +697,14 @@
   // Settings > About
   'settings.tab.about': 'About',
   'settings.about.version': 'Version',
-  'settings.about.changelog': 'Release Notes',
-  'settings.about.repo': 'Code Repository',
-  'settings.about.starHint': 'Open the project repository',
-  'settings.about.feedback': 'Report an Issue',
-  'settings.about.feedbackDesc': 'Open a repository issue for bugs or usage questions',
-  'settings.about.author': 'Author',
-  'settings.about.socialMedia': 'Social Media',
+  'settings.about.changelog': 'Downloads',
+  'settings.about.repo': 'Website & Downloads',
+  'settings.about.starHint': 'View product intro, downloads, purchase and renewal',
+  'settings.about.feedback': 'Feedback',
+  'settings.about.feedbackDesc': 'Open a Gitee issue for bugs or usage questions',
+  'settings.about.socialMedia': 'Official Channels',
   'settings.about.updates': 'App Updates',
-  'settings.about.updatesDesc': 'Check our release page, download the installer, and relaunch after install.',
+  'settings.about.updatesDesc': 'Check for the latest version, download the installer, and relaunch after install.',
 
   // Settings > Computer Use
   'settings.tab.computerUse': 'Computer Use',

@@ -704,15 +704,14 @@ export const zh: Record<TranslationKey, string> = {
   // Settings > About
   'settings.tab.about': '关于',
   'settings.about.version': '版本',
-  'settings.about.changelog': '更新日志',
-  'settings.about.repo': '代码仓库',
-  'settings.about.starHint': '打开项目仓库',
-  'settings.about.feedback': '反馈问题',
-  'settings.about.feedbackDesc': '遇到 Bug 或使用问题，前往仓库 Issue 提交反馈',
-  'settings.about.author': '作者',
-  'settings.about.socialMedia': '社交媒体',
+  'settings.about.changelog': '下载页',
+  'settings.about.repo': '官网与下载',
+  'settings.about.starHint': '查看产品介绍、下载入口和购买续费',
+  'settings.about.feedback': '问题反馈',
+  'settings.about.feedbackDesc': '遇到 Bug 或使用问题，前往 Gitee Issue 提交反馈',
+  'settings.about.socialMedia': '官方渠道',
   'settings.about.updates': '应用更新',
-  'settings.about.updatesDesc': '检查我们的发布页，下载安装包，并在安装后自动重启。',
+  'settings.about.updatesDesc': '检查最新版本，下载安装包，并在安装后自动重启。',
 
   // Settings > Computer Use
   'settings.tab.computerUse': 'Computer Use',
