@@ -115,7 +115,7 @@ describe('ChatInput submit', () => {
       expect(screen.getByText('what is this')).toBeInTheDocument()
     })
     expect(screen.getByRole('img', { name: 'whale.png' })).toBeInTheDocument()
-    expect(screen.queryByText('Start a fresh coding session. Claude is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Start a fresh coding session. Gugu is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
 
     const payload = getLastUserMessagePayload()
     expect(payload?.content).toBe('what is this')
@@ -257,6 +257,6 @@ describe('ChatInput submit', () => {
       expect(screen.getByText('what is this')).toBeInTheDocument()
     })
     expect(screen.getByRole('img', { name: 'whale.png' })).toBeInTheDocument()
-    expect(screen.queryByText('Start a fresh coding session. Claude is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Start a fresh coding session. Gugu is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
   })
 })

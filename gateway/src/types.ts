@@ -16,6 +16,8 @@ export type GatewayOrderStatus =
   | 'fulfilled'
   | 'cancelled'
 
+export type GatewayPaymentProvider = 'wechat' | 'alipay'
+
 export type GatewayEntitlementStatus =
   | 'active'
   | 'expired'
@@ -96,6 +98,29 @@ export type GatewayOrder = {
   paidAt: string | null
   fulfilledAt: string | null
   cancelledAt: string | null
+  paymentProvider: GatewayPaymentProvider | null
+  paymentCodeUrl: string | null
+  paymentExpiresAt: string | null
+  wechatTransactionId: string | null
+  wechatTradeState: string | null
+  wechatSuccessTime: string | null
+  alipayTradeNo: string | null
+  alipayTradeStatus: string | null
+  alipaySuccessTime: string | null
+  paidAmountCents: number | null
+  paymentPayload: string | null
+}
+
+export type GatewayOrderStatusResponse = {
+  order: GatewayOrder
+  licenseKey: string | null
+}
+
+export type GatewayPaymentResponse = {
+  provider: GatewayPaymentProvider
+  codeUrl: string
+  qrDataUrl: string
+  expiresAt: string
 }
 
 export type GatewayDashboardSummary = {
@@ -153,9 +178,15 @@ export type GatewayConfig = {
   freeCredits: number
   purchaseUrl: string | null
   publicBaseUrl: string | null
+  icpRecord: string | null
+  icpUrl: string | null
   downloadUrl: string | null
+  downloadWindowsUrl: string | null
+  downloadMacosUrl: string | null
   downloadVersion: string | null
   downloadSha256: string | null
+  downloadWindowsSha256: string | null
+  downloadMacosSha256: string | null
   adminToken: string
   dashboardTokenPerCredit: number | null
   deepseekApiKey: string
@@ -168,4 +199,28 @@ export type GatewayConfig = {
   summarizeCreditCost: number
   glmApiKey: string
   glmBaseUrl: string
+  wechatPay: GatewayWechatPayConfig
+  alipay: GatewayAlipayConfig
+}
+
+export type GatewayWechatPayConfig = {
+  enabled: boolean
+  appId: string
+  mchId: string
+  merchantCertSerialNo: string
+  privateKeyPath: string
+  wechatPayPublicKeyId: string
+  wechatPayPublicKeyPath: string
+  apiV3Key: string
+  notifyUrl: string | null
+}
+
+export type GatewayAlipayConfig = {
+  enabled: boolean
+  appId: string
+  privateKeyPath: string
+  alipayPublicKeyPath: string
+  notifyUrl: string | null
+  gatewayUrl: string
+  sellerId: string
 }

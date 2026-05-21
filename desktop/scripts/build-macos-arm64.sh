@@ -281,7 +281,7 @@ if [[ -n "${LATEST_APP}" ]]; then
   rm -f "${CANONICAL_OUTPUT_DIR}/"*.dmg
   build_canonical_dmg \
     "${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}" \
-    "${CANONICAL_OUTPUT_DIR}/Gugu-Agent_${APP_VERSION}_macos_arm64.dmg"
+    "${CANONICAL_OUTPUT_DIR}/Gugu-Agent-${APP_VERSION}-aarch64.dmg"
 fi
 
 cat > "${CANONICAL_OUTPUT_DIR}/BUILD_INFO.txt" <<EOF

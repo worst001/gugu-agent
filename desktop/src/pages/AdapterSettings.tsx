@@ -8,19 +8,10 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { adaptersApi } from '../api/adapters'
 import type { AdapterDiagnostics, AdapterPlatform } from '../types/adapter'
 
-type ImTab = AdapterPlatform
+type ImTab = Exclude<AdapterPlatform, 'telegram'>
 
 function hasText(value: string | undefined): boolean {
   return Boolean(value?.trim())
-}
-
-function parseTelegramAllowedUsers(value: string): number[] {
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map(Number)
-    .filter((n) => !Number.isNaN(n))
 }
 
 function parseStringAllowedUsers(value: string): string[] {
@@ -40,10 +31,6 @@ export function AdapterSettings() {
   // Server —— serverUrl 不再暴露在 UI 里（见下方 Server URL 注释），
   // 桌面端用 Tauri env var 注入动态端口。
   const [defaultProjectDir, setDefaultProjectDir] = useState('')
-
-  // Telegram
-  const [tgBotToken, setTgBotToken] = useState('')
-  const [tgAllowedUsers, setTgAllowedUsers] = useState('')
 
   // Feishu
   const [fsAppId, setFsAppId] = useState('')
@@ -99,8 +86,6 @@ export function AdapterSettings() {
   // Sync form state when config is loaded
   useEffect(() => {
     setDefaultProjectDir(config.defaultProjectDir ?? '')
-    setTgBotToken(config.telegram?.botToken ?? '')
-    setTgAllowedUsers(config.telegram?.allowedUsers?.join(', ') ?? '')
     setFsAppId(config.feishu?.appId ?? '')
     setFsAppSecret(config.feishu?.appSecret ?? '')
     setFsEncryptKey(config.feishu?.encryptKey ?? '')
@@ -137,13 +122,6 @@ export function AdapterSettings() {
       const patch: Record<string, unknown> = {}
 
       patch.defaultProjectDir = defaultProjectDir.trim()
-      const tgUsers = parseTelegramAllowedUsers(tgAllowedUsers)
-
-      patch.telegram = {
-        botToken: tgBotToken.trim(),
-        allowedUsers: tgUsers.length ? tgUsers : [],
-      }
-
       const fsUsers = parseStringAllowedUsers(fsAllowedUsers)
 
       patch.feishu = {
@@ -240,28 +218,25 @@ export function AdapterSettings() {
 
   // Collect all paired users across platforms
   const allPairedUsers = [
-    ...(config.telegram?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'telegram' as const })),
     ...(config.feishu?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'feishu' as const })),
     ...(config.dingtalk?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'dingtalk' as const })),
     ...(config.wecom?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'wecom' as const })),
     ...(config.qq?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'qq' as const })),
   ]
-  const tgAllowedCount = parseTelegramAllowedUsers(tgAllowedUsers).length
   const fsAllowedCount = parseStringAllowedUsers(fsAllowedUsers).length
   const dtAllowedCount = parseStringAllowedUsers(dtAllowedUsers).length
   const wcAllowedCount = parseStringAllowedUsers(wcAllowedUsers).length
   const qqAllowedCount = parseStringAllowedUsers(qqAllowedUsers).length
-  const totalAllowedCount = tgAllowedCount + fsAllowedCount + dtAllowedCount + wcAllowedCount + qqAllowedCount
-  const telegramCredentialsReady = hasText(tgBotToken)
+  const totalAllowedCount = fsAllowedCount + dtAllowedCount + wcAllowedCount + qqAllowedCount
   const feishuCredentialsReady = hasText(fsAppId) && hasText(fsAppSecret)
   const dingtalkCredentialsReady = (hasText(dtClientId) && hasText(dtClientSecret)) || hasText(dtWebhookUrl)
   const wecomCredentialsReady = (hasText(wcCorpId) && hasText(wcAgentId) && hasText(wcSecret)) || hasText(wcWebhookUrl)
   const qqCredentialsReady = (hasText(qqAppId) && hasText(qqToken)) || hasText(qqOneBotUrl)
-  const activeChannelCount = Number(telegramCredentialsReady)
-    + Number(feishuCredentialsReady)
+  const activeChannelCount = Number(feishuCredentialsReady)
     + Number(dingtalkCredentialsReady)
     + Number(wecomCredentialsReady)
     + Number(qqCredentialsReady)
+  const visibleDiagnosticChannels = diagnostics?.channels.filter((channel) => channel.platform !== 'telegram') ?? []
 
   // Check pairing expiry
   const pairingExpiry = config.pairing?.expiresAt
@@ -297,7 +272,14 @@ export function AdapterSettings() {
               </p>
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={handleCheckConfig} loading={isChecking}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCheckConfig}
+            loading={isChecking}
+            icon={<span className="material-symbols-outlined text-[15px]" aria-hidden="true">fact_check</span>}
+            className="shrink-0 whitespace-nowrap rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[var(--color-text-secondary)] hover:border-[var(--color-brand)]/40 hover:text-[var(--color-brand)]"
+          >
             {t('settings.adapters.checkConfig')}
           </Button>
         </div>
@@ -325,7 +307,7 @@ export function AdapterSettings() {
               </span>
             </div>
             <div className="grid gap-2 md:grid-cols-2">
-              {diagnostics.channels.map((channel) => (
+              {visibleDiagnosticChannels.map((channel) => (
                 <ChannelDiagnostic key={channel.platform} channel={channel} />
               ))}
             </div>
@@ -448,18 +430,13 @@ export function AdapterSettings() {
         </p>
       </div>
 
-      {/* IM Adapter Tabs —— Feishu 默认在前，Telegram 在后 */}
+      {/* IM Adapter Tabs */}
       <section className="rounded-xl border border-[var(--color-border)] overflow-hidden">
         <div role="tablist" aria-label="IM adapter" className="flex items-stretch border-b border-[var(--color-border)] bg-[var(--color-surface-hover)]">
           <ImTabButton
             label={t('settings.adapters.feishu')}
             active={activeIm === 'feishu'}
             onClick={() => setActiveIm('feishu')}
-          />
-          <ImTabButton
-            label={t('settings.adapters.telegram')}
-            active={activeIm === 'telegram'}
-            onClick={() => setActiveIm('telegram')}
           />
           <ImTabButton
             label={t('settings.adapters.dingtalk')}
@@ -539,34 +516,6 @@ export function AdapterSettings() {
                 <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.adapters.streamingCardDesc')}</p>
               </div>
             </label>
-          </div>
-        )}
-
-        {activeIm === 'telegram' && (
-          <div className="p-4 space-y-4">
-            <AdapterStatusNotice
-              ready={telegramCredentialsReady}
-              title={t(telegramCredentialsReady
-                ? 'settings.adapters.telegramCredentialsReady'
-                : 'settings.adapters.telegramCredentialsMissing')}
-              description={t('settings.adapters.telegramStatusDesc')}
-            />
-            <Input
-              label={t('settings.adapters.botToken')}
-              type="password"
-              value={tgBotToken}
-              onChange={(e) => setTgBotToken(e.target.value)}
-              placeholder={t('settings.adapters.botTokenPlaceholder')}
-            />
-            <div className="flex flex-col gap-1">
-              <Input
-                label={t('settings.adapters.allowedUsers')}
-                value={tgAllowedUsers}
-                onChange={(e) => setTgAllowedUsers(e.target.value)}
-                placeholder={t('settings.adapters.tgAllowedUsersPlaceholder')}
-              />
-              <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.adapters.allowedUsersHint')}</p>
-            </div>
           </div>
         )}
 

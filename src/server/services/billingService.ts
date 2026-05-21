@@ -100,7 +100,7 @@ const BILLING_CONFIG_DIR = 'cc-haha'
 const BILLING_FILE = 'billing.json'
 const VERIFY_TIMEOUT_MS = 20_000
 const MAX_LICENSE_KEY_LENGTH = 512
-const BUILTIN_GATEWAY_URL = 'http://139.196.214.54:8787'
+const BUILTIN_GATEWAY_URL = 'https://gugu.guxingyao.com'
 
 export class BillingService {
   constructor(private readonly fetchFn: FetchLike = fetch) {}

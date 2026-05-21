@@ -30,7 +30,7 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray_show";
 const TRAY_QUIT_ID: &str = "tray_quit";
 const DEFAULT_GATEWAY_URL: Option<&str> = option_env!("GUGU_DESKTOP_DEFAULT_GATEWAY_URL");
-const BUILTIN_GATEWAY_URL: &str = "http://139.196.214.54:8787";
+const BUILTIN_GATEWAY_URL: &str = "https://gugu.guxingyao.com";
 
 #[derive(Default)]
 struct ServerState(Mutex<ServerStatus>);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, type ReactNode } from 'react'
-import { AlertTriangle, Cpu, FileScan, Gauge, Plug, Puzzle, Sparkles } from 'lucide-react'
+import { AlertTriangle, Cpu, FileScan, Gauge, Plug, Puzzle, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useCapabilityStore, type AttachmentParserCapabilityStatus } from '../../stores/capabilityStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -123,6 +123,13 @@ export function CapabilityBar() {
             onClick={() => openSettings('plugins')}
             title={t('settings.tab.plugins')}
             tone={summary.plugins.errors > 0 ? 'warning' : undefined}
+          />
+          <CapabilityChip
+            label={t('settings.tab.terminal')}
+            detail={t('settings.terminal.windowTitle')}
+            icon={<Terminal className="h-3.5 w-3.5" />}
+            onClick={() => openSettings('terminal')}
+            title={t('settings.terminal.description')}
           />
         </div>
       </div>
