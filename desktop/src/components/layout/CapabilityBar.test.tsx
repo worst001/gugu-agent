@@ -82,6 +82,8 @@ describe('CapabilityBar', () => {
     expect(screen.getByText('Max')).toBeInTheDocument()
     expect(screen.getByText('Needs key')).toBeInTheDocument()
     expect(screen.getByText('1 need attention')).toBeInTheDocument()
+    expect(screen.getByText('Terminal')).toBeInTheDocument()
+    expect(screen.getByText('Host shell')).toBeInTheDocument()
     expect(refreshCapabilities).toHaveBeenCalledWith('D:/repo')
   })
 
@@ -92,5 +94,10 @@ describe('CapabilityBar', () => {
 
     expect(useTabStore.getState().activeTabId).toBe('__settings__')
     expect(useUIStore.getState().pendingSettingsTab).toBe('attachmentParser')
+
+    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
+
+    expect(useTabStore.getState().activeTabId).toBe('__settings__')
+    expect(useUIStore.getState().pendingSettingsTab).toBe('terminal')
   })
 })

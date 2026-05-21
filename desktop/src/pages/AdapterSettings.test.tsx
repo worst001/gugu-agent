@@ -107,15 +107,14 @@ describe('AdapterSettings', () => {
     render(<AdapterSettings />)
 
     expect(await screen.findByText('Remote channel boundary')).toBeInTheDocument()
-    expect(screen.getByText('2 channel(s) configured')).toBeInTheDocument()
+    expect(screen.getByText('1 channel(s) configured')).toBeInTheDocument()
     expect(screen.getByText('1 paired user(s)')).toBeInTheDocument()
-    expect(screen.getByText('2 allowlisted user(s)')).toBeInTheDocument()
+    expect(screen.getByText('1 allowlisted user(s)')).toBeInTheDocument()
     expect(screen.getByText('Feishu app credentials configured')).toBeInTheDocument()
     expect(screen.getByText('Comma-separated. Empty means paired users only; adding IDs narrows access to those users.')).toBeInTheDocument()
     expect(screen.queryByText('telegram-secret-token')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Telegram' }))
-    expect(screen.getByText('Telegram Bot Token configured')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Telegram' })).not.toBeInTheDocument()
   })
 
   it('saves masked credentials back through the existing config API', async () => {
@@ -127,10 +126,6 @@ describe('AdapterSettings', () => {
     await waitFor(() => {
       expect(adaptersApi.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
         defaultProjectDir: 'D:\\work',
-        telegram: expect.objectContaining({
-          botToken: '****oken',
-          allowedUsers: [123],
-        }),
         feishu: expect.objectContaining({
           appId: 'cli_abc',
           appSecret: '****cret',
@@ -138,6 +133,7 @@ describe('AdapterSettings', () => {
           streamingCard: true,
         }),
       }))
+      expect(vi.mocked(adaptersApi.updateConfig).mock.calls[0]?.[0]).not.toHaveProperty('telegram')
     })
   })
 
@@ -150,8 +146,9 @@ describe('AdapterSettings', () => {
     expect(await screen.findByText('Local diagnostics')).toBeInTheDocument()
     expect(screen.getByText('Default project set')).toBeInTheDocument()
     expect(screen.getByText('No active pairing code')).toBeInTheDocument()
-    expect(screen.getAllByText('Ready')).toHaveLength(2)
+    expect(screen.getAllByText('Ready')).toHaveLength(1)
     expect(screen.getByText('Allowlist 1, paired 1, missing None')).toBeInTheDocument()
+    expect(screen.queryByText('Telegram')).not.toBeInTheDocument()
     expect(adaptersApi.updateConfig).not.toHaveBeenCalled()
   })
 })
