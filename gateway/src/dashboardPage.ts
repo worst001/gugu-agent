@@ -206,7 +206,7 @@ export function createDashboardPageHtml(): string {
           <p class="muted">先标记收款，再发码；也可以直接发码完成人工订单。</p>
         </div>
         <table>
-          <thead><tr><th>订单</th><th>套餐</th><th>金额</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>订单</th><th>套餐</th><th>金额</th><th>状态</th><th>支付</th><th>时间</th><th>操作</th></tr></thead>
           <tbody id="orders"></tbody>
         </table>
       </section>
@@ -294,11 +294,14 @@ export function createDashboardPageHtml(): string {
     }
 
     function renderDownload(download) {
-      const url = download.downloadUrl || ''
+      const windowsUrl = download.downloadWindowsUrl || download.downloadUrl || ''
+      const macosUrl = download.downloadMacosUrl || ''
       document.getElementById('downloadInfo').innerHTML = [
-        downloadItem('下载链接', url ? '<a href="' + escapeAttr(url) + '" target="_blank" rel="noreferrer">' + escapeHtml(url) + '</a>' : '未配置 GUGU_DOWNLOAD_URL'),
+        downloadItem('Windows MSI', windowsUrl ? '<a href="' + escapeAttr(windowsUrl) + '" target="_blank" rel="noreferrer">' + escapeHtml(windowsUrl) + '</a>' : '未配置 GUGU_DOWNLOAD_WINDOWS_URL'),
+        downloadItem('macOS DMG', macosUrl ? '<a href="' + escapeAttr(macosUrl) + '" target="_blank" rel="noreferrer">' + escapeHtml(macosUrl) + '</a>' : '未配置 GUGU_DOWNLOAD_MACOS_URL'),
         downloadItem('版本', escapeHtml(download.downloadVersion || '未配置 GUGU_DOWNLOAD_VERSION')),
-        downloadItem('SHA256', '<code>' + escapeHtml(download.downloadSha256 || '未配置 GUGU_DOWNLOAD_SHA256') + '</code>'),
+        downloadItem('Windows SHA256', '<code>' + escapeHtml(download.downloadWindowsSha256 || download.downloadSha256 || '未配置 GUGU_DOWNLOAD_WINDOWS_SHA256') + '</code>'),
+        downloadItem('macOS SHA256', '<code>' + escapeHtml(download.downloadMacosSha256 || '未配置 GUGU_DOWNLOAD_MACOS_SHA256') + '</code>'),
       ].join('')
     }
 
@@ -322,15 +325,44 @@ export function createDashboardPageHtml(): string {
           ? '<div><code class="license-code">' + escapeHtml(order.licenseKey) + '</code> <button class="linklike" data-copy="' + escapeAttr(order.licenseKey) + '">复制</button></div>'
           : '<span class="muted">未发码</span>'
         const actions = renderOrderActions(order)
+        const payment = renderPaymentInfo(order)
         return '<tr>'
           + '<td><strong>' + escapeHtml(order.orderId) + '</strong><br><span class="muted">' + escapeHtml(order.contact || '-') + '</span></td>'
           + '<td>' + escapeHtml(order.packageName) + '<br><span class="muted">' + escapeHtml(order.plan) + '</span></td>'
           + '<td>' + formatCny(order.amountCents) + '</td>'
           + '<td><span class="status ' + escapeAttr(order.status) + '">' + statusLabel(order.status) + '</span></td>'
+          + '<td>' + payment + '</td>'
           + '<td><span class="muted">创建 ' + formatTime(order.createdAt) + '</span><br><span class="muted">更新 ' + formatTime(order.updatedAt) + '</span></td>'
           + '<td>' + actions + license + '</td>'
           + '</tr>'
-      }).join('') || '<tr><td class="muted" colspan="6">暂无订单</td></tr>'
+      }).join('') || '<tr><td class="muted" colspan="7">暂无订单</td></tr>'
+    }
+
+    function renderPaymentInfo(order) {
+      const provider = paymentProviderLabel(order.paymentProvider)
+      const transactionId = order.wechatTransactionId || order.alipayTradeNo
+      const transaction = transactionId
+        ? '<br><span class="muted">交易号 ' + escapeHtml(transactionId) + '</span>'
+        : ''
+      const paidAmount = order.paidAmountCents != null
+        ? '<br><span class="muted">实付 ' + formatCny(order.paidAmountCents) + '</span>'
+        : ''
+      const paidTime = order.wechatSuccessTime || order.alipaySuccessTime || order.paidAt
+      const success = paidTime
+        ? '<br><span class="muted">支付 ' + formatTime(paidTime) + '</span>'
+        : ''
+      const tradeState = order.wechatTradeState || order.alipayTradeStatus
+      const state = tradeState
+        ? '<br><span class="muted">' + escapeHtml(tradeState) + '</span>'
+        : ''
+      return '<span>' + escapeHtml(provider) + '</span>' + transaction + paidAmount + success + state
+    }
+
+    function paymentProviderLabel(provider) {
+      return {
+        wechat: '微信 Native',
+        alipay: '支付宝',
+      }[provider] || '人工'
     }
 
     function renderOrderActions(order) {

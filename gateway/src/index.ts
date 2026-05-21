@@ -1,18 +1,29 @@
 import { loadGatewayConfig } from './config.js'
-import { createBuyPageHtml } from './buyPage.js'
+import { createBuyPageHtml, createCheckoutPageHtml } from './buyPage.js'
 import { createDashboardPageHtml } from './dashboardPage.js'
 import { createDownloadPageHtml, createHomePageHtml } from './sitePages.js'
 import { isPurchasablePackageId } from './packages.js'
+import {
+  createAlipayPrecreatePayment,
+  isAlipayReady,
+  parseAlipayPaymentNotify,
+} from './alipayPay.js'
 import {
   GatewayAuthError,
   GatewayQuotaError,
   GatewayStore,
 } from './store.js'
+import {
+  createWechatNativePayment,
+  isWechatPayReady,
+  parseWechatPaymentNotify,
+} from './wechatPay.js'
 import type {
   GatewayConfig,
   GatewayEntitlement,
   GatewayErrorBody,
   GatewayOrderStatus,
+  GatewayPaymentProvider,
   GatewayPlan,
 } from './types.js'
 
@@ -56,7 +67,21 @@ export function createGatewayHandler(config: GatewayConfig, store = new GatewayS
       }
 
       if (req.method === 'GET' && (url.pathname === '/buy' || url.pathname === '/buy/')) {
-        return html(createBuyPageHtml())
+        return html(createBuyPageHtml({
+          wechatPayEnabled: isWechatPayReady(config),
+          icpRecord: config.icpRecord,
+          icpUrl: config.icpUrl,
+        }))
+      }
+
+      if (req.method === 'GET' && (url.pathname === '/checkout' || url.pathname === '/checkout/')) {
+        return html(createCheckoutPageHtml({
+          packageId: url.searchParams.get('packageId'),
+          wechatPayEnabled: isWechatPayReady(config),
+          alipayPayEnabled: isAlipayReady(config),
+          icpRecord: config.icpRecord,
+          icpUrl: config.icpUrl,
+        }))
       }
 
       if (req.method === 'GET' && (url.pathname === '/admin/dashboard' || url.pathname === '/admin/dashboard/')) {
@@ -87,9 +112,33 @@ export function createGatewayHandler(config: GatewayConfig, store = new GatewayS
       if (req.method === 'POST' && url.pathname === '/v1/orders') {
         const body = await readJson(req)
         const packageId = asString(body.packageId)
+        const paymentProvider = asString(body.paymentProvider)
         if (!packageId) return errorJson(400, 'BAD_REQUEST', 'packageId is required')
         if (!isPurchasablePackageId(packageId)) return errorJson(400, 'BAD_REQUEST', 'Package is not available for purchase.')
-        return json({ order: store.createOrder({ packageId, contact: asString(body.contact) }) })
+        if (paymentProvider && paymentProvider !== 'wechat' && paymentProvider !== 'alipay') {
+          return errorJson(400, 'BAD_REQUEST', 'Unsupported payment provider.')
+        }
+        return await createOrderResponse(
+          config,
+          store,
+          packageId,
+          asString(body.contact),
+          paymentProvider as GatewayPaymentProvider | undefined,
+        )
+      }
+
+      const orderStatus = url.pathname.match(/^\/v1\/orders\/([^/]+)\/status$/)
+      if (req.method === 'GET' && orderStatus) {
+        const orderId = decodeURIComponent(orderStatus[1]!)
+        return json(store.getOrderStatus(orderId, req.headers.get('x-gugu-order-token')))
+      }
+
+      if (req.method === 'POST' && url.pathname === '/v1/payments/wechat/notify') {
+        return await handleWechatNotify(req, config, store)
+      }
+
+      if (req.method === 'POST' && url.pathname === '/v1/payments/alipay/notify') {
+        return await handleAlipayNotify(req, config, store)
       }
 
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
@@ -120,6 +169,140 @@ export function startGateway(): void {
   console.log(`[gugu-gateway] listening on http://${host}:${port}`)
 }
 
+async function createOrderResponse(
+  config: GatewayConfig,
+  store: GatewayStore,
+  packageId: string,
+  contact?: string,
+  paymentProvider: GatewayPaymentProvider = 'wechat',
+): Promise<Response> {
+  const order = store.createOrder({ packageId, contact })
+  const orderToken = store.getOrderToken(order.orderId)
+  if (paymentProvider === 'alipay') {
+    return await createAlipayOrderResponse(config, store, order, orderToken)
+  }
+  return await createWechatOrderResponse(config, store, order, orderToken)
+}
+
+async function createWechatOrderResponse(
+  config: GatewayConfig,
+  store: GatewayStore,
+  order: ReturnType<GatewayStore['createOrder']>,
+  orderToken: string,
+): Promise<Response> {
+  if (!isWechatPayReady(config)) {
+    return json({ order, orderToken, payment: null })
+  }
+
+  try {
+    const payment = await createWechatNativePayment(config, order)
+    const updatedOrder = store.attachOrderPayment(order.orderId, {
+      provider: payment.provider,
+      codeUrl: payment.codeUrl,
+      expiresAt: payment.expiresAt,
+      payload: payment.payload,
+    })
+    return json({
+      order: updatedOrder,
+      orderToken,
+      payment: {
+        provider: payment.provider,
+        codeUrl: payment.codeUrl,
+        qrDataUrl: payment.qrDataUrl,
+        expiresAt: payment.expiresAt,
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create payment.'
+    console.error('[gugu-gateway] WeChat payment creation failed; falling back to manual order:', error)
+    return json({
+      order,
+      orderToken,
+      payment: null,
+      paymentError: message,
+    })
+  }
+}
+
+async function createAlipayOrderResponse(
+  config: GatewayConfig,
+  store: GatewayStore,
+  order: ReturnType<GatewayStore['createOrder']>,
+  orderToken: string,
+): Promise<Response> {
+  if (!isAlipayReady(config)) {
+    return json({ order, orderToken, payment: null })
+  }
+
+  try {
+    const payment = await createAlipayPrecreatePayment(config, order)
+    const updatedOrder = store.attachOrderPayment(order.orderId, {
+      provider: payment.provider,
+      codeUrl: payment.codeUrl,
+      expiresAt: payment.expiresAt,
+      payload: payment.payload,
+    })
+    return json({
+      order: updatedOrder,
+      orderToken,
+      payment: {
+        provider: payment.provider,
+        codeUrl: payment.codeUrl,
+        qrDataUrl: payment.qrDataUrl,
+        expiresAt: payment.expiresAt,
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create payment.'
+    console.error('[gugu-gateway] Alipay payment creation failed; falling back to manual order:', error)
+    return json({
+      order,
+      orderToken,
+      payment: null,
+      paymentError: message,
+    })
+  }
+}
+
+async function handleWechatNotify(
+  req: Request,
+  config: GatewayConfig,
+  store: GatewayStore,
+): Promise<Response> {
+  try {
+    const rawBody = await req.text()
+    const paidOrder = parseWechatPaymentNotify(config, req.headers, rawBody)
+    store.completeWechatPayment(paidOrder)
+    return new Response(null, { status: 204 })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[gugu-gateway] WeChat notify rejected:', message)
+    return json({ code: 'FAIL', message }, { status: 400 })
+  }
+}
+
+async function handleAlipayNotify(
+  req: Request,
+  config: GatewayConfig,
+  store: GatewayStore,
+): Promise<Response> {
+  try {
+    const rawBody = await req.text()
+    const paidOrder = parseAlipayPaymentNotify(config, rawBody)
+    store.completeAlipayPayment(paidOrder)
+    return new Response('success', {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[gugu-gateway] Alipay notify rejected:', message)
+    return new Response('fail', {
+      status: 400,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    })
+  }
+}
+
 async function forwardMessage(
   req: Request,
   config: GatewayConfig,
@@ -131,7 +314,8 @@ async function forwardMessage(
 
   const deviceToken = readDeviceToken(req)
   const body = await readJson(req)
-  const upstreamModel = resolveDeepSeekModel(config, asString(body.model))
+  const entitlement = store.getEntitlement(deviceToken)
+  const upstreamModel = resolveDeepSeekModel(config, asString(body.model), entitlement.plan)
   const creditCost = config.messageCreditCost
   body.model = upstreamModel
 
@@ -372,8 +556,12 @@ function handleAdminApi(
     if (req.method === 'GET' && url.pathname === '/admin/api/download') {
       return adminJson({
         downloadUrl: config.downloadUrl,
+        downloadWindowsUrl: config.downloadWindowsUrl,
+        downloadMacosUrl: config.downloadMacosUrl,
         downloadVersion: config.downloadVersion,
         downloadSha256: config.downloadSha256,
+        downloadWindowsSha256: config.downloadWindowsSha256,
+        downloadMacosSha256: config.downloadMacosSha256,
         publicBaseUrl: config.publicBaseUrl,
       })
     }
@@ -396,7 +584,8 @@ function handleAdminApi(
   }
 }
 
-function resolveDeepSeekModel(config: GatewayConfig, requested: string | undefined): string {
+function resolveDeepSeekModel(config: GatewayConfig, requested: string | undefined, plan: GatewayPlan): string {
+  if (plan === 'free') return config.deepseekFastModel
   if (requested === 'gugu-managed-fast') return config.deepseekFastModel
   if (requested === 'gugu-managed-main' || requested === 'gugu-managed-strong') return config.deepseekMainModel
   return requested?.trim() || config.deepseekMainModel
@@ -680,7 +869,7 @@ function errorJson(
 function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'content-type, authorization, x-gugu-device-token, anthropic-version, anthropic-beta',
+    'Access-Control-Allow-Headers': 'content-type, authorization, x-gugu-device-token, x-gugu-order-token, anthropic-version, anthropic-beta',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   }
 }

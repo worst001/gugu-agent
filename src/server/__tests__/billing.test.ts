@@ -62,7 +62,7 @@ describe('BillingService', () => {
 
     expect(status.maskedLicenseKey).toBe('gugu...3456')
     expect(serialized).not.toContain('gugu-license-secret-123456')
-    expect(status.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
+    expect(status.purchaseUrl).toBe('https://gugu.guxingyao.com/buy')
   })
 
   test('does not call the network when verify URL is not configured', async () => {
@@ -135,7 +135,7 @@ describe('BillingService', () => {
   test('uses bundled gateway and purchase URL by default', async () => {
     delete process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
     const service = new BillingService(async (url) => {
-      expect(String(url)).toBe('http://139.196.214.54:8787/v1/devices')
+      expect(String(url)).toBe('https://gugu.guxingyao.com/v1/devices')
       return jsonResponse({
         deviceId: 'device-1',
         deviceToken: 'token-1',
@@ -153,11 +153,11 @@ describe('BillingService', () => {
     const status = await service.getStatus()
 
     expect(config.gatewayUrlConfigured).toBe(true)
-    expect(config.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
+    expect(config.purchaseUrl).toBe('https://gugu.guxingyao.com/buy')
     expect(status.status).toBe('active')
     expect(status.creditsTotal).toBe(3)
     expect(status.creditsRemaining).toBe(3)
-    expect(status.purchaseUrl).toBe('http://139.196.214.54:8787/buy')
+    expect(status.purchaseUrl).toBe('https://gugu.guxingyao.com/buy')
   })
 
   test('runtime gateway overrides build-time default gateway', async () => {

@@ -11,6 +11,8 @@ import type {
   GatewayListResponse,
   GatewayOrder,
   GatewayOrderStatus,
+  GatewayOrderStatusResponse,
+  GatewayPaymentProvider,
   GatewayPackageId,
   GatewayPlan,
   GatewayUsageEvent,
@@ -69,6 +71,18 @@ type OrderRow = {
   status: GatewayOrderStatus
   contact: string | null
   license_key: string | null
+  order_token: string | null
+  payment_provider: GatewayPaymentProvider | null
+  payment_code_url: string | null
+  payment_expires_at: string | null
+  wechat_transaction_id: string | null
+  wechat_trade_state: string | null
+  wechat_success_time: string | null
+  alipay_trade_no: string | null
+  alipay_trade_status: string | null
+  alipay_success_time: string | null
+  paid_amount_cents: number | null
+  payment_payload: string | null
   created_at: string
   updated_at: string
   paid_at: string | null
@@ -395,12 +409,13 @@ export class GatewayStore {
 
     const now = new Date().toISOString()
     const orderId = createOrderId()
+    const orderToken = createOrderToken()
     const row = this.db
       .query(
         `INSERT INTO orders (
           order_id, package_id, package_name, package_kind, plan, credits,
-          amount_cents, currency, status, contact, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', ?, ?, ?)
+          amount_cents, currency, status, contact, order_token, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', ?, ?, ?, ?)
         RETURNING *`,
       )
       .get(
@@ -413,11 +428,18 @@ export class GatewayStore {
         pkg.amountCents,
         pkg.currency,
         normalizeContact(input.contact),
+        orderToken,
         now,
         now,
       ) as OrderRow
 
     return toOrder(row)
+  }
+
+  getOrderToken(orderId: string): string {
+    const order = this.requireOrder(orderId)
+    if (!order.order_token) throw new Error('Order token is not available.')
+    return order.order_token
   }
 
   listOrders(input: {
@@ -462,6 +484,142 @@ export class GatewayStore {
         nextCursor: rows.length === limit ? rows[rows.length - 1].id : null,
       },
     }
+  }
+
+  attachOrderPayment(orderId: string, input: {
+    provider: GatewayPaymentProvider
+    codeUrl: string
+    expiresAt: string
+    payload?: Record<string, unknown>
+  }): GatewayOrder {
+    const order = this.requireOrder(orderId)
+    if (order.status !== 'pending_payment') return toOrder(order)
+
+    const now = new Date().toISOString()
+    const row = this.db
+      .query(
+        `UPDATE orders
+         SET payment_provider = ?,
+             payment_code_url = ?,
+             payment_expires_at = ?,
+             payment_payload = ?,
+             updated_at = ?
+         WHERE order_id = ?
+         RETURNING *`,
+      )
+      .get(
+        input.provider,
+        input.codeUrl,
+        input.expiresAt,
+        stringifyPaymentPayload(input.payload),
+        now,
+        order.order_id,
+      ) as OrderRow
+    return toOrder(row)
+  }
+
+  getOrderStatus(orderId: string, orderToken: string | null | undefined): GatewayOrderStatusResponse {
+    const row = this.requireOrder(orderId)
+    if (!row.order_token || row.order_token !== orderToken?.trim()) {
+      throw new GatewayAuthError('Invalid order token.')
+    }
+    const order = toOrder(row)
+    return {
+      order,
+      licenseKey: order.status === 'fulfilled' ? order.licenseKey : null,
+    }
+  }
+
+  completeWechatPayment(input: {
+    orderId: string
+    transactionId: string
+    tradeState: string
+    successTime: string | null
+    amountCents: number
+    payload: Record<string, unknown>
+  }): GatewayOrder {
+    const order = this.requireOrder(input.orderId)
+    if (order.status === 'cancelled') throw new Error('Order has been cancelled.')
+    if (input.tradeState !== 'SUCCESS') throw new Error(`Unsupported WeChat trade state: ${input.tradeState}`)
+    if (order.amount_cents !== input.amountCents) throw new Error('WeChat paid amount does not match the order amount.')
+
+    const now = new Date().toISOString()
+    const paidAt = input.successTime || now
+    const row = this.db
+      .query(
+        `UPDATE orders
+         SET status = CASE WHEN status = 'fulfilled' THEN status ELSE 'paid' END,
+             payment_provider = COALESCE(payment_provider, 'wechat'),
+             wechat_transaction_id = COALESCE(wechat_transaction_id, ?),
+             wechat_trade_state = ?,
+             wechat_success_time = COALESCE(wechat_success_time, ?),
+             paid_amount_cents = COALESCE(paid_amount_cents, ?),
+             payment_payload = ?,
+             paid_at = COALESCE(paid_at, ?),
+             updated_at = ?
+         WHERE order_id = ?
+         RETURNING *`,
+      )
+      .get(
+        normalizeTransactionId(input.transactionId),
+        input.tradeState,
+        input.successTime,
+        input.amountCents,
+        stringifyPaymentPayload(input.payload),
+        paidAt,
+        now,
+        order.order_id,
+      ) as OrderRow
+
+    if (row.status === 'fulfilled') return toOrder(row)
+    return this.fulfillOrder(order.order_id)
+  }
+
+  completeAlipayPayment(input: {
+    orderId: string
+    transactionId: string
+    tradeState: string
+    successTime: string | null
+    amountCents: number
+    payload: Record<string, unknown>
+  }): GatewayOrder {
+    const order = this.requireOrder(input.orderId)
+    if (order.status === 'cancelled') throw new Error('Order has been cancelled.')
+    if (input.tradeState !== 'TRADE_SUCCESS' && input.tradeState !== 'TRADE_FINISHED') {
+      throw new Error(`Unsupported Alipay trade status: ${input.tradeState}`)
+    }
+    if (order.amount_cents !== input.amountCents) throw new Error('Alipay paid amount does not match the order amount.')
+
+    const now = new Date().toISOString()
+    const paidAt = input.successTime || now
+    const row = this.db
+      .query(
+        `UPDATE orders
+         SET status = CASE WHEN status = 'fulfilled' THEN status ELSE 'paid' END,
+             payment_provider = COALESCE(payment_provider, 'alipay'),
+             alipay_trade_no = COALESCE(alipay_trade_no, ?),
+             alipay_trade_status = ?,
+             alipay_success_time = COALESCE(alipay_success_time, ?),
+             paid_amount_cents = COALESCE(paid_amount_cents, ?),
+             payment_payload = ?,
+             paid_at = COALESCE(paid_at, ?),
+             updated_at = ?
+         WHERE order_id = ?
+         RETURNING *`,
+      )
+      .get(
+        normalizeTransactionId(input.transactionId),
+        input.tradeState,
+        input.successTime,
+        input.amountCents,
+        stringifyPaymentPayload(input.payload),
+        paidAt,
+        now,
+        order.order_id,
+      ) as OrderRow
+
+    if (row.status === 'fulfilled') return toOrder(row)
+    return this.fulfillOrder(order.order_id)
   }
 
   markOrderPaid(orderId: string): GatewayOrder {
@@ -826,6 +984,18 @@ export class GatewayStore {
         status TEXT NOT NULL,
         contact TEXT,
         license_key TEXT,
+        order_token TEXT,
+        payment_provider TEXT,
+        payment_code_url TEXT,
+        payment_expires_at TEXT,
+        wechat_transaction_id TEXT,
+        wechat_trade_state TEXT,
+        wechat_success_time TEXT,
+        alipay_trade_no TEXT,
+        alipay_trade_status TEXT,
+        alipay_success_time TEXT,
+        paid_amount_cents INTEGER,
+        payment_payload TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         paid_at TEXT,
@@ -852,6 +1022,19 @@ export class GatewayStore {
     this.ensureColumn('usage_events', 'input_tokens', 'input_tokens INTEGER')
     this.ensureColumn('usage_events', 'output_tokens', 'output_tokens INTEGER')
     this.ensureColumn('usage_events', 'metadata', 'metadata TEXT')
+    this.ensureColumn('orders', 'order_token', 'order_token TEXT')
+    this.ensureColumn('orders', 'payment_provider', 'payment_provider TEXT')
+    this.ensureColumn('orders', 'payment_code_url', 'payment_code_url TEXT')
+    this.ensureColumn('orders', 'payment_expires_at', 'payment_expires_at TEXT')
+    this.ensureColumn('orders', 'wechat_transaction_id', 'wechat_transaction_id TEXT')
+    this.ensureColumn('orders', 'wechat_trade_state', 'wechat_trade_state TEXT')
+    this.ensureColumn('orders', 'wechat_success_time', 'wechat_success_time TEXT')
+    this.ensureColumn('orders', 'alipay_trade_no', 'alipay_trade_no TEXT')
+    this.ensureColumn('orders', 'alipay_trade_status', 'alipay_trade_status TEXT')
+    this.ensureColumn('orders', 'alipay_success_time', 'alipay_success_time TEXT')
+    this.ensureColumn('orders', 'paid_amount_cents', 'paid_amount_cents INTEGER')
+    this.ensureColumn('orders', 'payment_payload', 'payment_payload TEXT')
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_orders_order_token ON orders(order_token)')
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -972,6 +1155,21 @@ function createOrderId(): string {
   return `GUGU-${ymd}-${randomBytes(4).toString('hex').toUpperCase()}`
 }
 
+function createOrderToken(): string {
+  return `ord_${randomBytes(24).toString('base64url')}`
+}
+
+function normalizeTransactionId(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed.length <= 64 ? trimmed : trimmed.slice(0, 64)
+}
+
+function stringifyPaymentPayload(value: Record<string, unknown> | undefined): string | null {
+  if (!value) return null
+  return JSON.stringify(value).slice(0, 4096)
+}
+
 function toOrder(row: OrderRow): GatewayOrder {
   return {
     id: row.id,
@@ -991,6 +1189,17 @@ function toOrder(row: OrderRow): GatewayOrder {
     paidAt: row.paid_at,
     fulfilledAt: row.fulfilled_at,
     cancelledAt: row.cancelled_at,
+    paymentProvider: row.payment_provider,
+    paymentCodeUrl: row.payment_code_url,
+    paymentExpiresAt: row.payment_expires_at,
+    wechatTransactionId: row.wechat_transaction_id,
+    wechatTradeState: row.wechat_trade_state,
+    wechatSuccessTime: row.wechat_success_time,
+    alipayTradeNo: row.alipay_trade_no,
+    alipayTradeStatus: row.alipay_trade_status,
+    alipaySuccessTime: row.alipay_success_time,
+    paidAmountCents: row.paid_amount_cents,
+    paymentPayload: row.payment_payload,
   }
 }
 

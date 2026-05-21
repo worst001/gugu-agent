@@ -113,10 +113,10 @@ function Get-StagedArtifactName {
 
   switch -Regex ($ArtifactName) {
     '^latest\.json$' { return 'latest.json' }
-    '\.msi\.zip\.sig$' { return "Gugu-Agent_${appVersion}_windows_x64_msi.msi.zip.sig" }
-    '\.msi\.zip$' { return "Gugu-Agent_${appVersion}_windows_x64_msi.msi.zip" }
-    '\.msi\.sig$' { return "Gugu-Agent_${appVersion}_windows_x64_msi.msi.sig" }
-    '\.msi$' { return "Gugu-Agent_${appVersion}_windows_x64_msi.msi" }
+    '\.msi\.zip\.sig$' { return "Gugu-Agent-${appVersion}-windows-x64.msi.zip.sig" }
+    '\.msi\.zip$' { return "Gugu-Agent-${appVersion}-windows-x64.msi.zip" }
+    '\.msi\.sig$' { return "Gugu-Agent-${appVersion}-windows-x64.msi.sig" }
+    '\.msi$' { return "Gugu-Agent-${appVersion}-windows-x64.msi" }
     default { return $ArtifactName }
   }
 }

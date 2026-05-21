@@ -9,7 +9,7 @@
 [![Gitee Stars](https://gitee.com/xiyouwangluo/claude-code-gugu/badge/star.svg)](https://gitee.com/xiyouwangluo/claude-code-gugu/stargazers)
 [![Gitee Forks](https://gitee.com/xiyouwangluo/claude-code-gugu/badge/fork.svg)](https://gitee.com/xiyouwangluo/claude-code-gugu/members)
 [![Releases](https://img.shields.io/badge/Releases-Gitee-C71D23?logo=gitee)](https://gitee.com/xiyouwangluo/claude-code-gugu/releases)
-[![Website](https://img.shields.io/badge/Website-Gugu%20Agent-D97757)](http://139.196.214.54:8787/)
+[![Website](https://img.shields.io/badge/Website-Gugu%20Agent-D97757)](https://gugu.guxingyao.com/)
 [![Chinese](https://img.shields.io/badge/README-Chinese-green)](README.md)
 
 </div>

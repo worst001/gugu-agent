@@ -8,5 +8,8 @@
     "dev": "bun --watch src/index.ts",
     "admin": "bun run scripts/admin.ts",
     "test": "bun test src/__tests__/gateway.test.ts"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
   }
 }
