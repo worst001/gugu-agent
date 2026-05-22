@@ -18,8 +18,10 @@
     "test:qq": "bun test qq/"
   },
   "dependencies": {
-    "grammy": "^1.42.0",
     "@larksuiteoapi/node-sdk": "^1.60.0",
+    "dingtalk-stream": "^2.1.6-beta.1",
+    "grammy": "^1.42.0",
+    "qq-official-bot": "^1.2.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

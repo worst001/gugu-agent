@@ -1,5 +1,6 @@
-﻿use std::{
+use std::{
     collections::{HashMap, VecDeque},
+    fs,
     io::{Error as IoError, ErrorKind, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
@@ -10,7 +11,7 @@
         Arc, Mutex,
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -56,6 +57,13 @@ struct AppExitState {
 /// 前端会通过 invoke('restart_adapters_sidecar') 来重启它，让新凭据生效。
 #[derive(Default)]
 struct AdapterState(Mutex<Option<CommandChild>>);
+
+#[derive(Default)]
+struct ScreenshotBridgeState(Mutex<Option<ScreenshotBridgeRuntime>>);
+
+struct ScreenshotBridgeRuntime {
+    url: String,
+}
 
 #[derive(Default)]
 struct TerminalState {
@@ -669,6 +677,177 @@ fn resolve_app_root(_app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn ensure_screenshot_bridge(app: &AppHandle) -> Result<String, String> {
+    let Some(state) = app.try_state::<ScreenshotBridgeState>() else {
+        return Err("screenshot bridge state is unavailable".to_string());
+    };
+
+    let mut guard = state
+        .0
+        .lock()
+        .map_err(|_| "screenshot bridge state lock poisoned".to_string())?;
+    if let Some(runtime) = guard.as_ref() {
+        return Ok(runtime.url.clone());
+    }
+
+    let listener =
+        TcpListener::bind("127.0.0.1:0").map_err(|err| format!("bind screenshot bridge: {err}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|err| format!("read screenshot bridge address: {err}"))?
+        .port();
+    let token = format!(
+        "{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default()
+    );
+    let url = format!("http://127.0.0.1:{port}/screenshot?token={token}");
+    let token_for_thread = token.clone();
+
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => handle_screenshot_bridge_request(stream, &token_for_thread),
+                Err(err) => eprintln!("[desktop-screenshot] bridge accept failed: {err}"),
+            }
+        }
+    });
+
+    guard.replace(ScreenshotBridgeRuntime { url: url.clone() });
+    Ok(url)
+}
+
+fn screenshot_bridge_url(app: &AppHandle) -> Option<String> {
+    app.try_state::<ScreenshotBridgeState>().and_then(|state| {
+        state
+            .0
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|runtime| runtime.url.clone()))
+    })
+}
+
+fn handle_screenshot_bridge_request(mut stream: TcpStream, token: &str) {
+    let mut buffer = [0_u8; 4096];
+    let Ok(size) = stream.read(&mut buffer) else {
+        return;
+    };
+    let request = String::from_utf8_lossy(&buffer[..size]);
+    let first_line = request.lines().next().unwrap_or_default();
+    let path = first_line.split_whitespace().nth(1).unwrap_or_default();
+
+    if !first_line.starts_with("GET ") || !path.starts_with("/screenshot?") {
+        write_http_response(
+            &mut stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"not found",
+        );
+        return;
+    }
+    if !path
+        .split_once('?')
+        .map(|(_, query)| {
+            query
+                .split('&')
+                .any(|part| part == format!("token={token}"))
+        })
+        .unwrap_or(false)
+    {
+        write_http_response(
+            &mut stream,
+            "403 Forbidden",
+            "text/plain; charset=utf-8",
+            b"forbidden",
+        );
+        return;
+    }
+
+    match capture_desktop_screenshot_png() {
+        Ok(bytes) => write_http_response(&mut stream, "200 OK", "image/png", &bytes),
+        Err(err) => write_http_response(
+            &mut stream,
+            "500 Internal Server Error",
+            "text/plain; charset=utf-8",
+            err.as_bytes(),
+        ),
+    }
+}
+
+fn write_http_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &[u8]) {
+    let header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body);
+}
+
+#[cfg(target_os = "macos")]
+fn capture_desktop_screenshot_png() -> Result<Vec<u8>, String> {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let dir = std::env::temp_dir().join(format!("gugu-desktop-shot-{unique}"));
+    fs::create_dir_all(&dir).map_err(|err| format!("desktop_screenshot_tmpdir: {err}"))?;
+    let file_path = dir.join("screen.png");
+
+    let result = (|| {
+        let mut child = StdCommand::new("/usr/sbin/screencapture")
+            .args(["-x", "-t", "png"])
+            .arg(&file_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|err| format!("desktop_screenshot_spawn: {err}"))?;
+
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("desktop_screenshot_timeout".to_string());
+                }
+                Err(err) => return Err(format!("desktop_screenshot_wait: {err}")),
+            }
+        };
+
+        let mut stderr = String::new();
+        if let Some(mut pipe) = child.stderr.take() {
+            let _ = pipe.read_to_string(&mut stderr);
+        }
+        if !status.success() {
+            let message = stderr.trim();
+            if message.is_empty() {
+                return Err(format!("desktop_screenshot_exit: {status}"));
+            }
+            return Err(format!("desktop_screenshot_exit: {message}"));
+        }
+
+        let bytes =
+            fs::read(&file_path).map_err(|err| format!("desktop_screenshot_read: {err}"))?;
+        if bytes.len() < 1024 {
+            return Err("desktop_screenshot_empty".to_string());
+        }
+        Ok(bytes)
+    })();
+
+    let _ = fs::remove_dir_all(&dir);
+    result
+}
+
+#[cfg(not(target_os = "macos"))]
+fn capture_desktop_screenshot_png() -> Result<Vec<u8>, String> {
+    Err("desktop_screenshot_unsupported_platform".to_string())
+}
+
 fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let host = "127.0.0.1";
     let port = reserve_local_port()?;
@@ -790,6 +969,9 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
         .map_err(|err| format!("resolve sidecar: {err}"))?;
     for (key, value) in terminal_environment(&default_shell()) {
         sidecar = sidecar.env(key, value);
+    }
+    if let Some(url) = screenshot_bridge_url(app) {
+        sidecar = sidecar.env("GUGU_DESKTOP_SCREENSHOT_URL", url);
     }
     let sidecar = sidecar.env("ADAPTER_SERVER_URL", &server_ws_url).args([
         "adapters",
@@ -968,6 +1150,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(ServerState::default())
         .manage(AdapterState::default())
+        .manage(ScreenshotBridgeState::default())
         .manage(TerminalState::default())
         .manage(AppExitState::default())
         .plugin(tauri_plugin_shell::init())
@@ -988,8 +1171,7 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder
         .menu(|app| {
-            let about_item =
-                MenuItemBuilder::with_id("nav_about", "关于 Gugu Agent").build(app)?;
+            let about_item = MenuItemBuilder::with_id("nav_about", "关于 Gugu Agent").build(app)?;
             let settings_item = MenuItemBuilder::with_id("nav_settings", "设置...")
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
@@ -1046,6 +1228,10 @@ pub fn run() {
     let app = builder
         .setup(|app| {
             setup_system_tray(app)?;
+
+            if let Err(err) = ensure_screenshot_bridge(&app.handle()) {
+                eprintln!("[desktop] failed to start screenshot bridge: {err}");
+            }
 
             let state = app.state::<ServerState>();
             let mut guard = state

@@ -207,21 +207,22 @@ class AdapterService {
       ...(hasValue(feishu.appId) ? [] : ['appId']),
       ...(hasValue(feishu.appSecret) ? [] : ['appSecret']),
     ]
-    const dingtalkHasApp = hasValue(dingtalk.clientId) && hasValue(dingtalk.clientSecret)
-    const dingtalkHasWebhook = hasValue(dingtalk.webhookUrl)
-    const dingtalkMissing = dingtalkHasApp || dingtalkHasWebhook
-      ? []
-      : ['clientId/clientSecret or webhookUrl']
-    const wecomHasApp = hasValue(wecom.corpId) && hasValue(wecom.agentId) && hasValue(wecom.secret)
-    const wecomHasWebhook = hasValue(wecom.webhookUrl)
-    const wecomMissing = wecomHasApp || wecomHasWebhook
-      ? []
-      : ['corpId/agentId/secret or webhookUrl']
-    const qqHasBot = hasValue(qq.appId) && hasValue(qq.token)
+    const dingtalkMissing = [
+      ...(hasValue(dingtalk.clientId) ? [] : ['clientId']),
+      ...(hasValue(dingtalk.clientSecret) ? [] : ['clientSecret']),
+    ]
+    const wecomMissing = [
+      ...(hasValue(wecom.corpId) ? [] : ['corpId']),
+      ...(hasValue(wecom.agentId) ? [] : ['agentId']),
+      ...(hasValue(wecom.secret) ? [] : ['secret']),
+      ...(hasValue(wecom.token) ? [] : ['token']),
+      ...(hasValue(wecom.encodingAesKey) ? [] : ['encodingAesKey']),
+    ]
+    const qqHasBot = hasValue(qq.appId) && (hasValue(qq.appSecret) || hasValue(qq.token))
     const qqHasOneBot = hasValue(qq.oneBotUrl)
     const qqMissing = qqHasBot || qqHasOneBot
       ? []
-      : ['appId/token or oneBotUrl']
+      : ['appId/appSecret or oneBotUrl']
 
     return {
       configLocation: '~/.claude/adapters.json',

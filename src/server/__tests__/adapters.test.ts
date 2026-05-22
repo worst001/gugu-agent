@@ -255,6 +255,8 @@ describe('adapters API', () => {
         corpId: 'corp-id',
         agentId: '',
         secret: '',
+        token: '',
+        encodingAesKey: '',
         allowedUsers: [],
       },
       qq: {
@@ -289,15 +291,16 @@ describe('adapters API', () => {
     }))
     expect(body.channels).toContainEqual(expect.objectContaining({
       platform: 'dingtalk',
-      status: 'ready',
-      credentialsReady: true,
+      status: 'needs_credentials',
+      credentialsReady: false,
+      missingCredentials: ['clientId', 'clientSecret'],
       allowedUsersCount: 1,
     }))
     expect(body.channels).toContainEqual(expect.objectContaining({
       platform: 'wecom',
       status: 'needs_credentials',
       credentialsReady: false,
-      missingCredentials: ['corpId/agentId/secret or webhookUrl'],
+      missingCredentials: ['agentId', 'secret', 'token', 'encodingAesKey'],
     }))
     expect(body.channels).toContainEqual(expect.objectContaining({
       platform: 'qq',

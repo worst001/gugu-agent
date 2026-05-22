@@ -149,6 +149,20 @@ const REASONING_PREVIEW_CHARS = 600
  *  设成 3 而不是 1，是为了避免单次抖动（网络、临时校验失败等）把整张卡片
  *  冻结到 finalize —— 用户看到的就是 "long wait → 一次性 dump"。 */
 const STREAM_FAIL_DISABLE_THRESHOLD = 3
+const FEISHU_MESSAGE_API_TIMEOUT_MS = 10_000
+
+function withMessageApiTimeout<T>(promise: Promise<T>, api: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${api} timed out after ${FEISHU_MESSAGE_API_TIMEOUT_MS}ms`))
+    }, FEISHU_MESSAGE_API_TIMEOUT_MS)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
 
 export class StreamingCard {
   // ---- lifecycle state ----
@@ -166,6 +180,10 @@ export class StreamingCard {
   private cardKitStreamActive = false
   /** 连续 streamCardContent 未知错误计数。一次成功就清零。 */
   private consecutiveStreamFailures = 0
+  /** ensureCreated 的在途 Promise。finalize 必须等待它落定，避免
+   *  建卡还没结束就把卡标记 completed，随后迟到的 ensureCreated 又发出
+   *  一张永久停在“正在思考中”的旧卡。 */
+  private creationPromise: Promise<void> | null = null
 
   // ---- text state ----
   private accumulatedText = ''
@@ -191,21 +209,34 @@ export class StreamingCard {
    * 幂等：已创建/正在创建时直接返回。
    */
   async ensureCreated(): Promise<void> {
+    if (this.phase === 'creating' && this.creationPromise) {
+      return this.creationPromise
+    }
     if (this.phase !== 'idle') return
     this.phase = 'creating'
+    this.creationPromise = this.createCardMessage()
+    try {
+      await this.creationPromise
+    } finally {
+      this.creationPromise = null
+    }
+  }
 
+  private async createCardMessage(): Promise<void> {
     try {
       // CardKit 主路径
       const cardId = await createCardEntity(
         this.deps.larkClient,
         buildInitialStreamingCard(),
       )
+      if (this.phase !== 'creating') return
       const messageId = await sendCardAsMessage(
         this.deps.larkClient,
         this.deps.chatId,
         cardId,
         this.deps.replyToMessageId,
       )
+      if (this.phase !== 'creating') return
       this.cardId = cardId
       this.messageId = messageId
       this.cardKitStreamActive = true
@@ -219,18 +250,22 @@ export class StreamingCard {
         cardKitErr instanceof Error ? cardKitErr.message : cardKitErr,
       )
       try {
-        const fallbackResp = await this.deps.larkClient.im.message.create({
-          params: { receive_id_type: 'chat_id' },
-          data: {
-            receive_id: this.deps.chatId,
-            msg_type: 'post',
-            content: buildRenderedPostContent('☁️ *正在思考中...*'),
-          },
-        })
+        const fallbackResp = await withMessageApiTimeout(
+          this.deps.larkClient.im.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: {
+              receive_id: this.deps.chatId,
+              msg_type: 'post',
+              content: buildRenderedPostContent('☁️ *正在思考中...*'),
+            },
+          }),
+          'im.message.create',
+        )
         const mid = fallbackResp.data?.message_id
         if (!mid) {
           throw new Error('fallback im.message.create returned no message_id')
         }
+        if (this.phase !== 'creating') return
         this.cardId = null
         this.messageId = mid
         this.cardKitStreamActive = false
@@ -319,19 +354,24 @@ export class StreamingCard {
    * - 最后用完整 rendered 卡片 update
    * - complete FlushController 锁死，后续 appendText 被忽略
    */
-  async finalize(): Promise<void> {
-    if (this.phase === 'completed' || this.phase === 'aborted') return
+  async finalize(): Promise<boolean> {
+    if (this.phase === 'creating' && this.creationPromise) {
+      await this.creationPromise.catch(() => {})
+    }
+    if (this.phase === 'completed') return true
+    if (this.phase === 'aborted') return false
     if (this.phase === 'idle') {
       // 完全没开始 —— 直接标记完成
       this.phase = 'completed'
       this.flushController.complete()
-      return
+      return true
     }
     this.phase = 'finalizing'
     this.flushController.cancelPendingFlush()
     await this.flushController.waitForFlush()
 
     const finalText = this.terminalText()
+    let ok = true
     try {
       if (this.cardId) {
         // CardKit 路径: settings(false) + card.update（即使中间 stream 曾失败）
@@ -351,22 +391,27 @@ export class StreamingCard {
         )
       } else if (this.messageId) {
         // Patch fallback 路径: 用普通 post 消息兜底，避免缺 CardKit 权限时看不到任何文字。
-        await this.deps.larkClient.im.message.patch({
-          path: { message_id: this.messageId },
-          data: { content: buildRenderedPostContent(finalText) },
-        })
+        await withMessageApiTimeout(
+          this.deps.larkClient.im.message.patch({
+            path: { message_id: this.messageId },
+            data: { content: buildRenderedPostContent(finalText) },
+          }),
+          'im.message.patch',
+        )
       }
     } catch (err) {
       console.error(
         '[Feishu StreamingCard] finalize failed:',
         err instanceof Error ? err.message : err,
       )
+      ok = false
       // 不抛出 —— 用户已经看到某种版本的内容，finalize 失败不是致命错误
     } finally {
       this.phase = 'completed'
       this.lastFlushedText = finalText
       this.flushController.complete()
     }
+    return ok
   }
 
   /** 错误中止 —— 尝试把错误信息渲染到卡片上。 */
@@ -403,10 +448,13 @@ export class StreamingCard {
           this.sequence,
         )
       } else {
-        await this.deps.larkClient.im.message.patch({
-          path: { message_id: this.messageId },
-          data: { content: buildRenderedPostContent(err.message) },
-        })
+        await withMessageApiTimeout(
+          this.deps.larkClient.im.message.patch({
+            path: { message_id: this.messageId },
+            data: { content: buildRenderedPostContent(err.message) },
+          }),
+          'im.message.patch',
+        )
       }
     } catch (renderErr) {
       console.error(
@@ -554,10 +602,13 @@ export class StreamingCard {
     } else {
       // Patch fallback 路径（CardKit 从未成功，使用普通 post 消息）
       try {
-        await this.deps.larkClient.im.message.patch({
-          path: { message_id: this.messageId },
-          data: { content: buildRenderedPostContent(finalText) },
-        })
+        await withMessageApiTimeout(
+          this.deps.larkClient.im.message.patch({
+            path: { message_id: this.messageId },
+            data: { content: buildRenderedPostContent(finalText) },
+          }),
+          'im.message.patch',
+        )
         this.lastFlushedText = finalText
       } catch (err) {
         if (isCardRateLimitError(err)) return

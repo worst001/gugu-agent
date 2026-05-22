@@ -19,12 +19,12 @@ function makeMockClient() {
       },
       image: {
         create: mock(async (_req: any) => ({
-          data: { image_key: 'img_fake_123' },
+          image_key: 'img_fake_123',
         })),
       },
       file: {
         create: mock(async (_req: any) => ({
-          data: { file_key: 'file_fake_456' },
+          file_key: 'file_fake_456',
         })),
       },
       message: {
@@ -83,6 +83,33 @@ describe('FeishuMediaService', () => {
     expect(call.data.image).toBeDefined()
   })
 
+  it('uploadImage also accepts legacy data.image_key shape', async () => {
+    const client = makeMockClient()
+    const imageApi = client.im.image as any
+    imageApi.create = mock(async (_req: any) => ({
+      data: { image_key: 'img_legacy_123' },
+    }))
+    const store = new AttachmentStore({ root: tmpRoot, retentionMs: 60_000 })
+    const svc = new FeishuMediaService(client as any, store)
+    await expect(svc.uploadImage(Buffer.from('PNGDATA'), 'image/png')).resolves.toBe(
+      'img_legacy_123',
+    )
+  })
+
+  it('uploadImage surfaces Feishu API errors', async () => {
+    const client = makeMockClient()
+    const imageApi = client.im.image as any
+    imageApi.create = mock(async (_req: any) => ({
+      code: 99991672,
+      msg: 'permission denied',
+    }))
+    const store = new AttachmentStore({ root: tmpRoot, retentionMs: 60_000 })
+    const svc = new FeishuMediaService(client as any, store)
+    await expect(svc.uploadImage(Buffer.from('PNGDATA'), 'image/png')).rejects.toThrow(
+      /uploadImage failed: code=99991672, msg=permission denied/,
+    )
+  })
+
   it('uploadFile returns a file_key and uses stream file_type mapping', async () => {
     const client = makeMockClient()
     const store = new AttachmentStore({ root: tmpRoot, retentionMs: 60_000 })
@@ -105,6 +132,20 @@ describe('FeishuMediaService', () => {
     expect(call.data.msg_type).toBe('image')
     const content = JSON.parse(call.data.content)
     expect(content.image_key).toBe('img_fake_123')
+  })
+
+  it('sendImageMessage surfaces Feishu API errors', async () => {
+    const client = makeMockClient()
+    const messageApi = client.im.message as any
+    messageApi.create = mock(async (_req: any) => ({
+      code: 99991672,
+      msg: 'permission denied',
+    }))
+    const store = new AttachmentStore({ root: tmpRoot, retentionMs: 60_000 })
+    const svc = new FeishuMediaService(client as any, store)
+    await expect(svc.sendImageMessage('oc_chat_1', 'img_fake_123')).rejects.toThrow(
+      /sendImageMessage failed: code=99991672, msg=permission denied/,
+    )
   })
 
   it('sendFileMessage posts msg_type=file', async () => {

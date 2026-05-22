@@ -22,6 +22,14 @@ export type SessionTask = {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+export type SessionMessageEntry = {
+  id: string
+  type: 'user' | 'assistant' | 'system' | 'tool_use' | 'tool_result'
+  content: unknown
+  timestamp: string
+  model?: string
+}
+
 export class AdapterHttpClient {
   readonly httpBaseUrl: string
   /** Default timeout for HTTP requests (30 seconds) */
@@ -139,6 +147,23 @@ export class AdapterHttpClient {
       }
       const data = (await res.json()) as { tasks?: SessionTask[] }
       return Array.isArray(data.tasks) ? data.tasks : []
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  async getSessionMessages(sessionId: string): Promise<SessionMessageEntry[]> {
+    const { controller, timer } = this.createTimeoutController()
+    try {
+      const res = await fetch(`${this.httpBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
+        signal: controller.signal,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }))
+        throw new Error(`Failed to load session messages: ${(err as any).message}`)
+      }
+      const data = (await res.json()) as { messages?: SessionMessageEntry[] }
+      return Array.isArray(data.messages) ? data.messages : []
     } finally {
       clearTimeout(timer)
     }

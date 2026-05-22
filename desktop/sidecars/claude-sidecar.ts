@@ -142,41 +142,52 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
 
   if (enableDingtalk) {
     const hasAppCredentials = Boolean(config.dingtalk.clientId && config.dingtalk.clientSecret)
-    const hasWebhook = Boolean(config.dingtalk.webhookUrl)
-    if (!hasAppCredentials && !hasWebhook) {
+    if (!hasAppCredentials) {
       console.warn(
-        '[claude-sidecar] --dingtalk requested but DINGTALK_CLIENT_ID / DINGTALK_CLIENT_SECRET or DINGTALK_WEBHOOK_URL missing in env or ~/.claude/adapters.json — skipping',
+        '[claude-sidecar] --dingtalk requested but DINGTALK_CLIENT_ID / DINGTALK_CLIENT_SECRET missing in env or ~/.claude/adapters.json — skipping',
       )
     } else {
-      console.log('[claude-sidecar] starting DingTalk adapter scaffold')
+      console.log('[claude-sidecar] starting DingTalk adapter')
       await import('../../adapters/dingtalk/index.ts')
       started += 1
     }
   }
 
   if (enableWecom) {
-    const hasAppCredentials = Boolean(config.wecom.corpId && config.wecom.agentId && config.wecom.secret)
-    const hasWebhook = Boolean(config.wecom.webhookUrl)
-    if (!hasAppCredentials && !hasWebhook) {
+    const hasAppCredentials = Boolean(
+      config.wecom.corpId
+      && config.wecom.agentId
+      && config.wecom.secret
+      && config.wecom.token
+      && config.wecom.encodingAesKey,
+    )
+    if (!hasAppCredentials) {
       console.warn(
-        '[claude-sidecar] --wecom requested but WECOM_CORP_ID / WECOM_AGENT_ID / WECOM_SECRET or WECOM_WEBHOOK_URL missing in env or ~/.claude/adapters.json — skipping',
+        '[claude-sidecar] --wecom requested but WECOM_CORP_ID / WECOM_AGENT_ID / WECOM_SECRET / WECOM_TOKEN / WECOM_ENCODING_AES_KEY missing in env or ~/.claude/adapters.json — skipping',
       )
     } else {
-      console.log('[claude-sidecar] starting WeCom adapter scaffold')
-      await import('../../adapters/wecom/index.ts')
-      started += 1
+      console.log('[claude-sidecar] starting WeCom adapter')
+      try {
+        await import('../../adapters/wecom/index.ts')
+        started += 1
+      } catch (err) {
+        console.error(
+          '[claude-sidecar] failed to start WeCom adapter:',
+          err instanceof Error ? err.message : err,
+        )
+      }
     }
   }
 
   if (enableQq) {
-    const hasOfficialBot = Boolean(config.qq.appId && config.qq.token)
+    const hasOfficialBot = Boolean(config.qq.appId && (config.qq.appSecret || config.qq.token))
     const hasOneBotBridge = Boolean(config.qq.oneBotUrl)
     if (!hasOfficialBot && !hasOneBotBridge) {
       console.warn(
-        '[claude-sidecar] --qq requested but QQ_APP_ID / QQ_TOKEN or QQ_ONEBOT_URL missing in env or ~/.claude/adapters.json — skipping',
+        '[claude-sidecar] --qq requested but QQ_APP_ID / QQ_APP_SECRET or QQ_ONEBOT_URL missing in env or ~/.claude/adapters.json — skipping',
       )
     } else {
-      console.log('[claude-sidecar] starting QQ adapter scaffold')
+      console.log('[claude-sidecar] starting QQ adapter')
       await import('../../adapters/qq/index.ts')
       started += 1
     }
