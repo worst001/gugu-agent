@@ -143,6 +143,10 @@ export function createGatewayHandler(config: GatewayConfig, store = new GatewayS
         return await handleAlipayNotify(req, config, store)
       }
 
+      if (req.method === 'GET' && url.pathname === '/v1/payments/alipay/checkout') {
+        return handleAlipayCheckout(url, store)
+      }
+
       if (req.method === 'POST' && url.pathname === '/v1/messages') {
         return await forwardMessage(req, config, store)
       }
@@ -262,7 +266,7 @@ async function createAlipayOrderResponse(
   }
 
   try {
-    const payment = await createAlipayPagePayment(config, order)
+    const payment = await createAlipayPagePayment(config, order, orderToken)
     const updatedOrder = store.attachOrderPayment(order.orderId, {
       provider: payment.provider,
       codeUrl: payment.codeUrl,
@@ -289,6 +293,41 @@ async function createAlipayOrderResponse(
       paymentError: message,
     })
   }
+}
+
+function handleAlipayCheckout(
+  url: URL,
+  store: GatewayStore,
+): Response {
+  const orderId = url.searchParams.get('orderId')?.trim() || ''
+  const orderToken = url.searchParams.get('orderToken')?.trim() || ''
+  if (!orderId || !orderToken) {
+    return html(alipayCheckoutMessageHtml('支付链接无效', '缺少订单信息，请回到结算页重新生成支付宝二维码。'), { status: 400 })
+  }
+
+  let status: ReturnType<GatewayStore['getOrderStatus']>
+  try {
+    status = store.getOrderStatus(orderId, orderToken)
+  } catch {
+    return html(alipayCheckoutMessageHtml('支付链接无效', '订单验证失败，请回到结算页重新生成支付宝二维码。'), { status: 400 })
+  }
+  const order = status.order
+  if (order.status !== 'pending_payment') {
+    return html(alipayCheckoutMessageHtml('订单状态已更新', '这笔订单已经不是待付款状态，请回到结算页查看最新结果。'), { status: 409 })
+  }
+  if (order.paymentProvider !== 'alipay') {
+    return html(alipayCheckoutMessageHtml('支付方式已切换', '这笔订单当前不是支付宝支付，请回到结算页重新选择支付方式。'), { status: 409 })
+  }
+
+  const payload = parseJson(order.paymentPayload || '{}')
+  const cashierUrl = typeof payload === 'object' && payload && 'cashierUrl' in payload
+    ? asString((payload as { cashierUrl?: unknown }).cashierUrl)
+    : undefined
+  if (!cashierUrl) {
+    return html(alipayCheckoutMessageHtml('支付宝收银台未生成', '请回到结算页重新生成支付宝二维码。'), { status: 409 })
+  }
+
+  return html(alipayCheckoutRedirectHtml(cashierUrl))
 }
 
 async function handleWechatNotify(
@@ -874,6 +913,65 @@ function trackUsageStream(
   })
 }
 
+function alipayCheckoutRedirectHtml(cashierUrl: string): string {
+  const scriptUrl = JSON.stringify(cashierUrl).replace(/</g, '\\u003c')
+  const href = escapeHtml(cashierUrl)
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>打开支付宝收银台 - Gugu Agent</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f3eb; color: #211914; }
+    main { min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+    section { width: min(440px, 100%); padding: 28px; border: 1px solid #dfc7a7; border-radius: 8px; background: #fffdf8; box-shadow: 0 20px 46px rgba(75, 48, 22, .12); }
+    h1 { margin: 0 0 12px; font-size: 24px; }
+    p { margin: 0 0 18px; color: #6b5c50; line-height: 1.7; }
+    a { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; border-radius: 8px; background: #1677ff; color: white; text-decoration: none; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>正在打开支付宝收银台</h1>
+      <p>如果没有自动跳转，请点下面的按钮继续付款。</p>
+      <a href="${href}" rel="noreferrer">打开支付宝付款</a>
+    </section>
+  </main>
+  <script>window.location.replace(${scriptUrl})</script>
+</body>
+</html>`
+}
+
+function alipayCheckoutMessageHtml(title: string, message: string): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>${escapeHtml(title)} - Gugu Agent</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f3eb; color: #211914; }
+    main { min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+    section { width: min(440px, 100%); padding: 28px; border: 1px solid #dfc7a7; border-radius: 8px; background: #fffdf8; }
+    h1 { margin: 0 0 12px; font-size: 24px; }
+    p { margin: 0; color: #6b5c50; line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(message)}</p>
+    </section>
+  </main>
+</body>
+</html>`
+}
+
 function html(body: string, init?: ResponseInit): Response {
   return new Response(body, {
     status: init?.status ?? 200,
@@ -881,6 +979,19 @@ function html(body: string, init?: ResponseInit): Response {
       ...HTML_HEADERS,
       ...(init?.headers ?? {}),
     },
+  })
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      case "'": return '&#39;'
+      default: return char
+    }
   })
 }
 

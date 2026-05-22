@@ -628,7 +628,10 @@ describe('Gugu Gateway', () => {
       throw new Error('Alipay page pay should not call fetch while creating an order.')
     }) as typeof fetch
 
-    const { handler } = makeGateway({ alipay: fixture.config })
+    const { handler } = makeGateway({
+      publicBaseUrl: 'https://gugu.example.com',
+      alipay: fixture.config,
+    })
     const created = await handler(jsonRequest('/v1/orders', {
       packageId: 'pro-monthly',
       contact: 'alipay: gugu',
@@ -640,14 +643,20 @@ describe('Gugu Gateway', () => {
         paymentProvider: string | null
         paymentCodeUrl: string | null
         paymentExpiresAt: string | null
+        paymentPayload: string | null
       }
       orderToken: string
       payment: { provider: string; codeUrl: string; qrDataUrl: string; expiresAt: string }
     }
 
     expect(created.status).toBe(200)
-    const paymentUrl = new URL(body.payment.codeUrl)
+    const checkoutUrl = new URL(body.payment.codeUrl)
+    const payload = JSON.parse(body.order.paymentPayload || '{}') as { cashierUrl?: string }
+    const paymentUrl = new URL(payload.cashierUrl || '')
     const bizContent = JSON.parse(paymentUrl.searchParams.get('biz_content') || '{}') as Record<string, unknown>
+    expect(`${checkoutUrl.origin}${checkoutUrl.pathname}`).toBe('https://gugu.example.com/v1/payments/alipay/checkout')
+    expect(checkoutUrl.searchParams.get('orderId')).toBe(body.order.orderId)
+    expect(checkoutUrl.searchParams.get('orderToken')).toBe(body.orderToken)
     expect(`${paymentUrl.origin}${paymentUrl.pathname}`).toBe(fixture.config.gatewayUrl)
     expect(paymentUrl.searchParams.get('method')).toBe('alipay.trade.page.pay')
     expect(paymentUrl.searchParams.get('app_id')).toBe(fixture.config.appId)
@@ -663,6 +672,13 @@ describe('Gugu Gateway', () => {
     expect(body.orderToken.startsWith('ord_')).toBe(true)
     expect(body.payment.provider).toBe('alipay')
     expect(body.payment.qrDataUrl.startsWith('data:image/png;base64,')).toBe(true)
+
+    const checkout = await handler(new Request(body.payment.codeUrl))
+    const checkoutHtml = await checkout.text()
+    expect(checkout.status).toBe(200)
+    expect(checkoutHtml).toContain('打开支付宝收银台')
+    expect(checkoutHtml).toContain('window.location.replace')
+    expect(checkoutHtml).toContain('alipay.trade.page.pay')
   })
 
   test('reuses the same pending order when switching payment providers', async () => {

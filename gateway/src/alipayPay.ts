@@ -43,6 +43,7 @@ export function isAlipayReady(config: GatewayConfig): boolean {
 export async function createAlipayPagePayment(
   config: GatewayConfig,
   order: GatewayOrder,
+  orderToken: string,
 ): Promise<AlipayPaymentResult> {
   assertAlipayReady(config)
   const alipay = config.alipay
@@ -63,7 +64,8 @@ export async function createAlipayPagePayment(
     ...params,
     sign: signAlipayParams(alipay, params),
   }
-  const codeUrl = buildAlipayGatewayUrl(alipay.gatewayUrl, signedParams)
+  const cashierUrl = buildAlipayGatewayUrl(alipay.gatewayUrl, signedParams)
+  const codeUrl = buildAlipayCheckoutUrl(config.publicBaseUrl, order.orderId, orderToken) || cashierUrl
 
   return {
     provider: 'alipay',
@@ -73,6 +75,7 @@ export async function createAlipayPagePayment(
     payload: {
       method: 'alipay.trade.page.pay',
       productCode: bizContent.product_code,
+      cashierUrl,
     },
   }
 }
@@ -177,6 +180,14 @@ function buildAlipayGatewayUrl(gatewayUrl: string, params: Record<string, string
   for (const [key, value] of Object.entries(params)) {
     if (value) url.searchParams.set(key, value)
   }
+  return url.toString()
+}
+
+function buildAlipayCheckoutUrl(publicBaseUrl: string | null, orderId: string, orderToken: string): string | null {
+  if (!publicBaseUrl) return null
+  const url = new URL('/v1/payments/alipay/checkout', publicBaseUrl)
+  url.searchParams.set('orderId', orderId)
+  url.searchParams.set('orderToken', orderToken)
   return url.toString()
 }
 
