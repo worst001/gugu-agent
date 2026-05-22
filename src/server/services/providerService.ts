@@ -15,6 +15,7 @@ import { anthropicToOpenaiResponses } from '../proxy/transform/anthropicToOpenai
 import { anthropicToChatGPTCodexRequest } from '../proxy/transform/chatgptCodexRequest.js'
 import { openaiChatToAnthropic } from '../proxy/transform/openaiChatToAnthropic.js'
 import { openaiResponsesToAnthropic } from '../proxy/transform/openaiResponsesToAnthropic.js'
+import { buildOpenAIEndpoint } from '../proxy/openaiEndpoint.js'
 import {
   CHATGPT_CODEX_API_ENDPOINT,
   chatgptAuthService,
@@ -659,10 +660,10 @@ export class ProviderService {
       let transformedBody: unknown
       if (format === 'openai_chat') {
         transformedBody = anthropicToOpenaiChat(anthropicReq)
-        upstreamUrl = `${base}/v1/chat/completions`
+        upstreamUrl = buildOpenAIEndpoint(base, 'chat/completions')
       } else {
         transformedBody = anthropicToOpenaiResponses(anthropicReq)
-        upstreamUrl = `${base}/v1/responses`
+        upstreamUrl = buildOpenAIEndpoint(base, 'responses')
       }
 
       // Call upstream with transformed request
@@ -717,14 +718,14 @@ function buildDirectTestRequest(
 
   if (format === 'openai_chat') {
     return {
-      url: `${base}/v1/chat/completions`,
+      url: buildOpenAIEndpoint(base, 'chat/completions'),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: { model: modelId, max_tokens: 16, messages: [{ role: 'user', content: prompt }] },
     }
   }
   if (format === 'openai_responses') {
     return {
-      url: `${base}/v1/responses`,
+      url: buildOpenAIEndpoint(base, 'responses'),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: { model: modelId, max_output_tokens: 16, input: [{ type: 'message', role: 'user', content: prompt }] },
     }

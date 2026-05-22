@@ -26,11 +26,41 @@ Bad (too long): {"title": "Investigate and fix the issue where the login button 
 Bad (wrong case): {"title": "Fix Login Button On Mobile"}`
 
 /**
+ * The desktop sends hidden workflow/parser scaffolding on the wire, while the UI
+ * should title sessions from only the user's visible request.
+ */
+export function getTitleInputText(raw: string): string {
+  const text = raw.replace(/\r\n/g, '\n').trim()
+  if (!text) return ''
+
+  const attachmentMatch = text.match(/<用户正文>\s*([\s\S]*?)\s*<\/用户正文>/)
+  if (attachmentMatch?.[1] !== undefined) {
+    return getTitleInputText(attachmentMatch[1])
+  }
+
+  if (!text.startsWith('[Workflow:') && !text.includes('CE automation (binding)')) {
+    return text
+  }
+
+  const userMessages = [...text.matchAll(/(?:^|\n)User message:\s*\n([\s\S]*?)(?=\n\[Workflow:|$)/g)]
+    .map((match) => match[1]?.trim() ?? '')
+    .filter(Boolean)
+
+  if (userMessages.length > 0) {
+    return userMessages.join('\n')
+  }
+
+  if (text.includes('User sent attachments only')) return ''
+
+  return ''
+}
+
+/**
  * Quick placeholder title derived from user message text.
  * Returns first sentence, collapsed to single line, max 50 chars.
  */
 export function deriveTitle(raw: string): string | undefined {
-  const clean = raw.replace(/<[^>]+>[^<]*<\/[^>]+>/g, '').trim()
+  const clean = getTitleInputText(raw).replace(/<[^>]+>[^<]*<\/[^>]+>/g, '').trim()
   const firstSentence = /^(.*?[.!?。！？])\s/.exec(clean)?.[1] ?? clean
   const flat = firstSentence.replace(/\s+/g, ' ').trim()
   if (!flat) return undefined
@@ -47,7 +77,7 @@ export async function generateTitle(
   conversationText: string,
   providerId?: string | null,
 ): Promise<string | null> {
-  const trimmed = conversationText.trim()
+  const trimmed = getTitleInputText(conversationText)
   if (!trimmed) return null
 
   try {

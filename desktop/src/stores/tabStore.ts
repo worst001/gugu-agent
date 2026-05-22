@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { sessionsApi } from '../api/sessions'
+import { sanitizeSessionTitle } from '../utils/sessionTitle'
 
 const TAB_STORAGE_KEY = 'cc-haha-open-tabs'
 
@@ -44,12 +45,13 @@ export const useTabStore = create<TabStore>((set, get) => ({
 
   openTab: (sessionId, title, type = 'session') => {
     const { tabs } = get()
+    const displayTitle = type === 'session' ? sanitizeSessionTitle(title) : title
     const existing = tabs.find((t) => t.sessionId === sessionId)
     if (existing) {
       set({ activeTabId: sessionId })
     } else {
       set({
-        tabs: [...tabs, { sessionId, title, type, status: 'idle' }],
+        tabs: [...tabs, { sessionId, title: displayTitle, type, status: 'idle' }],
         activeTabId: sessionId,
       })
     }
@@ -101,7 +103,11 @@ export const useTabStore = create<TabStore>((set, get) => ({
 
   updateTabTitle: (sessionId, title) => {
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.sessionId === sessionId ? { ...t, title } : t)),
+      tabs: s.tabs.map((t) => (
+        t.sessionId === sessionId
+          ? { ...t, title: t.type === 'session' ? sanitizeSessionTitle(title) : title }
+          : t
+      )),
     }))
     get().saveTabs()
   },
@@ -138,7 +144,11 @@ export const useTabStore = create<TabStore>((set, get) => ({
     const { tabs, activeTabId } = get()
     const persistableTabs = tabs.filter((tab) => tab.type !== 'terminal')
     const data: TabPersistence = {
-      openTabs: persistableTabs.map((t) => ({ sessionId: t.sessionId, title: t.title, type: t.type })),
+      openTabs: persistableTabs.map((t) => ({
+        sessionId: t.sessionId,
+        title: t.type === 'session' ? sanitizeSessionTitle(t.title) : t.title,
+        type: t.type,
+      })),
       activeTabId: activeTabId && persistableTabs.some((tab) => tab.sessionId === activeTabId)
         ? activeTabId
         : (persistableTabs[0]?.sessionId ?? null),
@@ -171,9 +181,10 @@ export const useTabStore = create<TabStore>((set, get) => ({
           if (t.type === 'settings' || t.type === 'scheduled') {
             return { sessionId: t.sessionId, title: t.title, type: t.type, status: 'idle' as const }
           }
+          const serverTitle = sessions.find((s) => s.id === t.sessionId)?.title
           return {
             sessionId: t.sessionId,
-            title: sessions.find((s) => s.id === t.sessionId)?.title || t.title,
+            title: sanitizeSessionTitle(serverTitle || t.title),
             type: 'session' as const,
             status: 'idle' as const,
           }

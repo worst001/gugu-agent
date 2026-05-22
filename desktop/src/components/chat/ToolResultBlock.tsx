@@ -2,6 +2,11 @@ import { CodeViewer } from './CodeViewer'
 import { useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { InlineImageGallery } from './InlineImageGallery'
+import {
+  extractToolResultText,
+  formatToolErrorText,
+  isHiddenToolErrorContent,
+} from './toolResultDisplay'
 
 type Props = {
   content: unknown
@@ -22,33 +27,41 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
   // Don't render standalone if this result is already rendered inline
   if (!standalone) return null
 
-  const text = extractText(content)
-  const preview = text.slice(0, 200)
-  const hasMore = text.length > 200
+  if (isError && isHiddenToolErrorContent(content)) return null
+
+  const rawText = extractToolResultText(content)
+  const displayText = isError ? formatToolErrorText(rawText) : rawText
+  const detailsText = displayText
+  const preview = displayText.slice(0, 200)
+  const hasMore = detailsText.length > 200 || detailsText !== displayText
 
   return (
-    <div className={`mb-2 overflow-hidden rounded-xl border ${
+    <div className={`mb-2 overflow-hidden rounded-lg border ${
       isError
-        ? 'border-[var(--color-error)]/20'
+        ? 'border-[var(--color-error)]/25 bg-[var(--color-error-container)]/15'
         : 'border-[var(--color-outline-variant)]/20'
     }`}>
       {/* Status header */}
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className={`flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider ${
+        className={`flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-semibold ${
         isError
-          ? 'bg-[var(--color-error-container)] text-[var(--color-error)]'
+          ? 'bg-[var(--color-error-container)]/55 text-[var(--color-error)]'
           : 'bg-[var(--color-surface-container-high)] text-[var(--color-outline)]'
       }`}
       >
         <span className="flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-[12px]">
-            {isError ? 'error' : 'check_circle'}
+          <span className="material-symbols-outlined text-[16px]">
+            {isError ? 'error_outline' : 'check_circle'}
           </span>
-          {toolName ? t('tool.result', { toolName }) : t('tool.resultGeneric')}
+          {isError
+            ? t('tool.callFailed')
+            : toolName
+              ? t('tool.result', { toolName })
+              : t('tool.resultGeneric')}
         </span>
-        <span className={`px-2 py-0.5 rounded-full text-[9px] ${
+        <span className={`rounded-full px-2 py-0.5 text-[10px] ${
           isError
             ? 'bg-[var(--color-error)]/10'
             : 'bg-[var(--color-diff-added-bg)] text-[var(--color-diff-added-text)]'
@@ -58,23 +71,27 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
       </button>
 
       {/* Inline image gallery from detected paths */}
-      <InlineImageGallery text={text} />
+      <InlineImageGallery text={displayText} />
 
       {/* Content */}
       {expanded ? (
         isError ? (
-          <div className="bg-[var(--color-error-container)]/50 px-3 py-2.5 font-[var(--font-mono)] text-[11px] leading-[1.5] whitespace-pre-wrap break-words text-[var(--color-error)]">
-            {text}
+          <div className="px-3 py-2.5 text-[12px] leading-[1.55] whitespace-pre-wrap break-words text-[var(--color-error)]">
+            {detailsText}
           </div>
         ) : (
           <CodeViewer
-            code={text}
+            code={detailsText}
             language="plaintext"
             maxLines={12}
           />
         )
       ) : (
-        <div className="bg-[var(--color-surface-container-lowest)] px-3 py-2 font-[var(--font-mono)] text-[10px] leading-[1.35] text-[var(--color-text-tertiary)]">
+        <div className={`px-3 py-2 text-[12px] leading-[1.45] ${
+          isError
+            ? 'text-[var(--color-text-secondary)]'
+            : 'bg-[var(--color-surface-container-lowest)] font-[var(--font-mono)] text-[10px] text-[var(--color-text-tertiary)]'
+        }`}>
           {preview}
           {hasMore ? '…' : ''}
         </div>
@@ -85,23 +102,9 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
           onClick={() => setExpanded((value) => !value)}
           className="w-full py-1 text-[10px] font-medium text-[var(--color-text-accent)] hover:underline bg-[var(--color-surface-container-low)] border-t border-[var(--color-outline-variant)]/10"
         >
-          {expanded ? t('tool.showLess') : t('tool.showMore', { count: text.length - 200 })}
+          {expanded ? t('tool.showLess') : t('tool.showMore', { count: Math.max(detailsText.length - 200, 0) })}
         </button>
       )}
     </div>
   )
-}
-
-function extractText(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((c: any) => (typeof c === 'string' ? c : c?.text || ''))
-      .filter(Boolean)
-      .join('\n')
-  }
-  if (content && typeof content === 'object') {
-    return JSON.stringify(content, null, 2)
-  }
-  return String(content ?? '')
 }

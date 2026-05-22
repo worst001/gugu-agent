@@ -10,6 +10,7 @@ import { ChatInput } from '../components/chat/ChatInput'
 import { ComputerUsePermissionModal } from '../components/chat/ComputerUsePermissionModal'
 import { TeamStatusBar } from '../components/teams/TeamStatusBar'
 import { SessionTaskBar } from '../components/chat/SessionTaskBar'
+import { WorkbenchPanel } from '../components/workbench/WorkbenchPanel'
 
 const TASK_POLL_INTERVAL_MS = 1000
 
@@ -64,9 +65,8 @@ export function ActiveSession() {
   const t = useTranslation()
   const messages = sessionState?.messages ?? []
   const streamingText = sessionState?.streamingText ?? ''
-  const isEmpty = messages.length === 0 && !streamingText
-
   const isActive = chatState !== 'idle'
+  const isEmpty = messages.length === 0 && !streamingText && !isActive
   const totalTokens = tokenUsage.input_tokens + tokenUsage.output_tokens
 
   const lastUpdated = useMemo(() => {
@@ -81,7 +81,8 @@ export function ActiveSession() {
   if (!activeTabId) return null
 
   return (
-    <div className="flex-1 flex flex-col relative overflow-hidden bg-background text-on-surface">
+    <div className="flex-1 flex min-h-0 overflow-hidden bg-background text-on-surface">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       {isMemberSession && (
         <div className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface-container)]">
           <div className="mx-auto max-w-[860px] flex items-center justify-between gap-4 px-8 py-2">
@@ -141,7 +142,7 @@ export function ActiveSession() {
               </>
             ) : (
               <>
-                <img src="/app-icon.svg" alt="Claude Code GuGu" className="mb-6 h-24 w-24" />
+                <img src="/app-icon.svg" alt="Gugu Agent" className="mb-6 h-24 w-24" />
                 <h1 className="mb-2 text-3xl font-extrabold tracking-tight text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-headline)' }}>
                   {t('empty.title')}
                 </h1>
@@ -214,6 +215,11 @@ export function ActiveSession() {
           request={pendingComputerUsePermission?.request ?? null}
         />
       ) : null}
+      </div>
+
+      {!isMemberSession && (
+        <WorkbenchPanel sessionId={activeTabId} messages={messages} />
+      )}
     </div>
   )
 }

@@ -20,6 +20,10 @@ import { handleComputerUseApi } from './api/computer-use.js'
 import { handleHahaOAuthApi } from './api/haha-oauth.js'
 import { handleChatGPTOAuthApi } from './api/chatgpt-oauth.js'
 import { handleMcpApi } from './api/mcp.js'
+import { handlePromptOptimizeApi } from './api/prompt-optimize.js'
+import { handleAttachmentParserApi } from './api/attachment-parser.js'
+import { handleConfigBackupApi } from './api/config-backup.js'
+import { handleBillingApi } from './api/billing.js'
 
 export async function handleApiRequest(req: Request, url: URL): Promise<Response> {
   const path = url.pathname
@@ -90,6 +94,18 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
 
     case 'computer-use':
       return handleComputerUseApi(req, url, segments)
+
+    case 'prompt-optimize':
+      return handlePromptOptimizeApi(req, url, segments)
+
+    case 'attachment-parser':
+      return handleAttachmentParserApi(req, url, segments)
+
+    case 'config-backup':
+      return handleConfigBackupApi(req, url, segments)
+
+    case 'billing':
+      return handleBillingApi(req, url, segments)
 
     case 'filesystem':
       return handleFilesystemRoute(url.pathname, url)

@@ -2,6 +2,10 @@ import { create } from 'zustand'
 import type { ThemeMode } from '../types/settings'
 
 const THEME_STORAGE_KEY = 'cc-haha-theme'
+const SIDEBAR_WIDTH_STORAGE_KEY = 'gugu-agent-sidebar-width-v1'
+const DEFAULT_SIDEBAR_WIDTH = 280
+const MIN_SIDEBAR_WIDTH = 220
+const MAX_SIDEBAR_WIDTH = 420
 
 function getStoredTheme(): ThemeMode {
   try {
@@ -9,6 +13,19 @@ function getStoredTheme(): ThemeMode {
     if (stored === 'light' || stored === 'dark') return stored
   } catch { /* localStorage unavailable */ }
   return 'light'
+}
+
+function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return DEFAULT_SIDEBAR_WIDTH
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)))
+}
+
+function getStoredSidebarWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+    if (Number.isFinite(stored)) return clampSidebarWidth(stored)
+  } catch { /* localStorage unavailable */ }
+  return DEFAULT_SIDEBAR_WIDTH
 }
 
 export function applyTheme(theme: ThemeMode) {
@@ -30,6 +47,8 @@ export type Toast = {
 
 export type SettingsTab =
   | 'providers'
+  | 'attachmentParser'
+  | 'configBackup'
   | 'permissions'
   | 'general'
   | 'adapters'
@@ -39,6 +58,7 @@ export type SettingsTab =
   | 'skills'
   | 'plugins'
   | 'computerUse'
+  | 'billing'
   | 'about'
 
 type ActiveView = 'code' | 'scheduled' | 'terminal' | 'history' | 'settings'
@@ -46,6 +66,7 @@ type ActiveView = 'code' | 'scheduled' | 'terminal' | 'history' | 'settings'
 type UIStore = {
   theme: ThemeMode
   sidebarOpen: boolean
+  sidebarWidth: number
   activeView: ActiveView
   pendingSettingsTab: SettingsTab | null
   activeModal: string | null
@@ -55,6 +76,8 @@ type UIStore = {
   toggleTheme: () => void
   toggleSidebar: () => void
   setSidebarOpen: (open: boolean) => void
+  setSidebarWidth: (width: number) => void
+  resetSidebarWidth: () => void
   setActiveView: (view: ActiveView) => void
   setPendingSettingsTab: (tab: SettingsTab | null) => void
   openModal: (id: string) => void
@@ -68,6 +91,7 @@ let toastCounter = 0
 export const useUIStore = create<UIStore>((set) => ({
   theme: getStoredTheme(),
   sidebarOpen: true,
+  sidebarWidth: getStoredSidebarWidth(),
   activeView: 'code',
   pendingSettingsTab: null,
   activeModal: null,
@@ -90,6 +114,15 @@ export const useUIStore = create<UIStore>((set) => ({
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setSidebarWidth: (width) => {
+    const next = clampSidebarWidth(width)
+    try { localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next)) } catch { /* noop */ }
+    set({ sidebarWidth: next })
+  },
+  resetSidebarWidth: () => {
+    try { localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY) } catch { /* noop */ }
+    set({ sidebarWidth: DEFAULT_SIDEBAR_WIDTH })
+  },
   setActiveView: (view) => set({ activeView: view }),
   setPendingSettingsTab: (tab) => set({ pendingSettingsTab: tab }),
   openModal: (id) => set({ activeModal: id }),

@@ -121,9 +121,9 @@ All diagrams use a dark background (#1a1a2e) with Anthropic brand copper-orange 
 
 ## Related Resources
 
-- [Claude Code GuGu Home](/)
+- [Gugu Agent Home](/)
 - [Memory System Documentation](/en/memory/01-usage-guide)
-- [Agent Tool Source Code](https://github.com/NanmiCoder/cc-haha/tree/main/src/tools/AgentTool/)
-- [Swarm Infrastructure](https://github.com/NanmiCoder/cc-haha/tree/main/src/utils/swarm/)
-- [Task Management System](https://github.com/NanmiCoder/cc-haha/tree/main/src/tasks/)
-- [GitHub Issues](https://github.com/NanmiCoder/cc-haha/issues)
+- [Agent Tool Source Code](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/tools/AgentTool/)
+- [Swarm Infrastructure](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/utils/swarm/)
+- [Task Management System](https://gitee.com/xiyouwangluo/claude-code-gugu/tree/master/src/tasks/)
+- [Gitee Issues](https://gitee.com/xiyouwangluo/claude-code-gugu/issues)

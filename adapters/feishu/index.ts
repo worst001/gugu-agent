@@ -21,7 +21,7 @@ import {
   splitMessage,
 } from '../common/format.js'
 import { SessionStore } from '../common/session-store.js'
-import { AdapterHttpClient, type RecentProject } from '../common/http-client.js'
+import { AdapterHttpClient, type RecentProject, type SessionMessageEntry } from '../common/http-client.js'
 import { isAllowedUser, tryPair } from '../common/pairing.js'
 import { optimizeMarkdownForFeishu } from './markdown-style.js'
 import { extractInboundPayload } from './extract-payload.js'
@@ -30,6 +30,12 @@ import { AttachmentStore } from '../common/attachment/attachment-store.js'
 import { checkAttachmentLimit } from '../common/attachment/attachment-limits.js'
 import { ImageBlockWatcher } from '../common/attachment/image-block-watcher.js'
 import type { PendingUpload } from '../common/attachment/attachment-types.js'
+import { redactInternalBranding, wrapImUserMessage } from '../common/brand.js'
+import { isScreenshotCommand } from '../common/screenshot-command.js'
+import {
+  captureDesktopScreenshot,
+  DESKTOP_SCREENSHOT_UNSUPPORTED,
+} from '../common/desktop-screenshot.js'
 
 // ---------- init ----------
 
@@ -60,8 +66,21 @@ attachmentStore.gc().catch((err) => {
 
 // One streaming card lifecycle per chatId (CardKit main + patch fallback).
 const streamingCards = new Map<string, StreamingCard>()
+const responseWatchdogs = new Map<string, ReturnType<typeof setTimeout>>()
+const replyFallbacks = new Map<string, ReplyFallbackState>()
+const plainReplyBuffers = new Map<string, string>()
+const plainReplyDelivered = new Set<string>()
+const streamingFallbackChats = new Set<string>()
+const streamingFallbackNotified = new Set<string>()
 const pendingProjectSelection = new Map<string, boolean>()
 const runtimeStates = new Map<string, ChatRuntimeState>()
+
+const FIRST_RESPONSE_TIMEOUT_MS = 90_000
+const TURN_STALL_TIMEOUT_MS = 5 * 60_000
+const REPLY_FALLBACK_POLL_INTERVAL_MS = 2_000
+const REPLY_FALLBACK_TIMEOUT_MS = 2 * 60_000
+const FEISHU_POST_TEXT_LIMIT = 1800
+const SCREENSHOT_TIMEOUT_MS = 20_000
 
 // Per-chat outbound watchers for Agent-produced markdown image references.
 // `imageWatchers` extracts `![alt](src)` from streaming text;
@@ -80,6 +99,15 @@ type ChatRuntimeState = {
   verb?: string
   model?: string
   pendingPermissionCount: number
+}
+
+type ResponseWatchdogStage = 'first_response' | 'turn_stalled'
+
+type ReplyFallbackState = {
+  sessionId: string
+  startedAt: number
+  timer: ReturnType<typeof setTimeout> | null
+  sawStreamText: boolean
 }
 
 // ---------- helpers ----------
@@ -103,6 +131,38 @@ function getOrCreateStreamingCard(chatId: string): StreamingCard {
   return card
 }
 
+function markStreamingFallback(chatId: string, err: unknown): void {
+  const card = streamingCards.get(chatId)
+  const buffered = card?._getAccumulatedText().trim()
+  if (buffered) {
+    appendPlainReplyText(chatId, buffered)
+  }
+  streamingCards.delete(chatId)
+  streamingFallbackChats.add(chatId)
+
+  const message = err instanceof Error ? err.message : String(err)
+  console.error('[Feishu] streaming card unavailable, falling back to plain reply:', message)
+
+  if (!streamingFallbackNotified.has(chatId)) {
+    streamingFallbackNotified.add(chatId)
+    void sendText(chatId, '⚠️ 飞书流式卡片暂不可用，本次已改用普通消息回复。')
+  }
+}
+
+function clearStreamingFallback(chatId: string): void {
+  streamingFallbackChats.delete(chatId)
+  streamingFallbackNotified.delete(chatId)
+}
+
+function ensureStreamingCardReady(chatId: string, reason: string): StreamingCard {
+  const card = getOrCreateStreamingCard(chatId)
+  void card.ensureCreated().catch((err) => {
+    console.error(`[Feishu] ensureCreated failed during ${reason}:`, err)
+    markStreamingFallback(chatId, err)
+  })
+  return card
+}
+
 function getImageWatcher(chatId: string): ImageBlockWatcher {
   let w = imageWatchers.get(chatId)
   if (!w) {
@@ -119,6 +179,293 @@ function getUploadedKeys(chatId: string): Map<string, string> {
     uploadedImageKeys.set(chatId, m)
   }
   return m
+}
+
+function clearResponseWatchdog(chatId: string): void {
+  const timer = responseWatchdogs.get(chatId)
+  if (timer) clearTimeout(timer)
+  responseWatchdogs.delete(chatId)
+}
+
+function clearReplyFallback(chatId: string): void {
+  const fallback = replyFallbacks.get(chatId)
+  if (fallback?.timer) clearTimeout(fallback.timer)
+  replyFallbacks.delete(chatId)
+}
+
+function markReplyFallbackStreamText(chatId: string): void {
+  const fallback = replyFallbacks.get(chatId)
+  if (fallback) fallback.sawStreamText = true
+}
+
+function shouldUseStreamingCard(): boolean {
+  return config.feishu.streamingCard
+}
+
+function clearPlainReplyBuffer(chatId: string): void {
+  plainReplyBuffers.delete(chatId)
+}
+
+function clearPlainReplyDelivered(chatId: string): void {
+  plainReplyDelivered.delete(chatId)
+}
+
+function appendPlainReplyText(chatId: string, text: string): void {
+  if (!text) return
+  plainReplyBuffers.set(chatId, (plainReplyBuffers.get(chatId) ?? '') + text)
+}
+
+async function sendReplyText(chatId: string, text: string): Promise<void> {
+  const rendered = optimizeMarkdownForFeishu(redactInternalBranding(text).trim(), 2)
+  if (!rendered) return
+
+  for (const chunk of splitMessage(rendered, FEISHU_POST_TEXT_LIMIT)) {
+    await sendText(chatId, chunk)
+  }
+}
+
+function scheduleReplyFallbackPoll(chatId: string, fallback: ReplyFallbackState): void {
+  fallback.timer = setTimeout(() => {
+    fallback.timer = null
+    void pollReplyFallback(chatId).catch((err) => {
+      console.warn('[Feishu] reply fallback poll failed:', err instanceof Error ? err.message : err)
+    })
+  }, REPLY_FALLBACK_POLL_INTERVAL_MS)
+}
+
+function startReplyFallback(chatId: string, sessionId: string): void {
+  clearReplyFallback(chatId)
+  const fallback: ReplyFallbackState = {
+    sessionId,
+    startedAt: Date.now(),
+    timer: null,
+    sawStreamText: false,
+  }
+  replyFallbacks.set(chatId, fallback)
+  scheduleReplyFallbackPoll(chatId, fallback)
+}
+
+function extractAssistantText(content: unknown): string {
+  if (typeof content === 'string') return content.trim()
+  if (!Array.isArray(content)) return ''
+
+  return content
+    .flatMap((block) => {
+      if (!block || typeof block !== 'object') return []
+      const record = block as Record<string, unknown>
+      if (record.type === 'text' && typeof record.text === 'string') {
+        return [record.text]
+      }
+      return []
+    })
+    .join('\n\n')
+    .trim()
+}
+
+function findAssistantReplyAfter(
+  messages: SessionMessageEntry[],
+  startedAt: number,
+): string | null {
+  const threshold = startedAt - 1000
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (!message || message.type !== 'assistant') continue
+
+    const timestamp = Date.parse(message.timestamp)
+    if (Number.isFinite(timestamp) && timestamp < threshold) continue
+
+    const text = extractAssistantText(message.content)
+    if (text) return text
+  }
+
+  return null
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function appendReplyTextToCard(chatId: string, replyText: string): Promise<void> {
+  if (!shouldUseStreamingCard()) {
+    await sendReplyText(chatId, replyText)
+    plainReplyDelivered.add(chatId)
+    return
+  }
+
+  const card = getOrCreateStreamingCard(chatId)
+  await card.ensureCreated().catch((err) => {
+    console.error('[Feishu] fallback ensureCreated failed:', err)
+  })
+  card.appendText(replyText)
+}
+
+async function appendLatestSessionReply(
+  chatId: string,
+  sessionId: string,
+  startedAt: number,
+): Promise<boolean> {
+  const messages = await httpClient.getSessionMessages(sessionId)
+  const replyText = findAssistantReplyAfter(messages, startedAt)
+  if (!replyText) return false
+  await appendReplyTextToCard(chatId, replyText)
+  return true
+}
+
+async function finalizeStreamingCardWithHistoryFallback(chatId: string): Promise<void> {
+  const usePlainFallback = streamingFallbackChats.has(chatId)
+  if (!shouldUseStreamingCard() || usePlainFallback) {
+    const buffered = plainReplyBuffers.get(chatId)?.trim() ?? ''
+    if (buffered) {
+      clearReplyFallback(chatId)
+      clearPlainReplyBuffer(chatId)
+      plainReplyDelivered.add(chatId)
+      clearStreamingFallback(chatId)
+      await sendReplyText(chatId, buffered)
+      return
+    }
+
+    if (plainReplyDelivered.has(chatId)) {
+      clearStreamingFallback(chatId)
+      return
+    }
+
+    const fallback = replyFallbacks.get(chatId)
+    if (fallback) {
+      try {
+        const messages = await httpClient.getSessionMessages(fallback.sessionId)
+        const replyText = findAssistantReplyAfter(messages, fallback.startedAt)
+        if (replyText) {
+          clearReplyFallback(chatId)
+          clearPlainReplyBuffer(chatId)
+          plainReplyDelivered.add(chatId)
+          clearStreamingFallback(chatId)
+          await sendReplyText(chatId, replyText)
+          return
+        }
+      } catch (err) {
+        console.warn('[Feishu] plain reply history fallback failed:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    clearReplyFallback(chatId)
+    clearPlainReplyBuffer(chatId)
+    clearStreamingFallback(chatId)
+    await sendText(chatId, '⚠️ 本地 Gu Agent 已结束，但没有返回可显示的回复。请重试。')
+    return
+  }
+
+  const card = streamingCards.get(chatId)
+  const fallback = replyFallbacks.get(chatId)
+  const stored = sessionStore.get(chatId)
+
+  if (card && !card._getAccumulatedText().trim() && stored?.sessionId) {
+    const startedAt = fallback?.startedAt ?? Date.now() - 30_000
+    let appended = false
+
+    try {
+      appended = await appendLatestSessionReply(chatId, stored.sessionId, startedAt)
+      if (!appended) {
+        await sleep(1500)
+        appended = await appendLatestSessionReply(chatId, stored.sessionId, startedAt)
+      }
+    } catch (err) {
+      console.warn('[Feishu] message_complete history fallback failed:', err instanceof Error ? err.message : err)
+    }
+
+    const refreshedCard = streamingCards.get(chatId)
+    if (!appended && refreshedCard && !refreshedCard._getAccumulatedText().trim()) {
+      await abortStreamingCard(
+        chatId,
+        new Error('本地 Gu Agent 已结束，但没有返回可显示的回复。请重试；如果反复出现，请点击“启动/重启本地接入”。'),
+      )
+      return
+    }
+  }
+
+  await finalizeStreamingCard(chatId)
+}
+
+async function pollReplyFallback(chatId: string): Promise<void> {
+  const fallback = replyFallbacks.get(chatId)
+  if (!fallback) return
+
+  if (fallback.sawStreamText) {
+    clearReplyFallback(chatId)
+    return
+  }
+
+  if (Date.now() - fallback.startedAt > REPLY_FALLBACK_TIMEOUT_MS) {
+    clearReplyFallback(chatId)
+    return
+  }
+
+  let replyText: string | null = null
+  try {
+    const messages = await httpClient.getSessionMessages(fallback.sessionId)
+    replyText = findAssistantReplyAfter(messages, fallback.startedAt)
+  } catch {
+    // Keep polling. The primary WebSocket path and watchdog still own errors.
+  }
+
+  const current = replyFallbacks.get(chatId)
+  if (!current || current !== fallback) return
+
+  if (replyText) {
+    clearReplyFallback(chatId)
+    clearResponseWatchdog(chatId)
+    clearPlainReplyBuffer(chatId)
+    plainReplyDelivered.add(chatId)
+    const runtime = getRuntimeState(chatId)
+    runtime.state = 'idle'
+    runtime.verb = undefined
+
+    await appendReplyTextToCard(chatId, replyText)
+    await finalizeStreamingCard(chatId)
+    return
+  }
+
+  scheduleReplyFallbackPoll(chatId, fallback)
+}
+
+function armResponseWatchdog(
+  chatId: string,
+  stage: ResponseWatchdogStage,
+  timeoutMs: number,
+): void {
+  clearResponseWatchdog(chatId)
+  const timer = setTimeout(() => {
+    responseWatchdogs.delete(chatId)
+    void handleResponseTimeout(chatId, stage).catch((err) => {
+      console.error('[Feishu] response watchdog failed:', err)
+    })
+  }, timeoutMs)
+  responseWatchdogs.set(chatId, timer)
+}
+
+function markTurnProgress(chatId: string): void {
+  armResponseWatchdog(chatId, 'turn_stalled', TURN_STALL_TIMEOUT_MS)
+}
+
+async function handleResponseTimeout(
+  chatId: string,
+  stage: ResponseWatchdogStage,
+): Promise<void> {
+  clearReplyFallback(chatId)
+  const runtime = getRuntimeState(chatId)
+  runtime.state = 'idle'
+  runtime.verb = undefined
+  bridge.sendStopGeneration(chatId)
+
+  const message = stage === 'first_response'
+    ? '本地 Gu Agent 没有开始返回内容。请在 Gugu Agent 里确认服务商/API 配置可用，再点击“启动/重启本地接入”后重试。'
+    : '本地 Gu Agent 长时间没有完成回复。请先点击“启动/重启本地接入”，再检查默认项目、API 配置和桌面端是否能正常对话。'
+
+  if (streamingCards.has(chatId)) {
+    await abortStreamingCard(chatId, new Error(message))
+  } else {
+    await sendText(chatId, `⚠️ ${message}`)
+  }
 }
 
 /** Upload a PendingUpload found in streaming output and send it as an
@@ -175,16 +522,69 @@ async function dispatchOutboundImage(chatId: string, pending: PendingUpload): Pr
   }
 }
 
+async function sendDesktopScreenshot(chatId: string): Promise<void> {
+  await sendText(chatId, '📸 正在截取当前屏幕...')
+
+  let buffer: Buffer
+  try {
+    buffer = await captureDesktopScreenshot({
+      timeoutMs: SCREENSHOT_TIMEOUT_MS,
+      tmpPrefix: 'gugu-feishu-shot-',
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message === DESKTOP_SCREENSHOT_UNSUPPORTED) {
+      await sendText(chatId, '当前版本只支持在 macOS 上直接截图。')
+      return
+    }
+    await sendText(
+      chatId,
+      '截图失败。请在 macOS「系统设置 > 隐私与安全性 > 屏幕录制」里允许 Gugu Agent，然后点击“启动/重启本地接入”再试。',
+    )
+    console.error('[Feishu] desktop screenshot failed:', message)
+    return
+  }
+
+  const check = checkAttachmentLimit('image', buffer.length, 'image/png')
+  if (!check.ok) {
+    await sendText(chatId, check.hint)
+    return
+  }
+
+  try {
+    const imageKey = await media.uploadImage(buffer, 'image/png')
+    await media.sendImageMessage(chatId, imageKey)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const hint =
+      message.length > 180 ? `${message.slice(0, 180)}...` : message
+    await sendText(
+      chatId,
+      `截图已完成，但发送到飞书失败。请在飞书开发者后台确认已开通 im:resource，并在“版本管理与发布”里创建版本发布、重新安装应用。错误：${hint}`,
+    )
+    console.error('[Feishu] desktop screenshot upload/send failed:', message)
+  }
+}
+
 /** Finalize and remove the streaming card (normal completion). */
 async function finalizeStreamingCard(chatId: string): Promise<void> {
+  clearResponseWatchdog(chatId)
+  clearReplyFallback(chatId)
+  clearPlainReplyBuffer(chatId)
   const card = streamingCards.get(chatId)
   if (!card) return
   streamingCards.delete(chatId)
-  await card.finalize()
+  const fallbackText = card._getAccumulatedText().trim()
+  const ok = await card.finalize()
+  if (!ok && fallbackText) {
+    await sendReplyText(chatId, fallbackText)
+  }
 }
 
 /** Abort and remove the streaming card (error path). Non-throwing. */
 async function abortStreamingCard(chatId: string, err: Error): Promise<void> {
+  clearResponseWatchdog(chatId)
+  clearReplyFallback(chatId)
   const card = streamingCards.get(chatId)
   if (!card) return
   streamingCards.delete(chatId)
@@ -192,6 +592,12 @@ async function abortStreamingCard(chatId: string, err: Error): Promise<void> {
 }
 
 function clearTransientChatState(chatId: string): void {
+  clearResponseWatchdog(chatId)
+  clearReplyFallback(chatId)
+  clearPlainReplyBuffer(chatId)
+  clearPlainReplyDelivered(chatId)
+  streamingFallbackChats.delete(chatId)
+  streamingFallbackNotified.delete(chatId)
   // Abort any in-flight streaming card (best effort, don't block)
   const card = streamingCards.get(chatId)
   if (card) {
@@ -273,8 +679,9 @@ async function buildStatusText(chatId: string): Promise<string> {
 
 /** Send a text message (post format). */
 async function sendText(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
+  const visibleText = redactInternalBranding(text)
   const content = JSON.stringify({
-    zh_cn: { content: [[{ tag: 'md', text }]] },
+    zh_cn: { content: [[{ tag: 'md', text: visibleText }]] },
   })
 
   try {
@@ -670,10 +1077,15 @@ async function createSessionForChat(chatId: string, workDir: string): Promise<bo
     // old OPEN connection still exists (e.g. /projects → pick_project path),
     // leaving user messages routed to the previous session's workDir.
     bridge.resetSession(chatId)
+    streamingFallbackChats.delete(chatId)
+    streamingFallbackNotified.delete(chatId)
     // Also abort any in-flight streaming card tied to the old session.
     const inflightCard = streamingCards.get(chatId)
     if (inflightCard) {
       streamingCards.delete(chatId)
+      clearResponseWatchdog(chatId)
+      clearReplyFallback(chatId)
+      clearPlainReplyBuffer(chatId)
       void inflightCard.abort(new Error('session reset')).catch(() => {})
     }
 
@@ -718,10 +1130,15 @@ async function showProjectPicker(chatId: string): Promise<void> {
 async function startNewSession(chatId: string, query?: string): Promise<void> {
   bridge.resetSession(chatId)
   sessionStore.delete(chatId)
+  streamingFallbackChats.delete(chatId)
+  streamingFallbackNotified.delete(chatId)
   // Abort any in-flight streaming card for the previous session
   const inflightCard = streamingCards.get(chatId)
   if (inflightCard) {
     streamingCards.delete(chatId)
+    clearResponseWatchdog(chatId)
+    clearReplyFallback(chatId)
+    clearPlainReplyBuffer(chatId)
     void inflightCard.abort(new Error('session reset')).catch(() => {})
   }
   imageWatchers.delete(chatId)
@@ -774,6 +1191,9 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     case 'status': {
       runtime.state = msg.state
       runtime.verb = typeof msg.verb === 'string' ? msg.verb : undefined
+      if (runtime.state !== 'idle') {
+        markTurnProgress(chatId)
+      }
       // 注意: 故意不在 thinking 时创建卡片。/clear、/compact 这类命令
       // 不产生文本输出，但 CLI 仍会发 thinking → message_complete 事件。
       // 如果在 thinking 就建卡，这些命令会留下一张空卡片。
@@ -782,17 +1202,18 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     }
 
     case 'content_start': {
+      markTurnProgress(chatId)
       if (msg.blockType === 'text') {
-        // 幂等: 预建卡或上一次 content_delta 已经创建了卡片则复用，否则现在创建
-        const card = getOrCreateStreamingCard(chatId)
-        await card.ensureCreated().catch((err) => {
-          console.error('[Feishu] ensureCreated on content_start failed:', err)
-        })
+        if (!shouldUseStreamingCard() || streamingFallbackChats.has(chatId)) break
+
+        // 不阻塞消息队列：CardKit 建卡慢或卡住时，后续 text / complete
+        // 仍能继续处理，并在失败时自动降级为普通消息。
+        ensureStreamingCardReady(chatId, 'content_start')
       } else if (msg.blockType === 'tool_use') {
         // 把工具调用起点登记到已存在的卡 —— 让用户看到 "⚙️ 运行中..." 指示。
         // 只读 map，不 getOrCreate: /clear 这类无回复命令不应该因为上游发了
         // 孤立的 tool_use 事件而被迫建一张空卡。
-        const card = streamingCards.get(chatId)
+        const card = shouldUseStreamingCard() ? streamingCards.get(chatId) : undefined
         if (card) {
           card.startTool(msg.toolUseId, msg.toolName)
         }
@@ -804,14 +1225,17 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     }
 
     case 'content_delta': {
+      markTurnProgress(chatId)
       if (typeof msg.text === 'string' && msg.text) {
+        markReplyFallbackStreamText(chatId)
+        if (!shouldUseStreamingCard() || streamingFallbackChats.has(chatId)) {
+          appendPlainReplyText(chatId, msg.text)
+          break
+        }
+
         // 正常情况 content_start{text} 已经创建了卡片，这里直接 appendText。
         // 极端情况（上游跳过了 content_start）也要能容错 —— getOrCreate + async ensureCreated。
-        const card = getOrCreateStreamingCard(chatId)
-        // ensureCreated 幂等，已 streaming 时是 no-op
-        void card.ensureCreated().catch((err) => {
-          console.error('[Feishu] ensureCreated on delta failed:', err)
-        })
+        const card = ensureStreamingCardReady(chatId, 'content_delta')
         card.appendText(msg.text)
 
         // Watch the streaming text for outbound markdown image references
@@ -828,10 +1252,11 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     }
 
     case 'thinking': {
+      markTurnProgress(chatId)
       // 推理文本（reasoning）—— 作为卡片顶部的 blockquote 预览持续更新，
       // 让用户在工具执行期间也能看到模型的思考过程（对齐 Telegram 的行为）。
       // 同样不 auto-create: 没有预建卡的命令路径不应该被 thinking 事件撑出一张空卡。
-      const card = streamingCards.get(chatId)
+      const card = shouldUseStreamingCard() ? streamingCards.get(chatId) : undefined
       if (card && typeof msg.text === 'string' && msg.text) {
         card.appendReasoning(msg.text)
       }
@@ -839,8 +1264,9 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     }
 
     case 'tool_use_complete': {
+      markTurnProgress(chatId)
       // 把对应 tool step 从 "⚙️ running" 切到 "✅ done"，让用户看到进度推进。
-      const card = streamingCards.get(chatId)
+      const card = shouldUseStreamingCard() ? streamingCards.get(chatId) : undefined
       if (card) {
         card.completeTool(msg.toolUseId, msg.toolName)
       }
@@ -848,10 +1274,15 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     }
 
     case 'tool_result':
+      markTurnProgress(chatId)
       // Tool errors are handled internally by the AI (retries etc.)
       break
 
     case 'permission_request': {
+      clearResponseWatchdog(chatId)
+      clearReplyFallback(chatId)
+      clearPlainReplyBuffer(chatId)
+      clearPlainReplyDelivered(chatId)
       runtime.pendingPermissionCount += 1
       runtime.state = 'permission_pending'
       const stored = sessionStore.get(chatId)
@@ -866,12 +1297,18 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     }
 
     case 'message_complete':
+      clearResponseWatchdog(chatId)
       runtime.state = 'idle'
       runtime.verb = undefined
-      await finalizeStreamingCard(chatId)
+      await finalizeStreamingCardWithHistoryFallback(chatId)
       break
 
     case 'error':
+      clearResponseWatchdog(chatId)
+      clearReplyFallback(chatId)
+      clearPlainReplyBuffer(chatId)
+      clearPlainReplyDelivered(chatId)
+      clearStreamingFallback(chatId)
       runtime.state = 'idle'
       runtime.verb = undefined
       // Auto-recover from stale thinking block signatures by creating a fresh session.
@@ -880,6 +1317,10 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
         if (streamingCards.has(chatId)) {
           const card = streamingCards.get(chatId)!
           streamingCards.delete(chatId)
+          clearResponseWatchdog(chatId)
+          clearReplyFallback(chatId)
+          clearPlainReplyBuffer(chatId)
+          clearPlainReplyDelivered(chatId)
           void card.abort(new Error('session reset')).catch(() => {})
         }
         const stored = sessionStore.get(chatId)
@@ -929,6 +1370,12 @@ function stripMentions(text: string): string {
   return text.replace(/@_user_\d+/g, '').trim()
 }
 
+function shortId(value?: string | null): string {
+  if (!value) return '-'
+  if (value.length <= 10) return value
+  return `${value.slice(0, 4)}...${value.slice(-4)}`
+}
+
 // ---------- event handlers ----------
 
 async function handleMessage(data: any): Promise<void> {
@@ -951,9 +1398,23 @@ async function handleMessage(data: any): Promise<void> {
   const content = event.message?.content
   const msgType = event.message?.message_type
 
-  if (!messageId || !chatId || !senderOpenId || !content || !msgType) return
+  if (!messageId || !chatId || !senderOpenId || !content || !msgType) {
+    console.warn('[Feishu] Ignored message event: missing required fields', {
+      hasMessageId: Boolean(messageId),
+      hasChatId: Boolean(chatId),
+      hasSenderOpenId: Boolean(senderOpenId),
+      hasContent: Boolean(content),
+      msgType: msgType ?? '-',
+      chatType: chatType ?? '-',
+    })
+    return
+  }
 
   if (!dedup.tryRecord(messageId)) return
+
+  console.log(
+    `[Feishu] Message event type=${msgType} chat_type=${chatType} chat=${shortId(chatId)} sender=${shortId(senderOpenId)}`,
+  )
 
   // 只处理私聊
   if (chatType === 'p2p') {
@@ -963,15 +1424,18 @@ async function handleMessage(data: any): Promise<void> {
       if (pairText) {
         const success = tryPair(pairText.trim(), { userId: senderOpenId, displayName: 'Feishu User' }, 'feishu')
         if (success) {
-          await sendText(chatId, '✅ 配对成功！现在可以开始聊天了。\n\n发送消息即可与 Claude 对话。')
+          console.log(`[Feishu] Paired user sender=${shortId(senderOpenId)}`)
+          await sendText(chatId, '✅ 配对成功！现在可以开始聊天了。\n\n发送消息即可与 Gu Agent 对话。')
         } else {
-          await sendText(chatId, '🔒 未授权。请在 Claude Code 桌面端生成配对码后发送给我。')
+          console.log(`[Feishu] Rejected unpaired sender=${shortId(senderOpenId)}`)
+          await sendText(chatId, '🔒 未授权。请在 Gugu Agent 桌面端生成配对码后发送给我。')
         }
       }
       return
     }
   } else {
     // 群聊不处理
+    console.log(`[Feishu] Ignored non-p2p chat_type=${chatType}`)
     return
   }
 
@@ -982,7 +1446,10 @@ async function handleMessage(data: any): Promise<void> {
 
   // Allow empty text only when attachments are present
   // (image-only / file-only message)
-  if (!msgText && !hasAttachments) return
+  if (!msgText && !hasAttachments) {
+    console.log(`[Feishu] Ignored empty payload msg_type=${msgType}`)
+    return
+  }
 
   // Capture messageId in a non-nullable const before entering the enqueue
   // closure so the downloadResource call below doesn't need a `!` assertion.
@@ -1004,7 +1471,7 @@ async function handleMessage(data: any): Promise<void> {
       return
     }
     if (!hasAttachments && (msgText === '/help' || msgText === '帮助')) {
-      await sendText(chatId, formatImHelp())
+      await sendText(chatId, `${formatImHelp()}\n截图 / 截屏 / /screenshot — 截取本机当前屏幕并发回飞书`)
       return
     }
     if (!hasAttachments && (msgText === '/status' || msgText === '状态')) {
@@ -1034,12 +1501,19 @@ async function handleMessage(data: any): Promise<void> {
         await sendText(chatId, formatImStatus(null))
         return
       }
+      clearResponseWatchdog(chatId)
+      clearReplyFallback(chatId)
+      clearPlainReplyBuffer(chatId)
       bridge.sendStopGeneration(chatId)
       await sendText(chatId, '⏹ 已发送停止信号。')
       return
     }
     if (!hasAttachments && (msgText === '/projects' || msgText === '项目列表')) {
       await showProjectPicker(chatId)
+      return
+    }
+    if (!hasAttachments && isScreenshotCommand(msgText)) {
+      await sendDesktopScreenshot(chatId)
       return
     }
 
@@ -1053,6 +1527,7 @@ async function handleMessage(data: any): Promise<void> {
 
     const ready = await ensureSession(chatId)
     if (!ready) return
+    const stored = sessionStore.get(chatId)
 
     // Download attachments (if any). Each download is independent —
     // a single failure must not poison the rest, so we use allSettled.
@@ -1135,19 +1610,27 @@ async function handleMessage(data: any): Promise<void> {
     // via sendText, and Claude shouldn't be invoked with empty content.
     if (!effectiveText && !(attachments && attachments.length > 0)) return
 
-    // Pre-create the streaming card immediately so the user sees a
-    // "☁️ 正在思考中..." indicator while the backend is still thinking
-    // (before the first content_delta arrives). We intentionally do NOT
-    // create a card for /clear-style commands (which go through the
-    // earlier branches), so they won't leave an empty card behind.
-    const card = getOrCreateStreamingCard(chatId)
-    void card.ensureCreated().catch((err) => {
-      console.error('[Feishu] pre-create streaming card failed:', err)
-    })
+    clearPlainReplyDelivered(chatId)
+    clearStreamingFallback(chatId)
 
-    const sent = bridge.sendUserMessage(chatId, effectiveText, attachments, { permissionMode: 'bypassPermissions' })
+    if (shouldUseStreamingCard()) {
+      // Pre-create the streaming card immediately so the user sees a
+      // "☁️ 正在思考中..." indicator while the backend is still thinking
+      // (before the first content_delta arrives). We intentionally do NOT
+      // create a card for /clear-style commands (which go through the
+      // earlier branches), so they won't leave an empty card behind.
+      ensureStreamingCardReady(chatId, 'pre-create')
+    }
+
+    const sent = bridge.sendUserMessage(chatId, wrapImUserMessage(effectiveText), attachments, { permissionMode: 'bypassPermissions' })
     if (!sent) {
+      await abortStreamingCard(chatId, new Error('消息发送失败，连接可能已断开。请发送 /new 重新开始。'))
       await sendText(chatId, '⚠️ 消息发送失败，连接可能已断开。请发送 /new 重新开始。')
+      return
+    }
+    armResponseWatchdog(chatId, 'first_response', FIRST_RESPONSE_TIMEOUT_MS)
+    if (stored?.sessionId) {
+      startReplyFallback(chatId, stored.sessionId)
     }
   })
 }

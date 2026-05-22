@@ -59,7 +59,7 @@ export function ScheduledTasksEmpty() {
         {/* TopAppBar */}
         <header className="fixed top-0 right-0 left-[280px] z-30 bg-[#FAF9F5] flex justify-between items-center px-6 h-12 w-full border-b border-[#F4F4F0]">
           <div className="flex items-center gap-6 h-full">
-            <div className="text-sm font-bold text-[#1B1C1A] uppercase tracking-tighter font-[Manrope,sans-serif]">Claude Code GuGu</div>
+            <div className="text-sm font-bold text-[#1B1C1A] uppercase tracking-tighter font-[Manrope,sans-serif]">Gugu Agent</div>
             <nav className="flex items-center gap-4 h-full font-[Manrope,sans-serif] font-semibold tracking-wide text-sm">
               <span className="text-[#87736D] hover:text-[#8F482F] transition-colors cursor-pointer active:opacity-70 h-full flex items-center">{t('titlebar.code')}</span>
               <span className="text-[#87736D] hover:text-[#8F482F] transition-colors cursor-pointer active:opacity-70 h-full flex items-center">{t('titlebar.terminal')}</span>

@@ -6,6 +6,10 @@ vi.mock('./ProjectFilter', () => ({
   ProjectFilter: () => <div data-testid="project-filter" />,
 }))
 
+vi.mock('./CapabilityBar', () => ({
+  CapabilityBar: () => <div data-testid="capability-bar" />,
+}))
+
 vi.mock('../../i18n', () => ({
   useTranslation: () => (key: string) => {
     const translations: Record<string, string> = {
@@ -123,6 +127,13 @@ describe('Sidebar', () => {
       'Terminal 2',
       'Terminal 3',
     ])
+  })
+
+  it('does not render an external repository shortcut in the navigation header', () => {
+    const { container } = render(<Sidebar />)
+
+    expect(container.querySelector('a[href*="github.com"]')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('GitHub')).not.toBeInTheDocument()
   })
 
   it('shows a toast when session creation fails', async () => {

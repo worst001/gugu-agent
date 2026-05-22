@@ -1,7 +1,7 @@
-# 全局使用（任意目录启动）
+﻿# 全局使用（任意目录启动）
 
 
-如果你希望在任意项目目录直接运行 `claude-gugu`，可以通过以下方式配置。配置完成后，`claude-gugu` 会自动识别你当前所在的工作目录。
+如果你希望在任意项目目录直接运行 `cc-gugu`，可以通过以下方式配置。配置完成后，`cc-gugu` 会自动识别你当前所在的工作目录。
 
 ## macOS / Linux
 
@@ -12,7 +12,7 @@
 export PATH="$HOME/path/to/claude-code-gugu/bin:$PATH"
 
 # 方式二：alias
-alias claude-gugu="$HOME/path/to/claude-code-gugu/bin/claude-gugu"
+alias cc-gugu="$HOME/path/to/claude-code-gugu/bin/cc-gugu"
 ```
 
 然后重新加载配置：
@@ -35,6 +35,6 @@ export PATH="$HOME/path/to/claude-code-gugu/bin:$PATH"
 
 ```bash
 cd ~/your-other-project
-claude-gugu
+cc-gugu
 # 启动后询问「当前目录是什么？」，应显示 ~/your-other-project
 ```

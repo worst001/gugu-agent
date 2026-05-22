@@ -2,21 +2,25 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
+import { ToolResultBlock } from './ToolResultBlock'
 import { PermissionDialog } from './PermissionDialog'
 import { useChatStore } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
+import { useWorkbenchStore } from '../../stores/workbenchStore'
 
 describe('chat blocks', () => {
   beforeEach(() => {
     useTabStore.setState({ activeTabId: 'active-tab', tabs: [{ sessionId: 'active-tab', title: 'Test', type: 'session' as const, status: 'idle' }] })
     useChatStore.setState({ sessions: {} })
+    useWorkbenchStore.setState({ sessions: {} })
   })
 
-  it('keeps thinking collapsed by default', () => {
-    const { container } = render(<ThinkingBlock content="this is a long internal reasoning trace" isActive />)
+  it('shows active thinking as a compact one-line status', () => {
+    const { container } = render(<ThinkingBlock content="正在分析上下文" isActive />)
 
-    expect(screen.getByText(/Thinking/)).toBeTruthy()
-    expect(container.textContent).toContain('this is a long internal reasoning trace')
+    expect(screen.getByText(/thinking|思考/i)).toBeTruthy()
+    expect(container.textContent).toContain('正在分析上下文')
+    expect(container.querySelector('.thinking-inline-cursor')).toBeTruthy()
     expect(container.querySelector('.thinking-cursor')).toBeNull()
   })
 
@@ -40,7 +44,7 @@ describe('chat blocks', () => {
 
     fireEvent.click(screen.getByRole('button'))
 
-    expect(container.textContent).toContain('Tool Input')
+    expect(container.textContent).toMatch(/Tool Input|工具输入/)
     expect(container.textContent).not.toContain('const answer = 42')
   })
 
@@ -73,6 +77,49 @@ describe('chat blocks', () => {
 
     expect(container.textContent).toContain('Bash')
     expect(container.textContent).toContain('fatal: unrecognized argument: --no-stat')
+  })
+
+  it('hides standalone unavailable WebSearch tool errors', () => {
+    const { container } = render(
+      <ToolResultBlock
+        content="<tool_use_error>Error: No such tool available: WebSearch</tool_use_error>"
+        isError
+      />,
+    )
+
+    expect(container.textContent).toBe('')
+  })
+
+  it('renders HTTP 403 tool errors as target access failures', () => {
+    const { container } = render(
+      <ToolResultBlock
+        content="Request failed with status code 403"
+        isError
+      />,
+    )
+
+    expect(container.textContent).toContain('目标网站拒绝访问')
+    expect(container.textContent).not.toContain('Request failed with status code 403')
+  })
+
+  it('opens a tool call in the right-side workbench', () => {
+    render(
+      <ToolCallBlock
+        toolUseId="write-1"
+        toolName="Write"
+        input={{ file_path: '/tmp/example.ts', content: 'const answer = 42' }}
+        result={{ content: 'created', isError: false }}
+      />,
+    )
+
+    fireEvent.click(screen.getByLabelText(/Open in workbench|打开/i))
+
+    expect(useWorkbenchStore.getState().sessions['active-tab']).toMatchObject({
+      isOpen: true,
+      activeTab: 'diff',
+      selectedToolUseId: 'write-1',
+      selectedFilePath: '/tmp/example.ts',
+    })
   })
 
   it('expands tool errors so full Computer Use gate messages are readable', () => {
@@ -141,7 +188,7 @@ describe('chat blocks', () => {
     )
 
     expect(container.textContent).toContain('/tmp/example.ts')
-    expect(container.textContent).toContain('Allow')
+    expect(container.textContent).toMatch(/Allow|允许/)
     // react-diff-viewer-continued uses styled-components tables that don't
     // fully render in jsdom, so we verify the DiffViewer wrapper is mounted
     expect(container.querySelector('[class*="rounded-[var(--radius-lg)]"]')).toBeTruthy()

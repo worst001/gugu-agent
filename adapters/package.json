@@ -6,14 +6,22 @@
   "scripts": {
     "telegram": "bun run telegram/index.ts",
     "feishu": "bun run feishu/index.ts",
+    "dingtalk": "bun run dingtalk/index.ts",
+    "wecom": "bun run wecom/index.ts",
+    "qq": "bun run qq/index.ts",
     "test": "bun test",
     "test:common": "bun test common/",
     "test:telegram": "bun test telegram/",
-    "test:feishu": "bun test feishu/"
+    "test:feishu": "bun test feishu/",
+    "test:dingtalk": "bun test dingtalk/",
+    "test:wecom": "bun test wecom/",
+    "test:qq": "bun test qq/"
   },
   "dependencies": {
-    "grammy": "^1.42.0",
     "@larksuiteoapi/node-sdk": "^1.60.0",
+    "dingtalk-stream": "^2.1.6-beta.1",
+    "grammy": "^1.42.0",
+    "qq-official-bot": "^1.2.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

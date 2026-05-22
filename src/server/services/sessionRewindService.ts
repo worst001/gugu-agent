@@ -67,10 +67,10 @@ function normalizePromptText(text: string): string {
 }
 
 function extractUserPromptText(content: unknown): string {
-  if (typeof content === 'string') return content
+  if (typeof content === 'string') return stripHiddenPromptScaffolding(content)
   if (!Array.isArray(content)) return ''
 
-  return content
+  return stripHiddenPromptScaffolding(content
     .flatMap((block) => {
       if (!block || typeof block !== 'object') return []
       const record = block as Record<string, unknown>
@@ -78,7 +78,37 @@ function extractUserPromptText(content: unknown): string {
         ? [record.text]
         : []
     })
-    .join('\n')
+    .join('\n'))
+}
+
+function stripHiddenPromptScaffolding(text: string): string {
+  let current = text.trim()
+  for (let i = 0; i < 4; i += 1) {
+    const next =
+      extractAttachmentParserDisplayText(current) ??
+      extractCeWorkflowDisplayText(current)
+    if (next === null || next === current) break
+    current = next.trim()
+  }
+  return current
+}
+
+function extractAttachmentParserDisplayText(text: string): string | null {
+  if (!text.includes('<用户正文>')) return null
+  const match = text.match(/<用户正文>\s*([\s\S]*?)\s*<\/用户正文>/)
+  return match?.[1] ?? null
+}
+
+function extractCeWorkflowDisplayText(text: string): string | null {
+  if (!text.startsWith('[Workflow:') && !text.includes('CE automation (binding)')) return null
+  const marker = '\nUser message:\n'
+  const index = text.lastIndexOf(marker)
+  if (index >= 0) return text.slice(index + marker.length)
+
+  const inlineMatch = text.match(/(?:^|\n)User message:\s*\n([\s\S]*)$/)
+  if (inlineMatch?.[1] !== undefined) return inlineMatch[1]
+  if (text.includes('User sent attachments only')) return ''
+  return null
 }
 
 function assertExpectedPromptMatches(
@@ -109,6 +139,7 @@ async function resolveRewindTarget(
 
   let targetUserMessage = null as (typeof userMessages)[number] | null
   let userMessageIndex = -1
+  let resolvedByStableId = false
 
   if (selector.targetUserMessageId) {
     const activeMessage = activeMessages.find(
@@ -119,6 +150,7 @@ async function resolveRewindTarget(
         throw ApiError.badRequest('The selected rewind target is not a user message.')
       }
       targetUserMessage = activeMessage
+      resolvedByStableId = true
       userMessageIndex = userMessages.findIndex(
         (message) => message.id === activeMessage.id,
       )
@@ -142,7 +174,9 @@ async function resolveRewindTarget(
     )
   }
 
-  assertExpectedPromptMatches(targetUserMessage, selector.expectedContent)
+  if (!resolvedByStableId) {
+    assertExpectedPromptMatches(targetUserMessage, selector.expectedContent)
+  }
 
   const activeMessageIndex = activeMessages.findIndex(
     (message) => message.id === targetUserMessage.id,

@@ -18,6 +18,8 @@ import {
   buildClaudeCliArgs,
   resolveClaudeCliLauncher,
 } from '../../utils/desktopBundledCli.js'
+import type { PermissionUpdate } from '../../types/permissions.js'
+import { permissionUpdateSchema } from '../../utils/permissions/PermissionUpdateSchema.js'
 
 type AttachmentRef = {
   type: 'file' | 'image'
@@ -36,6 +38,8 @@ type SessionProcess = {
   sdkSocket: { send(data: string): void } | null
   pendingOutbound: string[]
   stderrLines: string[]
+  /** Bun/CLI sometimes prints fatal lines to stdout; was previously discarded (stdout: ignore). */
+  stdoutLines: string[]
   sdkMessages: any[]
   initMessage: any | null
   pendingPermissionRequests: Map<
@@ -53,9 +57,13 @@ type SessionStartOptions = {
   model?: string
   effort?: string
   providerId?: string | null
+  /** After a failed `--resume`, retry once with `--session-id` only (stale desktop transcript index). */
+  skipResumeAfterStaleMetadata?: boolean
 }
 
 const DEFAULT_DESKTOP_MAX_TURNS = 20
+const DESKTOP_TOOL_AVAILABILITY_PROMPT =
+  'Tool availability: Only call WebSearch if WebSearch is explicitly listed in the current available tools. If WebSearch is unavailable, do not attempt it; continue without web search or use WebFetch only for explicit URLs the user provided.'
 
 export class ConversationStartupError extends Error {
   constructor(
@@ -99,6 +107,8 @@ export class ConversationService {
       '--include-partial-messages',
       ...(shouldResume ? ['--resume', sessionId] : ['--session-id', sessionId]),
       '--replay-user-messages',
+      '--append-system-prompt',
+      DESKTOP_TOOL_AVAILABILITY_PROMPT,
       ...this.getMaxTurnsArgs(),
       ...this.getRuntimeArgs(options),
       ...this.getPermissionArgs(options?.permissionMode, dangerousMode),
@@ -114,7 +124,10 @@ export class ConversationService {
     if (this.sessions.has(sessionId)) return
 
     const launchInfo = await sessionService.getSessionLaunchInfo(sessionId)
-    const shouldResume = !!launchInfo && launchInfo.transcriptMessageCount > 0
+    const shouldResume =
+      !options?.skipResumeAfterStaleMetadata &&
+      !!launchInfo &&
+      launchInfo.transcriptMessageCount > 0
     const shouldReplacePlaceholder =
       !!launchInfo && launchInfo.transcriptMessageCount === 0
 
@@ -158,7 +171,7 @@ export class ConversationService {
         cwd: workDir,
         env: childEnv,
         stdin: 'pipe',
-        stdout: 'ignore',  // CLI communicates via SDK WebSocket, not stdout
+        stdout: 'pipe',
         stderr: 'pipe',
       })
     } catch (spawnErr) {
@@ -179,17 +192,19 @@ export class ConversationService {
       sdkSocket: null,
       pendingOutbound: [],
       stderrLines: [],
+      stdoutLines: [],
       sdkMessages: [],
       initMessage: null,
       pendingPermissionRequests: new Map(),
     }
     this.sessions.set(sessionId, session)
 
-    this.readErrorStream(sessionId, proc)
+    const stderrDone = this.readErrorStream(sessionId, proc)
+    const stdoutDone = this.readStdoutStream(sessionId, proc)
 
-    proc.exited.then((code) => {
-      this.handleProcessExit(sessionId, proc, code)
-    })
+    // Do NOT register proc.exited before the startup grace check: if the CLI
+    // exits immediately, handleProcessExit would delete the session while
+    // readErrorStream/readStdoutStream still need session.*Lines buffers.
 
     const STARTUP_GRACE_MS = 3000
     const earlyExitCode = await Promise.race([
@@ -200,7 +215,16 @@ export class ConversationService {
     ])
 
     if (earlyExitCode !== null) {
-      const startupError = this.buildStartupError(sessionId, earlyExitCode)
+      // Wait until stderr/stdout pipes close so short-lived crashes still surface
+      // their messages (fixed-delay polling was unreliable).
+      await Promise.race([
+        Promise.all([stderrDone, stdoutDone]),
+        new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+      ])
+      const startupError = this.buildStartupError(sessionId, earlyExitCode, {
+        argv: args,
+        workDir,
+      })
       this.sessions.delete(sessionId)
 
       if (this.clearStaleLock(sessionId)) {
@@ -213,8 +237,28 @@ export class ConversationService {
       console.error(
         `[ConversationService] CLI exited with code ${earlyExitCode} for ${sessionId}: ${startupError.message}`,
       )
+
+      if (
+        startupError.code === 'CLI_START_FAILED' &&
+        startupError.message.includes('No conversation found with session ID') &&
+        shouldResume &&
+        !options?.skipResumeAfterStaleMetadata
+      ) {
+        console.warn(
+          `[ConversationService] Resume failed for ${sessionId} (CLI transcript missing); retrying without --resume`,
+        )
+        return this.startSession(sessionId, workDir, sdkUrl, {
+          ...options,
+          skipResumeAfterStaleMetadata: true,
+        })
+      }
+
       throw startupError
     }
+
+    proc.exited.then((code) => {
+      this.handleProcessExit(sessionId, proc, code)
+    })
 
     if (shouldReplacePlaceholder || !launchInfo) {
       await sessionService.appendSessionMetadata(sessionId, {
@@ -235,9 +279,8 @@ export class ConversationService {
 
   removeOutputCallback(sessionId: string, callback: (msg: any) => void): void {
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.outputCallbacks = session.outputCallbacks.filter((cb) => cb !== callback)
-    }
+    if (!session) return
+    session.outputCallbacks = session.outputCallbacks.filter((entry) => entry !== callback)
   }
 
   clearOutputCallbacks(sessionId: string): void {
@@ -245,12 +288,6 @@ export class ConversationService {
     if (session) {
       session.outputCallbacks = []
     }
-  }
-
-  removeOutputCallback(sessionId: string, callback: (msg: any) => void): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    session.outputCallbacks = session.outputCallbacks.filter((entry) => entry !== callback)
   }
 
   getRecentSdkMessages(sessionId: string): any[] {
@@ -299,14 +336,13 @@ export class ConversationService {
           ? {
               behavior: 'allow',
               updatedInput: updatedInput ?? {},
-              ...(rule === 'always' && pendingRequest
+              ...(pendingRequest && (rule === 'session' || rule === 'always')
                 ? {
-                    updatedPermissions: [
-                      ...normalizeSessionPermissionUpdates(
-                        pendingRequest.permissionSuggestions,
-                        pendingRequest.toolName,
-                      ),
-                    ],
+                    updatedPermissions: normalizePermissionUpdates(
+                      pendingRequest.permissionSuggestions,
+                      pendingRequest.toolName,
+                      rule === 'always' ? 'localSettings' : 'session',
+                    ),
                   }
                 : {}),
             }
@@ -390,6 +426,10 @@ export class ConversationService {
 
   hasSession(sessionId: string): boolean {
     return this.sessions.has(sessionId)
+  }
+
+  hasSdkConnection(sessionId: string): boolean {
+    return Boolean(this.sessions.get(sessionId)?.sdkSocket)
   }
 
   getSessionWorkDir(sessionId: string): string {
@@ -529,6 +569,43 @@ export class ConversationService {
       }
     } catch {
       // stderr read failures should not kill the session
+    }
+  }
+
+  /** Early crashes sometimes print to stdout only (e.g. some Bun/runtime messages). */
+  private async readStdoutStream(
+    sessionId: string,
+    proc: ReturnType<typeof Bun.spawn>,
+  ): Promise<void> {
+    if (!proc.stdout) return
+
+    const reader = (proc.stdout as ReadableStream).getReader()
+    const decoder = new TextDecoder()
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const text = decoder.decode(value, { stream: true })
+        if (!text.trim()) continue
+
+        const session = this.sessions.get(sessionId)
+        if (session) {
+          for (const line of text
+            .split('\n')
+            .map((entry) => entry.trim())
+            .filter(Boolean)) {
+            session.stdoutLines.push(line)
+            if (session.stdoutLines.length > 20) {
+              session.stdoutLines.splice(0, 10)
+            }
+          }
+        }
+        // Do not log every chunk: SDK/bridge paths may write NDJSON to stdout.
+      }
+    } catch {
+      // ignore
     }
   }
 
@@ -673,7 +750,7 @@ export class ConversationService {
       )
     }
 
-    return {
+    const childEnv: Record<string, string> = {
       ...cleanEnv,
       CLAUDE_CODE_ENABLE_TASKS: '1',
       CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1',
@@ -708,6 +785,41 @@ export class ConversationService {
         ? await this.buildOfficialOAuthEnv()
         : {}),
     }
+    this.augmentPathForCliSubprocess(childEnv)
+    return childEnv
+  }
+
+  /**
+   * `bin/claude-gugu` ends with `exec bun ...`; GUI/IDE-launched servers often
+   * have a minimal PATH where `bun` is missing → child exit 127.
+   */
+  private augmentPathForCliSubprocess(env: Record<string, string>): void {
+    const sep = process.platform === 'win32' ? ';' : ':'
+    const prepend: string[] = []
+    const exeBase = path.basename(process.execPath).replace(/\.exe$/i, '')
+    if (exeBase === 'bun') {
+      prepend.push(path.dirname(process.execPath))
+    }
+    // Desktop-launched Windows apps often miss user-local CLI install dirs.
+    // RTK's Claude hook may invoke `rtk` by name, so keep common install
+    // locations available to child CLI/tool subprocesses even when the app was
+    // not started from an interactive shell.
+    prepend.push(
+      path.join(os.homedir(), '.local', 'bin'),
+      path.join(os.homedir(), '.cargo', 'bin'),
+    )
+    const homeBun = path.join(os.homedir(), '.bun', 'bin')
+    if (fs.existsSync(homeBun)) prepend.push(homeBun)
+    const tail = (env.PATH ?? '').split(sep).filter(Boolean)
+    const merged = [...prepend, ...tail]
+    const deduped: string[] = []
+    const seen = new Set<string>()
+    for (const p of merged) {
+      if (!p || seen.has(p)) continue
+      seen.add(p)
+      deduped.push(p)
+    }
+    env.PATH = deduped.join(sep)
   }
 
   /**
@@ -739,8 +851,20 @@ export class ConversationService {
   }
 
   private shouldStripInheritedProviderEnv(providerId?: string | null): boolean {
-    if (providerId !== undefined) {
+    // Only strip when Desktop explicitly selected a managed provider id from the registry.
+    // Do NOT treat `providerId === null` as "strip" — that means "no custom provider"
+    // but the server may still authenticate via inherited ANTHROPIC_* (repo `.env`).
+    if (typeof providerId === 'string') {
       return true
+    }
+
+    const serverUsesInlineApiCreds = !!(
+      process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
+      process.env.ANTHROPIC_API_KEY?.trim()
+    )
+    // Bun loads project `.env` into the server process — keep forwarding those vars to the CLI child.
+    if (serverUsesInlineApiCreds) {
+      return false
     }
 
     const configDir =
@@ -784,10 +908,18 @@ export class ConversationService {
    * provider 管理,也希望官方 OAuth 能正常工作。
    */
   private shouldMarkManagedOAuth(providerId?: string | null): boolean {
-    if (providerId === null) {
-      return true
-    }
     if (typeof providerId === 'string') {
+      return false
+    }
+
+    // When the API server was launched with ANTHROPIC_* in its environment (e.g. repo `.env`),
+    // the CLI must NOT use `CLAUDE_CODE_ENTRYPOINT=claude-desktop` — that path ignores
+    // ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY and surfaces "Not logged in · /login".
+    const serverUsesInlineApiCreds = !!(
+      process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
+      process.env.ANTHROPIC_API_KEY?.trim()
+    )
+    if (serverUsesInlineApiCreds) {
       return false
     }
 
@@ -855,9 +987,11 @@ export class ConversationService {
   private buildStartupError(
     sessionId: string,
     exitCode: number,
+    spawnHint?: { argv: string[]; workDir: string },
   ): ConversationStartupError {
     const session = this.sessions.get(sessionId)
     const stderrText = session?.stderrLines.join('\n') ?? ''
+    const stdoutText = session?.stdoutLines.join('\n') ?? ''
     const recentMessages = session?.sdkMessages ?? []
     const resultMessage = [...recentMessages]
       .reverse()
@@ -865,10 +999,12 @@ export class ConversationService {
     const authStatus = [...recentMessages]
       .reverse()
       .find((msg) => msg?.type === 'auth_status')
+    const streamText =
+      [stderrText, stdoutText].filter((t) => t.trim()).join('\n---\n') || ''
     const detail =
       this.extractStartupDetail(resultMessage) ||
       this.extractStartupDetail(authStatus) ||
-      stderrText
+      streamText
 
     if (
       /(not logged in|run \/login|sign in again|login required|unauthenticated|logged_out)/i.test(
@@ -890,10 +1026,20 @@ export class ConversationService {
     }
 
     const normalizedDetail = detail.trim()
+    if (normalizedDetail) {
+      return new ConversationStartupError(
+        `CLI exited during startup (code ${exitCode}): ${normalizedDetail}`,
+        'CLI_START_FAILED',
+        true,
+      )
+    }
+
+    const hint =
+      spawnHint &&
+      ` No output captured; spawn argv0="${spawnHint.argv[0] ?? ''}" (${spawnHint.argv.length} args), working directory="${spawnHint.workDir}". Check the terminal where the API server runs for [CLI:${sessionId}] lines.`
+
     return new ConversationStartupError(
-      normalizedDetail
-        ? `CLI exited during startup (code ${exitCode}): ${normalizedDetail}`
-        : `CLI exited during startup with code ${exitCode}.`,
+      `CLI exited during startup with code ${exitCode}.${hint ?? ''}`,
       'CLI_START_FAILED',
       true,
     )
@@ -902,6 +1048,9 @@ export class ConversationService {
   private buildRuntimeExitMessage(sessionId: string, exitCode: number): string {
     const session = this.sessions.get(sessionId)
     const stderrText = session?.stderrLines.join('\n').trim() ?? ''
+    const stdoutText = session?.stdoutLines.join('\n').trim() ?? ''
+    const streamCombo =
+      [stderrText, stdoutText].filter(Boolean).join('\n---\n') || ''
     const recentMessages = session?.sdkMessages ?? []
     const resultMessage = [...recentMessages]
       .reverse()
@@ -912,7 +1061,7 @@ export class ConversationService {
     const detail =
       this.extractStartupDetail(resultMessage) ||
       this.extractStartupDetail(authStatus) ||
-      stderrText
+      streamCombo
 
     return detail
       ? `CLI process exited unexpectedly (code ${exitCode}): ${detail}`
@@ -1060,20 +1209,39 @@ export class ConversationService {
   }
 }
 
-function normalizeSessionPermissionUpdates(
+type PermissionRuleDestination = 'session' | 'localSettings'
+
+/**
+ * Merge SDK suggestions or fall back to a single allow rule for this tool.
+ * Invalid suggestion objects must not be forwarded as-is: the CLI validates
+ * `updatedPermissions` with Zod — one bad entry drops the entire array and
+ * nothing gets persisted ("always allow" appears to do nothing).
+ */
+function normalizePermissionUpdates(
   suggestions: unknown[] | undefined,
   toolName: string,
-) {
+  destination: PermissionRuleDestination,
+): PermissionUpdate[] {
+  const schema = permissionUpdateSchema()
+  const valid: PermissionUpdate[] = []
+
   if (Array.isArray(suggestions) && suggestions.length > 0) {
-    return suggestions.map((suggestion) => {
-      if (!suggestion || typeof suggestion !== 'object') {
-        return suggestion
+    for (const suggestion of suggestions) {
+      if (!suggestion || typeof suggestion !== 'object') continue
+      const merged = { ...suggestion, destination }
+      const parsed = schema.safeParse(merged)
+      if (parsed.success) {
+        valid.push(parsed.data as PermissionUpdate)
+      } else {
+        console.warn(
+          `[ConversationService] Dropped invalid permission suggestion for ${toolName} (${destination}): ${parsed.error.message}`,
+        )
       }
-      return {
-        ...suggestion,
-        destination: 'session',
-      }
-    })
+    }
+  }
+
+  if (valid.length > 0) {
+    return valid
   }
 
   return [
@@ -1081,7 +1249,7 @@ function normalizeSessionPermissionUpdates(
       type: 'addRules',
       rules: [{ toolName }],
       behavior: 'allow',
-      destination: 'session',
+      destination,
     },
   ]
 }

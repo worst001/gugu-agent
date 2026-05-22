@@ -3,8 +3,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MessageList, buildRenderModel } from './MessageList'
 import { sessionsApi } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
+import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
+import { useWorkbenchStore } from '../../stores/workbenchStore'
 import type { UIMessage } from '../../types/chat'
 import type { PerSessionState } from '../../stores/chatStore'
 
@@ -38,7 +40,46 @@ describe('MessageList nested tool calls', () => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ locale: 'en' })
     useTabStore.setState({ activeTabId: ACTIVE_TAB, tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' }] })
+    useSessionStore.setState({ sessions: [], activeSessionId: ACTIVE_TAB, isLoading: false, error: null, selectedProjects: [], availableProjects: [] })
     useChatStore.setState({ sessions: { [ACTIVE_TAB]: makeSessionState() } })
+    useWorkbenchStore.setState({ sessions: {} })
+  })
+
+  it('opens user attachments in the workbench preview tab', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-attachment',
+              type: 'user_text',
+              content: '这是什么',
+              timestamp: 1,
+              attachments: [
+                {
+                  type: 'image',
+                  name: 'screen.png',
+                  data: 'data:image/png;base64,abc123',
+                  mimeType: 'image/png',
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    fireEvent.click(screen.getByLabelText('Open in workbench'))
+
+    expect(useWorkbenchStore.getState().sessions[ACTIVE_TAB]).toMatchObject({
+      isOpen: true,
+      activeTab: 'preview',
+      selectedAttachmentId: 'user-attachment:attachment-0',
+      selectedToolUseId: null,
+      selectedFilePath: null,
+    })
   })
 
   it('renders sub-agent tool calls inline beneath the parent agent tool call', () => {
@@ -206,6 +247,43 @@ describe('MessageList nested tool calls', () => {
 
     expect(renderItems).toHaveLength(1)
     expect(renderItems[0]).toMatchObject({ kind: 'tool_group' })
+  })
+
+  it('hides unavailable WebSearch tool calls and results from the chat render model', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'tool-search',
+        type: 'tool_use',
+        toolName: 'WebSearch',
+        toolUseId: 'search-1',
+        input: { query: 'latest anime rankings' },
+        timestamp: 1,
+      },
+      {
+        id: 'result-search',
+        type: 'tool_result',
+        toolUseId: 'search-1',
+        content: '<tool_use_error>Error: No such tool available: WebSearch</tool_use_error>',
+        isError: true,
+        timestamp: 2,
+      },
+      {
+        id: 'assistant-follow-up',
+        type: 'assistant_text',
+        content: '我会改用已有信息继续。',
+        timestamp: 3,
+      },
+    ]
+
+    const { renderItems, toolResultMap } = buildRenderModel(messages)
+
+    expect(toolResultMap.has('search-1')).toBe(false)
+    expect(renderItems).toEqual([
+      {
+        kind: 'message',
+        message: messages[2],
+      },
+    ])
   })
 
   it('shows failed agent status and compact unavailable summary for Explore launch errors', () => {
@@ -680,6 +758,217 @@ describe('MessageList nested tool calls', () => {
       text: '第二段',
       attachments: undefined,
     })
+  })
+
+  it('forks a user message into a new session without mutating the current chat', async () => {
+    vi.spyOn(sessionsApi, 'getCheckpoints').mockResolvedValue({
+      checkpoints: [
+        {
+          id: 'user-1',
+          kind: 'user_turn',
+          messageId: 'user-1',
+          title: 'Build a website',
+          timestamp: '2026-01-01T00:01:00.000Z',
+          userMessageIndex: 0,
+          messagesIncluded: 2,
+          trackedFileCount: 1,
+        },
+      ],
+    })
+    vi.spyOn(sessionsApi, 'fork').mockResolvedValue({
+      sessionId: 'forked-session',
+      sourceSessionId: ACTIVE_TAB,
+      targetUserMessageId: 'user-1',
+      userMessageIndex: 0,
+      title: 'Build a website (fork)',
+      workDir: 'D:\\Projects\\app',
+      messagesCopied: 2,
+    })
+    vi.spyOn(sessionsApi, 'list').mockResolvedValue({ sessions: [], total: 0 })
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: 'Build a website',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: 'Done',
+              timestamp: 2,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fork from here' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Fork Conversation')).toBeTruthy()
+    expect(within(dialog).getByText('Checkpoint timeline')).toBeTruthy()
+
+    await waitFor(() => {
+      expect(sessionsApi.getCheckpoints).toHaveBeenCalledWith(ACTIVE_TAB)
+      expect(within(dialog).getAllByText('Build a website').length).toBeGreaterThan(0)
+      expect(within(dialog).getByText('1 tracked files')).toBeTruthy()
+    })
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Fork session/ }))
+
+    await waitFor(() => {
+      expect(sessionsApi.fork).toHaveBeenCalledWith(ACTIVE_TAB, {
+        targetUserMessageId: 'user-1',
+        userMessageIndex: 0,
+        expectedContent: 'Build a website',
+      })
+    })
+    expect(useTabStore.getState().activeTabId).toBe('forked-session')
+    expect(useTabStore.getState().tabs).toContainEqual(
+      expect.objectContaining({
+        sessionId: 'forked-session',
+        title: 'Build a website (fork)',
+      }),
+    )
+    expect(useChatStore.getState().sessions[ACTIVE_TAB]?.messages).toHaveLength(2)
+  })
+
+  it('opens plan confirmation for recent planning replies and sends the implement choice', async () => {
+    const sendMessage = vi.fn()
+
+    useChatStore.setState({
+      sendMessage,
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-plan',
+              type: 'assistant_text',
+              content: [
+                'Implementation plan',
+                '',
+                '- Create a calculator script.',
+                '- Add add, subtract, multiply, and divide commands.',
+                '',
+                'Does this plan look right? Confirm and I will implement it.',
+              ].join('\n'),
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm Plan' })
+    expect(within(dialog).getByText('Implementation plan')).toBeTruthy()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Implement plan' }))
+
+    expect(sendMessage).toHaveBeenCalledWith(ACTIVE_TAB, 'Implement the plan')
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+    })
+  })
+
+  it('prefills a plan update request instead of sending immediately', async () => {
+    const sendMessage = vi.fn()
+    const queueComposerPrefill = vi.fn()
+
+    useChatStore.setState({
+      sendMessage,
+      queueComposerPrefill,
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-plan',
+              type: 'assistant_text',
+              content: [
+                'Implementation plan',
+                '',
+                '- Build the first version.',
+                '',
+                'Does this plan look right? You can revise the plan before implementation.',
+              ].join('\n'),
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm Plan' })
+    fireEvent.change(within(dialog).getByLabelText('Need to adjust the plan?'), {
+      target: { value: 'Add tests before implementation.' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Update plan' }))
+
+    expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
+      text: 'Please update the plan based on these changes:\n\nAdd tests before implementation.',
+    })
+    expect(sendMessage).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+    })
+  })
+
+  it('renders unsupported attachment errors as assistant guidance instead of error panels', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'error-attachment',
+              type: 'error',
+              code: 'invalid_request_error',
+              message:
+                'Model "deepseek-v4-pro" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.',
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText(/I cannot read that image or attachment/)).toBeTruthy()
+    expect(screen.queryByText('Error:')).toBeNull()
+  })
+
+  it('replaces assistant text that contains unsupported attachment API errors', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-raw-error',
+              type: 'assistant_text',
+              content:
+                'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Model \\"deepseek-v4-pro\\" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only."}}',
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText(/I cannot read that image or attachment/)).toBeTruthy()
+    expect(screen.queryByText(/API Error: 400/)).toBeNull()
+    expect(screen.queryByText(/deepseek-v4-pro/)).toBeNull()
   })
 
   it('shows raw startup details under translated CLI startup errors', () => {

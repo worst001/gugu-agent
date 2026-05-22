@@ -13,6 +13,32 @@ const ModelMappingSchema = z.object({
   opus: z.string(),
 })
 
+const ProviderPresetCategorySchema = z.enum([
+  'official',
+  'domestic',
+  'domestic-coding',
+  'aggregator',
+  'local',
+  'custom',
+])
+
+const ProviderPresetProtocolSchema = z.enum([
+  'anthropic_native',
+  'anthropic_compatible',
+  'openai_chat_proxy',
+  'openai_responses_proxy',
+  'chatgpt_codex',
+])
+
+const ProviderPresetModelRoleSchema = z.enum(['main', 'haiku', 'sonnet', 'opus'])
+
+const ProviderPresetRoutingHintSchema = z.object({
+  fast: ProviderPresetModelRoleSchema.optional(),
+  balanced: ProviderPresetModelRoleSchema.optional(),
+  pro: ProviderPresetModelRoleSchema.optional(),
+  note: z.string().optional(),
+})
+
 const ProviderPresetSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -21,6 +47,10 @@ const ProviderPresetSchema = z.object({
   defaultModels: ModelMappingSchema,
   needsApiKey: z.boolean(),
   websiteUrl: z.string(),
+  category: ProviderPresetCategorySchema.optional(),
+  protocol: ProviderPresetProtocolSchema.optional(),
+  agentCompatible: z.boolean().optional(),
+  routingHint: ProviderPresetRoutingHintSchema.optional(),
   apiKeyUrl: z.string().optional(),
   promoText: z.string().optional(),
   featured: z.boolean().optional(),

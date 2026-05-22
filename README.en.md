@@ -1,23 +1,22 @@
-# Claude Code GuGu
+# Gugu Agent
 
 <p align="center">
-  <img src="docs/images/logo-horizontal.svg" alt="Claude Code GuGu" width="480">
+  <img src="docs/images/logo-horizontal.svg" alt="Gugu Agent" width="480">
 </p>
 
 <div align="center">
 
-[![GitHub Stars](https://img.shields.io/github/stars/NanmiCoder/cc-haha?style=social)](https://github.com/NanmiCoder/cc-haha/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/NanmiCoder/cc-haha?style=social)](https://github.com/NanmiCoder/cc-haha/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/NanmiCoder/cc-haha)](https://github.com/NanmiCoder/cc-haha/issues)
-[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/NanmiCoder/cc-haha)](https://github.com/NanmiCoder/cc-haha/pulls)
-[![License](https://img.shields.io/github/license/NanmiCoder/cc-haha)](https://github.com/NanmiCoder/cc-haha/blob/main/LICENSE)
+[![Gitee Stars](https://gitee.com/xiyouwangluo/claude-code-gugu/badge/star.svg)](https://gitee.com/xiyouwangluo/claude-code-gugu/stargazers)
+[![Gitee Forks](https://gitee.com/xiyouwangluo/claude-code-gugu/badge/fork.svg)](https://gitee.com/xiyouwangluo/claude-code-gugu/members)
+[![Gitee Issues](https://img.shields.io/badge/Gitee-Issues-C71D23?logo=gitee)](https://gitee.com/xiyouwangluo/claude-code-gugu/issues)
+[![Releases](https://img.shields.io/badge/Releases-Gitee-C71D23?logo=gitee)](https://gitee.com/xiyouwangluo/claude-code-gugu/releases)
 [![中文](https://img.shields.io/badge/🇨🇳_中文-Available-green)](README.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-当前-blue)](README.en.md)
 [![Docs](https://img.shields.io/badge/📖_Documentation-Visit-D97757)](https://claudecode-haha.relakkesyang.org)
 
 </div>
 
-A **locally runnable version** repaired from the leaked Claude Code source, with support for any Anthropic-compatible API endpoint (MiniMax, OpenRouter, etc.). Beyond the full TUI, we've also completed Computer Use (macOS / Windows), built a GUI **desktop app**, and enabled **full remote control** via Telegram / Feishu.
+Gugu Agent is a locally runnable Claude Code build maintained by 谷星曜工作室, with support for any Anthropic-compatible API endpoint (MiniMax, OpenRouter, etc.). Beyond the full TUI, it also includes Computer Use (macOS / Windows), a GUI **desktop app**, and **full remote control** via Telegram / Feishu.
 
 <p align="center">
   <a href="#features">Features</a> · <a href="#desktop-preview">Desktop</a> · <a href="#architecture-overview">Architecture</a> · <a href="#quick-start">Quick Start</a> · <a href="docs/en/guide/env-vars.md">Env Vars</a> · <a href="docs/en/guide/faq.md">FAQ</a> · <a href="docs/en/guide/global-usage.md">Global Usage</a> · <a href="#more-documentation">More Docs</a>
@@ -63,7 +62,7 @@ A **locally runnable version** repaired from the leaked Claude Code source, with
 ## Desktop Preview
 
 <p align="center">
-  <a href="https://github.com/NanmiCoder/cc-haha/releases"><img src="https://img.shields.io/badge/⬇_Download_Desktop-macOS_%7C_Windows-D97757?style=for-the-badge" alt="Download Desktop"></a>
+  <a href="https://gitee.com/xiyouwangluo/claude-code-gugu/releases"><img src="https://img.shields.io/badge/⬇_Download_Desktop-macOS_%7C_Windows-D97757?style=for-the-badge" alt="Download Desktop"></a>
   &nbsp;
   <a href="docs/desktop/04-installation.md"><img src="https://img.shields.io/badge/📖_Install_Guide-Guide-gray?style=for-the-badge" alt="Install Guide"></a>
 </p>
@@ -248,9 +247,9 @@ This project is maintained in the author's spare time. Corporate or individual s
 
 ---
 
-## ☕ Buy Me a Coffee
+## ☕ Support 谷星曜工作室
 
-If this project helps you, consider buying me a coffee — every bit of support keeps this project going ❤️
+If this project helps you, consider supporting 谷星曜工作室. Every bit of support keeps the project moving ❤️
 
 <table>
 <tr>
@@ -285,15 +284,13 @@ Thanks to the following open-source projects and community practices for referen
 
 ## ⭐ Star History
 
-If this project helps you, please support it with a ⭐ Star so more people can discover Claude Code GuGu.
+If this project helps you, please support it with a ⭐ Star on Gitee so more people can discover Gugu Agent.
 
-<a href="https://www.star-history.com/#NanmiCoder/cc-haha&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date" />
-  </picture>
-</a>
+<p align="center">
+  <a href="https://gitee.com/xiyouwangluo/claude-code-gugu/stargazers">
+    <img src="https://gitee.com/xiyouwangluo/claude-code-gugu/badge/star.svg" alt="Gitee Stars">
+  </a>
+</p>
 
 ---
 

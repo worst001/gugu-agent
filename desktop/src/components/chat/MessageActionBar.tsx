@@ -5,6 +5,8 @@ type Props = {
   copyLabel: string
   onRewind?: () => void
   rewindLabel?: string
+  onFork?: () => void
+  forkLabel?: string
   align?: 'start' | 'end'
 }
 
@@ -13,12 +15,15 @@ export function MessageActionBar({
   copyLabel,
   onRewind,
   rewindLabel = 'Rewind to here',
+  onFork,
+  forkLabel = 'Fork from here',
   align = 'start',
 }: Props) {
   const hasCopy = Boolean(copyText?.trim())
   const hasRewind = Boolean(onRewind)
+  const hasFork = Boolean(onFork)
 
-  if (!hasCopy && !hasRewind) return null
+  if (!hasCopy && !hasRewind && !hasFork) return null
 
   return (
     <div
@@ -29,6 +34,18 @@ export function MessageActionBar({
       }`}
     >
       <div className="flex items-center gap-1.5">
+        {hasFork && (
+          <button
+            type="button"
+            onClick={onFork}
+            aria-label={forkLabel}
+            title={forkLabel}
+            className="inline-flex min-h-7 items-center gap-1 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-low)] px-2.5 text-[11px] font-medium text-[var(--color-text-tertiary)] transition-colors hover:border-[var(--color-brand)]/35 hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
+          >
+            <span className="material-symbols-outlined text-[14px]">fork_right</span>
+            <span className="hidden min-[920px]:inline">Fork</span>
+          </button>
+        )}
         {hasRewind && (
           <button
             type="button"

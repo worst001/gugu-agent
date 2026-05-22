@@ -1,4 +1,4 @@
-# 快速开始
+﻿# 快速开始
 
 ## 1. 安装 Bun
 
@@ -30,9 +30,9 @@ cp .env.example .env
 ### macOS / Linux
 
 ```bash
-./bin/claude-gugu                          # 交互 TUI 模式
-./bin/claude-gugu -p "your prompt here"    # 无头模式
-./bin/claude-gugu --help                   # 查看所有选项
+./bin/cc-gugu                          # 交互 TUI 模式
+./bin/cc-gugu -p "your prompt here"    # 无头模式
+./bin/cc-gugu --help                   # 查看所有选项
 ```
 
 ### Windows
@@ -44,7 +44,7 @@ cp .env.example .env
 bun --env-file=.env ./src/entrypoints/cli.tsx
 
 # 或在 Git Bash 中运行
-./bin/claude-gugu
+./bin/cc-gugu
 ```
 
 ## 4. 全局使用（可选）
@@ -60,5 +60,5 @@ export PATH="$HOME/path/to/claude-code-gugu/bin:$PATH"
 如果 Ink TUI 出现问题，可以使用降级 Recovery CLI 模式：
 
 ```bash
-CLAUDE_CODE_FORCE_RECOVERY_CLI=1 ./bin/claude-gugu
+CLAUDE_CODE_FORCE_RECOVERY_CLI=1 ./bin/cc-gugu
 ```

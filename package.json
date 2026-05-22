@@ -1,14 +1,16 @@
 {
-  "name": "claude-code-local",
+  "name": "cc-gugu",
   "version": "999.0.0-local",
   "private": true,
   "type": "module",
   "bin": {
+    "cc-gugu": "./bin/cc-gugu",
     "claude-gugu": "./bin/claude-gugu"
   },
   "scripts": {
+    "cc-gugu": "bun run ./bin/cc-gugu",
     "claude-gugu": "bun run ./bin/claude-gugu",
-    "start": "bun run ./bin/claude-gugu",
+    "start": "bun run ./bin/cc-gugu",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

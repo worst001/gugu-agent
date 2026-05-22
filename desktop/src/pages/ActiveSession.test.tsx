@@ -19,6 +19,10 @@ vi.mock('../components/chat/SessionTaskBar', () => ({
   SessionTaskBar: () => <div data-testid="session-task-bar" />,
 }))
 
+vi.mock('../components/workbench/WorkbenchPanel', () => ({
+  WorkbenchPanel: () => <div data-testid="workbench-panel" />,
+}))
+
 import { ActiveSession } from './ActiveSession'
 import { useChatStore } from '../stores/chatStore'
 import { useCLITaskStore } from '../stores/cliTaskStore'
@@ -90,8 +94,9 @@ describe('ActiveSession task polling', () => {
       },
     })
 
-    const { unmount } = render(<ActiveSession />)
+    const { queryByTestId, unmount } = render(<ActiveSession />)
 
+    expect(queryByTestId('message-list')).toBeInTheDocument()
     expect(fetchSessionTasks).toHaveBeenCalledWith(sessionId)
 
     await act(async () => {

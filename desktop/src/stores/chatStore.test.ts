@@ -96,10 +96,39 @@ vi.mock('./cliTaskStore', () => ({
   },
 }))
 
-import { mapHistoryMessagesToUiMessages, useChatStore } from './chatStore'
+import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } from './chatStore'
+import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
+import { sessionsApi } from '../api/sessions'
 
 const TEST_SESSION_ID = 'test-session-1'
 const initialState = useChatStore.getState()
+
+function seedSession(overrides: Partial<PerSessionState> = {}) {
+  useChatStore.setState({
+    sessions: {
+      [TEST_SESSION_ID]: {
+        messages: [],
+        chatState: 'idle',
+        connectionState: 'connected',
+        streamingText: '',
+        streamingToolInput: '',
+        activeToolUseId: null,
+        activeToolName: null,
+        activeThinkingId: null,
+        pendingPermission: null,
+        pendingComputerUsePermission: null,
+        tokenUsage: { input_tokens: 0, output_tokens: 0 },
+        elapsedSeconds: 0,
+        statusVerb: '',
+        slashCommands: [],
+        agentTaskNotifications: {},
+        elapsedTimer: null,
+        composerPrefill: null,
+        ...overrides,
+      },
+    },
+  })
+}
 
 describe('chatStore history mapping', () => {
   beforeEach(() => {
@@ -158,6 +187,35 @@ describe('chatStore history mapping', () => {
     ])
     expect(mapped[2]).toMatchObject({ parentToolUseId: 'agent-1' })
     expect(mapped[3]).toMatchObject({ parentToolUseId: 'agent-1' })
+  })
+
+  it('maps restored thinking to a brief Chinese status', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: '粗略看下这个文件',
+      },
+      {
+        id: 'assistant-1',
+        type: 'assistant',
+        timestamp: '2026-04-06T00:00:01.000Z',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'The user wants me to look at the attached PDF file. Let me inspect the parsed attachment results.',
+          },
+        ],
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped[1]).toMatchObject({
+      type: 'thinking',
+      content: '正在检查附件',
+    })
   })
 
   it('merges consecutive assistant text blocks when restoring transcript history', () => {
@@ -231,6 +289,67 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('restores a locally submitted image when attachment parser history no longer contains the raw image block', async () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(
+      TEST_SESSION_ID,
+      'parsed wire prompt',
+      [{ type: 'image', name: 'whale.png', data: 'data:image/png;base64,aW1hZ2U=', mimeType: 'image/png' }],
+      {
+        displayContent: '',
+        displayAttachments: [
+          { type: 'image', name: 'whale.png', data: 'data:image/png;base64,aW1hZ2U=', mimeType: 'image/png' },
+        ],
+      },
+    )
+
+    seedSession()
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'history-user-with-parser-output',
+          type: 'user',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: [
+            {
+              type: 'text',
+              text: '<闄勪欢瑙ｆ瀽缁撴灉>\nimage markdown\n</闄勭欢瑙ｆ瀽缁撴灉>\n\n<鐢ㄦ埛姝ｆ枃>\n\n</鐢ㄦ埛姝ｆ枃>',
+            },
+          ],
+        },
+      ],
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(
+      useChatStore.getState().sessions[TEST_SESSION_ID]?.messages.some((message) =>
+        message.type === 'user_text' &&
+        message.attachments?.some((attachment) =>
+          attachment.type === 'image' &&
+          attachment.name === 'whale.png' &&
+          attachment.data === 'data:image/png;base64,aW1hZ2U='
+        )
+      ),
+    ).toBe(true)
+  })
+
+  it('does not resurrect a forgotten local echo after rewind history reloads', async () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'write a table')
+    useChatStore.getState().forgetLocalUserEcho(TEST_SESSION_ID, {
+      id: 'server-user-id',
+      content: 'write a table',
+    })
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({ messages: [] })
+
+    await useChatStore.getState().reloadHistory(TEST_SESSION_ID)
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toEqual([])
+  })
+
   it('keeps parent tool linkage for live tool events', () => {
     // Initialize the session first
     useChatStore.setState({
@@ -286,7 +405,7 @@ describe('chatStore history mapping', () => {
     ])
   })
 
-  it('replays saved runtime selection when reconnecting a session', () => {
+  it('does not send set_runtime_config on connect (model comes from server .env)', () => {
     useSessionRuntimeStore.getState().setSelection(TEST_SESSION_ID, {
       providerId: 'provider-1',
       modelId: 'kimi-k2.6',
@@ -294,22 +413,12 @@ describe('chatStore history mapping', () => {
 
     useChatStore.getState().connectToSession(TEST_SESSION_ID)
 
-    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
-      type: 'set_runtime_config',
-      providerId: 'provider-1',
-      modelId: 'kimi-k2.6',
-    })
-    expect(sendMock.mock.calls.slice(0, 2)).toEqual([
-      [
-        TEST_SESSION_ID,
-        {
-          type: 'set_runtime_config',
-          providerId: 'provider-1',
-          modelId: 'kimi-k2.6',
-        },
-      ],
-      [TEST_SESSION_ID, { type: 'prewarm_session' }],
-    ])
+    expect(
+      sendMock.mock.calls.some(
+        (c) => c[0] === TEST_SESSION_ID && (c[1] as { type?: string })?.type === 'set_runtime_config',
+      ),
+    ).toBe(false)
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, { type: 'prewarm_session' })
   })
 
   it('prewarms regular desktop sessions when connecting', () => {
@@ -317,6 +426,17 @@ describe('chatStore history mapping', () => {
 
     expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
       type: 'prewarm_session',
+    })
+  })
+
+  it('sends effort updates to the active session', () => {
+    seedSession()
+
+    useChatStore.getState().setSessionEffort(TEST_SESSION_ID, 'high')
+
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'set_effort',
+      level: 'high',
     })
   })
 
@@ -339,19 +459,6 @@ describe('chatStore history mapping', () => {
 
     expect(sendMock).not.toHaveBeenCalledWith('__settings__', {
       type: 'prewarm_session',
-    })
-  })
-
-  it('sends explicit runtime overrides over websocket', () => {
-    useChatStore.getState().setSessionRuntime(TEST_SESSION_ID, {
-      providerId: null,
-      modelId: 'claude-opus-4-7',
-    })
-
-    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
-      type: 'set_runtime_config',
-      providerId: null,
-      modelId: 'claude-opus-4-7',
     })
   })
 
@@ -583,6 +690,391 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('renders agent recovery notifications as neutral system messages and unlocks input', () => {
+    seedSession({
+      chatState: 'thinking',
+      streamingText: 'partial answer',
+      activeThinkingId: 'thinking-1',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: '模型长时间没有返回内容，已中止本轮以恢复会话。',
+      data: { reason: 'agent_stalled' },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.streamingText).toBe('')
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: '模型长时间没有返回内容，已中止本轮以恢复会话。',
+      },
+    ])
+  })
+
+  it('keeps the turn active for non-terminal model stall notifications', () => {
+    seedSession({
+      chatState: 'thinking',
+      streamingText: 'partial answer',
+      activeThinkingId: 'thinking-1',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+      data: { reason: 'model_stream_stalled' },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.streamingText).toBe('partial answer')
+    expect(session?.activeThinkingId).toBe('thinking-1')
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+      },
+    ])
+  })
+
+  it('maps live thinking to a brief Chinese status', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '粗略看下这个文件',
+          timestamp: 1,
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: 'The user wants me to inspect the attached PDF file and OCR parsing results.',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: 'Looking at the attachment parsing results, this appears to be a datasheet PDF.',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages).toMatchObject([
+      { type: 'user_text', content: '粗略看下这个文件' },
+      {
+        type: 'thinking',
+        content: '正在检查附件',
+      },
+    ])
+  })
+
+  it('keeps chunked thinking streams as one brief status without exposing raw fragments', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '这是什么',
+          timestamp: 1,
+        },
+      ],
+    })
+
+    for (const text of ['鬼', '灭', '之', '刃']) {
+      useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+        type: 'thinking',
+        text,
+      })
+    }
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages[session.messages.length - 1]).toMatchObject({
+      type: 'thinking',
+      content: '正在分析上下文',
+    })
+  })
+
+  it('maps live Chinese thinking text to a brief status', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '这是什么',
+          timestamp: 1,
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: '我需要先查看附件解析结果。',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages[session.messages.length - 1]).toMatchObject({
+      type: 'thinking',
+      content: '正在检查附件',
+    })
+  })
+
+  it('strips hidden CE workflow preamble when restoring user transcript history', () => {
+    const { wire } = buildCeWorkflowMessage('quick', '这是什么')
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-ce-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: wire,
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-ce-1',
+        type: 'user_text',
+        content: '这是什么',
+      },
+    ])
+  })
+
+  it('shows only the original prompt when restoring GLM attachment parser transcript text', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-glm-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [
+          '用户上传了附件。以下“附件解析结果”由 GLM 根据附件生成。',
+          '',
+          '<附件解析结果>',
+          '## 附件 1: screen.png',
+          '一张应用截图',
+          '</附件解析结果>',
+          '',
+          '<用户正文>',
+          '这是什么',
+          '</用户正文>',
+        ].join('\n'),
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-glm-1',
+        type: 'user_text',
+        content: '这是什么',
+      },
+    ])
+  })
+
+  it('strips nested GLM and CE workflow scaffolding from restored transcript text', () => {
+    const { wire } = buildCeWorkflowMessage('quick', '这是什么')
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-nested-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [
+          '用户上传了附件。以下“附件解析结果”由 GLM 根据附件生成。',
+          '',
+          '<附件解析结果>',
+          '## 附件 1: screen.png',
+          '一张应用截图',
+          '</附件解析结果>',
+          '',
+          '<用户正文>',
+          wire,
+          '</用户正文>',
+        ].join('\n'),
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-nested-1',
+        type: 'user_text',
+        content: '这是什么',
+      },
+    ])
+  })
+
+  it('renders attachment parser failures as neutral system messages and unlocks input', () => {
+    seedSession({
+      chatState: 'thinking',
+      streamingText: 'partial answer',
+      activeThinkingId: 'thinking-1',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'attachment_parser',
+      message: 'Please configure GLM API Key before parsing attachments.',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.streamingText).toBe('')
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: 'Please configure GLM API Key before parsing attachments.',
+      },
+    ])
+  })
+
+  it('attaches successful parser previews to the visible user message without adding a chat bubble', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: '这是什么',
+          timestamp: 1,
+          attachments: [
+            {
+              type: 'image',
+              name: 'screen.png',
+              data: 'data:image/png;base64,abc123',
+              mimeType: 'image/png',
+            },
+          ],
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'attachment_parser',
+      data: {
+        status: 'parsed',
+        preview: {
+          promptText: '<附件解析结果>\n# 截图\n</附件解析结果>',
+          results: [
+            {
+              name: 'screen.png',
+              type: 'image',
+              mimeType: 'image/png',
+              method: 'vision',
+              markdown: '# 截图\n一个应用界面。',
+            },
+          ],
+        },
+      },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.messages).toHaveLength(1)
+    expect(session?.messages[0]).toMatchObject({
+      type: 'user_text',
+      content: '这是什么',
+      attachmentParser: {
+        promptText: '<附件解析结果>\n# 截图\n</附件解析结果>',
+        results: [
+          {
+            name: 'screen.png',
+            method: 'vision',
+            markdown: '# 截图\n一个应用界面。',
+          },
+        ],
+      },
+    })
+  })
+
+  it('turns recoverable agent timeout errors into neutral system messages', () => {
+    seedSession({ chatState: 'thinking' })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'CLI_ERROR',
+      message: '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.messages).toHaveLength(1)
+    expect(session?.messages[0]).toMatchObject({
+      type: 'system',
+      content: '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。',
+    })
+  })
+
+  it('turns unsupported image provider errors into assistant guidance', () => {
+    seedSession()
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'invalid_request_error',
+      message:
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Model \\"deepseek-v4-pro\\" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only."}}',
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toHaveLength(1)
+    expect(messages?.[0]).toMatchObject({ type: 'assistant_text' })
+    const content = messages?.[0]?.type === 'assistant_text' ? messages[0].content : ''
+    expect(content).not.toContain('API Error')
+    expect(content).not.toContain('deepseek-v4-pro')
+    expect(content.length).toBeGreaterThan(0)
+  })
+
+  it('deduplicates the follow-up CLI error for unsupported attachments', () => {
+    seedSession()
+    const providerError =
+      'Model "deepseek-v4-pro" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.'
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'invalid_request_error',
+      message: providerError,
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'CLI_ERROR',
+      message: `API Error: 400 ${providerError}`,
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toHaveLength(1)
+    expect(messages?.[0]).toMatchObject({ type: 'assistant_text' })
+  })
+
+  it('replaces streamed unsupported attachment API text with assistant guidance', () => {
+    seedSession()
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text:
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Model \\"deepseek-v4-pro\\" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only."}}',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 0, output_tokens: 0 },
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    const content = messages?.[0]?.type === 'assistant_text' ? messages[0].content : ''
+    expect(messages).toHaveLength(1)
+    expect(content).not.toContain('API Error')
+    expect(content).not.toContain('deepseek-v4-pro')
+    expect(content.length).toBeGreaterThan(0)
+  })
+
   it('flushes the previous assistant draft before starting a new user turn', () => {
     useChatStore.setState({
       sessions: {
@@ -618,8 +1110,136 @@ describe('chatStore history mapping', () => {
         type: 'user_text',
         content: '你是什么模型？',
       },
+      {
+        type: 'thinking',
+        content: '正在分析上下文',
+      },
     ])
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeTruthy()
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.streamingText).toBe('')
+  })
+
+  it('uses the visible text from CE wire prompts when the local display echo is blank', () => {
+    seedSession()
+    const prompt = '请构建一个小型网站，用于展示动漫女性角色排行，并设计美观界面。'
+    const { wire } = buildCeWorkflowMessage('standard', prompt)
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, wire, [], {
+      displayContent: '',
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toMatchObject([
+      {
+        type: 'user_text',
+        content: prompt,
+      },
+      {
+        type: 'thinking',
+        content: '正在规划步骤',
+      },
+    ])
+    if (messages?.[0]?.type === 'user_text') {
+      expect(messages[0].content).not.toContain('[Workflow:')
+    }
+  })
+
+  it('keeps an intentionally blank local echo for unrecognized attachment parser payloads', () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(
+      TEST_SESSION_ID,
+      'parsed wire prompt',
+      undefined,
+      {
+        displayContent: '',
+        displayAttachments: [
+          {
+            type: 'image',
+            name: 'screen.png',
+            data: 'aW1hZ2U=',
+            mimeType: 'image/png',
+          },
+        ],
+      },
+    )
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]).toMatchObject({
+      type: 'user_text',
+      content: '',
+      attachments: [
+        {
+          type: 'image',
+          name: 'screen.png',
+          data: 'data:image/png;base64,aW1hZ2U=',
+        },
+      ],
+    })
+  })
+
+  it('can display image attachments without sending them over the wire', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    useChatStore.getState().sendMessage(
+      TEST_SESSION_ID,
+      'image as base64 text',
+      undefined,
+      {
+        displayContent: '看这张图',
+        displayAttachments: [
+          {
+            type: 'image',
+            name: 'screen.png',
+            data: 'aW1hZ2U=',
+            mimeType: 'image/png',
+          },
+        ],
+      },
+    )
+
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'user_message',
+      content: 'image as base64 text',
+      attachments: undefined,
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'user_text',
+        content: '看这张图',
+        attachments: [
+          {
+            type: 'image',
+            name: 'screen.png',
+            data: 'data:image/png;base64,aW1hZ2U=',
+          },
+        ],
+      },
+      {
+        type: 'thinking',
+        content: '正在检查附件',
+      },
+    ])
   })
 
   it('resets completed CLI tasks before continuing the next user turn', () => {
@@ -666,6 +1286,10 @@ describe('chatStore history mapping', () => {
       {
         type: 'user_text',
         content: '继续下一轮',
+      },
+      {
+        type: 'thinking',
+        content: '正在分析上下文',
       },
     ])
   })
@@ -785,6 +1409,47 @@ describe('chatStore history mapping', () => {
       {
         type: 'assistant_text',
         content: '第一段：先到达。\r\n第二段：稍后到达，但仍属于同一轮回复。',
+      },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('deduplicates full snapshot text that arrives after streamed text', () => {
+    vi.useFakeTimers()
+    seedSession()
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_start',
+      blockType: 'text',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'Configured API key auth.',
+    })
+    vi.advanceTimersByTime(60)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'Configured API key auth. Ready.',
+    })
+    vi.advanceTimersByTime(60)
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'Configured API key auth. Ready.',
+    })
+    vi.advanceTimersByTime(60)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'assistant_text',
+        content: 'Configured API key auth. Ready.',
       },
     ])
 

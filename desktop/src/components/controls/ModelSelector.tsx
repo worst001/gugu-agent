@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { OFFICIAL_DEFAULT_MODEL_ID, OFFICIAL_MODELS } from '../../constants/modelCatalog'
 import { useTranslation } from '../../i18n'
-import { useChatStore } from '../../stores/chatStore'
 import { useProviderStore } from '../../stores/providerStore'
-import { DRAFT_RUNTIME_SELECTION_KEY, useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
+import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { SavedProvider } from '../../types/provider'
 import type { RuntimeSelection } from '../../types/runtime'
@@ -218,9 +217,6 @@ export function ModelSelector({
   const handleRuntimeSelect = (selection: RuntimeSelection) => {
     if (!runtimeKey) return
     useSessionRuntimeStore.getState().setSelection(runtimeKey, selection)
-    if (runtimeKey !== DRAFT_RUNTIME_SELECTION_KEY) {
-      useChatStore.getState().setSessionRuntime(runtimeKey, selection)
-    }
     setOpen(false)
   }
 

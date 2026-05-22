@@ -1,5 +1,4 @@
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
-import { ModelSelector } from '../controls/ModelSelector'
 import { DirectoryPicker } from '../shared/DirectoryPicker'
 import { useTranslation } from '../../i18n'
 import type { PermissionMode } from '../../types/settings'
@@ -11,9 +10,6 @@ type Props = {
 
   permissionMode: PermissionMode
   onPermissionModeChange: (mode: PermissionMode) => void
-
-  modelId: string
-  onModelChange: (modelId: string) => void
 
   folderPath: string
   onFolderPathChange: (path: string) => void
@@ -28,8 +24,6 @@ export function PromptEditor({
   placeholder,
   permissionMode,
   onPermissionModeChange,
-  modelId,
-  onModelChange,
   folderPath,
   onFolderPathChange,
   useWorktree: _useWorktree,
@@ -50,10 +44,9 @@ export function PromptEditor({
 
       {/* Bottom toolbar */}
       <div className="border-t border-[var(--color-border)]/40 px-3 py-2 flex flex-col gap-2 bg-[var(--color-surface-container-low)] rounded-b-[var(--radius-lg)]">
-        {/* Row 1: Permission + Model selectors */}
+        {/* Row 1: Permission selector (model/API come from server `.env`) */}
         <div className="flex items-center justify-between">
           <PermissionModeSelector value={permissionMode} onChange={onPermissionModeChange} workDir={folderPath || undefined} />
-          <ModelSelector value={modelId} onChange={onModelChange} />
         </div>
 
         {/* Row 2: Folder picker */}

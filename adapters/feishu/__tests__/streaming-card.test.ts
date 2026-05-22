@@ -330,6 +330,41 @@ describe('StreamingCard: appendText + flush', () => {
 // ---------------------------------------------------------------------------
 
 describe('StreamingCard: finalize', () => {
+  it('finalize 等待在途 ensureCreated，避免迟到建卡停在思考中', async () => {
+    let releaseCreate!: () => void
+    const createPromise = new Promise((resolve) => {
+      releaseCreate = () => resolve({ code: 0, data: { card_id: 'ck_slow' } })
+    })
+    const { client, calls } = makeMockClient({
+      'card.create': () => createPromise,
+      'im.message.create': { data: { message_id: 'om_slow' } },
+    })
+    const sc = new StreamingCard({ larkClient: client, chatId: 'oc_chat_1' })
+
+    const creating = sc.ensureCreated()
+    sc.appendText('最终回答')
+    const finalizing = sc.finalize()
+
+    await sleep(20)
+    expect(calls.map((c) => c.api)).toEqual(['cardkit.v1.card.create'])
+
+    releaseCreate()
+    await creating
+    const ok = await finalizing
+
+    expect(ok).toBe(true)
+    expect(sc._getPhase()).toBe('completed')
+    expect(calls.map((c) => c.api)).toEqual([
+      'cardkit.v1.card.create',
+      'im.message.create',
+      'cardkit.v1.card.settings',
+      'cardkit.v1.card.update',
+    ])
+    const updateCall = calls.find((c) => c.api === 'cardkit.v1.card.update')!
+    const card = JSON.parse(updateCall.args.data.card.data)
+    expect(card.body.elements[0].content).toContain('最终回答')
+  })
+
   it('CardKit 路径: settings(false) + card.update，sequence 连续递增', async () => {
     const { client, calls } = makeMockClient({
       'card.create': { code: 0, data: { card_id: 'ck_final' } },

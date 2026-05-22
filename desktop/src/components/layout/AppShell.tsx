@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { Sidebar } from './Sidebar'
 import { ContentRouter } from './ContentRouter'
 import { ToastContainer } from '../shared/Toast'
@@ -16,6 +16,10 @@ import { useTranslation } from '../../i18n'
 export function AppShell() {
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth)
+  const setSidebarWidth = useUIStore((s) => s.setSidebarWidth)
+  const resetSidebarWidth = useUIStore((s) => s.resetSidebarWidth)
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false)
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<string | null>(null)
   const t = useTranslation()
@@ -73,6 +77,27 @@ export function AppShell() {
 
   useKeyboardShortcuts()
 
+  const startSidebarResize = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!sidebarOpen) return
+    event.preventDefault()
+    event.stopPropagation()
+    const startX = event.clientX
+    const startWidth = sidebarWidth
+    setIsSidebarResizing(true)
+
+    const handleMove = (moveEvent: MouseEvent) => {
+      setSidebarWidth(startWidth + moveEvent.clientX - startX)
+    }
+    const handleUp = () => {
+      setIsSidebarResizing(false)
+      document.removeEventListener('mousemove', handleMove)
+      document.removeEventListener('mouseup', handleUp)
+    }
+
+    document.addEventListener('mousemove', handleMove)
+    document.addEventListener('mouseup', handleUp)
+  }
+
   if (startupError) {
     return <StartupErrorView error={startupError} />
   }
@@ -90,9 +115,26 @@ export function AppShell() {
       <div
         data-testid="sidebar-shell"
         data-state={sidebarOpen ? 'open' : 'closed'}
-        className="sidebar-shell"
+        data-resizing={isSidebarResizing ? 'true' : 'false'}
+        className="sidebar-shell relative"
+        style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
       >
         <Sidebar />
+        {sidebarOpen && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            title="Drag to resize. Double-click to reset."
+            onMouseDown={startSidebarResize}
+            onDoubleClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              resetSidebarWidth()
+            }}
+            className="absolute bottom-0 right-0 top-0 z-40 w-2 translate-x-1/2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-[var(--color-border-focus)]/20"
+          />
+        )}
       </div>
       <main
         id="content-area"

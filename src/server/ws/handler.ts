@@ -7,7 +7,7 @@
  */
 
 import type { ServerWebSocket } from 'bun'
-import type { ClientMessage, ServerMessage } from './events.js'
+import type { ClientMessage, ServerMessage, TokenUsage } from './events.js'
 import * as os from 'node:os'
 import {
   ConversationStartupError,
@@ -21,7 +21,11 @@ import {
   isProviderModelId,
   resolveProviderModelId,
 } from '../services/providerService.js'
-import { deriveTitle, generateTitle, saveAiTitle } from '../services/titleService.js'
+import {
+  AttachmentParserError,
+  attachmentParserService,
+} from '../services/attachmentParserService.js'
+import { deriveTitle, generateTitle, getTitleInputText, saveAiTitle } from '../services/titleService.js'
 import { parseSlashCommand } from '../../utils/slashCommandParsing.js'
 import {
   LOCAL_COMMAND_STDERR_TAG,
@@ -62,9 +66,15 @@ const runtimeOverrides = new Map<string, {
   providerId: string | null
   modelId: string
 }>()
+const sessionStartupRuntime = new Map<string, {
+  providerId?: string | null
+  model?: string
+}>()
 
 type SessionStartupOverrides = {
   permissionMode?: string
+  model?: string
+  providerId?: string | null
 }
 
 const ALLOWED_STARTUP_PERMISSION_MODES = new Set([
@@ -75,12 +85,45 @@ const ALLOWED_STARTUP_PERMISSION_MODES = new Set([
   'dontAsk',
 ])
 
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'max'])
+
 const runtimeTransitionPromises = new Map<string, Promise<void>>()
 const sessionStartupPromises = new Map<string, Promise<void>>()
 const prewarmPendingSessions = new Set<string>()
 const prewarmedSessions = new Set<string>()
 const prewarmIdleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const DEFAULT_PREWARM_IDLE_TIMEOUT_MS = 5 * 60_000
+const DEFAULT_IDLE_SESSION_RECONNECT_GRACE_MS = 30_000
+const DEFAULT_ACTIVE_SESSION_RECONNECT_GRACE_MS = 30 * 60_000
+const DEFAULT_TURN_WATCHDOG_INTERVAL_MS = 5_000
+const DEFAULT_TURN_PROGRESS_NOTICE_MS = 45_000
+const DEFAULT_TURN_PROGRESS_REMINDER_MS = 60_000
+const DEFAULT_MODEL_STALL_NOTICE_MS = 5 * 60_000
+const DEFAULT_SDK_LIVENESS_TIMEOUT_MS = 2 * 60_000
+const DEFAULT_SDK_RECONNECT_GRACE_MS = 10 * 60_000
+const DEFAULT_TOOL_STALL_NOTICE_MS = 5 * 60_000
+const DEFAULT_TOOL_IDLE_TIMEOUT_MS = 30 * 60_000
+
+type TurnPhase = 'thinking' | 'streaming' | 'tool_executing' | 'permission_pending'
+
+type TurnMonitor = {
+  sessionId: string
+  phase: TurnPhase
+  startedAt: number
+  lastProgressAt: number
+  lastKeepAliveAt: number
+  lastStopReason: string | null
+  currentMessageHasToolUse: boolean
+  sdkDisconnectedAt: number | null
+  nextNoticeAt: number
+  modelStallNoticeSent: boolean
+  sdkDisconnectNoticeSent: boolean
+  toolStallNoticeSent: boolean
+  callback: (msg: any) => void
+  timer: ReturnType<typeof setInterval> | null
+}
+
+const sessionTurnMonitors = new Map<string, TurnMonitor>()
 
 export function getSlashCommands(sessionId: string): Array<{ name: string; description: string }> {
   return sessionSlashCommands.get(sessionId) || []
@@ -101,6 +144,304 @@ export type WebSocketData = {
 const activeSessions = new Map<string, Set<ServerWebSocket<WebSocketData>>>()
 const prewarmMetadataCallbacks = new Map<string, (msg: any) => void>()
 
+function getEnvMs(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+function getSessionReconnectGraceMs(sessionId: string): number {
+  return sessionTurnMonitors.has(sessionId)
+    ? getEnvMs('CC_HAHA_ACTIVE_SESSION_RECONNECT_GRACE_MS', DEFAULT_ACTIVE_SESSION_RECONNECT_GRACE_MS)
+    : DEFAULT_IDLE_SESSION_RECONNECT_GRACE_MS
+}
+
+function broadcastToSession(sessionId: string, message: ServerMessage): void {
+  const clients = activeSessions.get(sessionId)
+  if (!clients) return
+  for (const client of clients) {
+    sendMessage(client, message)
+  }
+}
+
+function scheduleSessionCleanup(sessionId: string, delayMs: number): void {
+  const existing = sessionCleanupTimers.get(sessionId)
+  if (existing) clearTimeout(existing)
+
+  const cleanupTimer = setTimeout(() => {
+    sessionCleanupTimers.delete(sessionId)
+    if (!hasActiveClient(sessionId)) {
+      console.log(`[WS] Session ${sessionId} not reconnected after ${delayMs}ms, stopping CLI subprocess`)
+      stopTurnMonitor(sessionId)
+      conversationService.stopSession(sessionId)
+      cleanupSessionRuntimeState(sessionId)
+    }
+  }, delayMs)
+  sessionCleanupTimers.set(sessionId, cleanupTimer)
+}
+
+function getFirstActiveClient(sessionId: string): ServerWebSocket<WebSocketData> | null {
+  const clients = activeSessions.get(sessionId)
+  return clients?.values().next().value ?? null
+}
+
+function getTurnStatusVerb(phase: TurnPhase): string {
+  if (phase === 'tool_executing') return '工具仍在执行中'
+  if (phase === 'permission_pending') return '等待权限确认'
+  if (phase === 'streaming') return '仍在接收模型输出'
+  return '仍在等待模型响应'
+}
+
+function startTurnMonitor(sessionId: string): void {
+  stopTurnMonitor(sessionId)
+
+  const now = Date.now()
+  const monitor: TurnMonitor = {
+    sessionId,
+    phase: 'thinking',
+    startedAt: now,
+    lastProgressAt: now,
+    lastKeepAliveAt: now,
+    lastStopReason: null,
+    currentMessageHasToolUse: false,
+    sdkDisconnectedAt: conversationService.hasSdkConnection(sessionId) ? null : now,
+    nextNoticeAt: now + getEnvMs('CC_HAHA_TURN_PROGRESS_NOTICE_MS', DEFAULT_TURN_PROGRESS_NOTICE_MS),
+    modelStallNoticeSent: false,
+    sdkDisconnectNoticeSent: false,
+    toolStallNoticeSent: false,
+    callback: (msg: any) => noteTurnActivity(sessionId, msg),
+    timer: null,
+  }
+  monitor.timer = setInterval(
+    () => tickTurnMonitor(sessionId),
+    getEnvMs('CC_HAHA_TURN_WATCHDOG_INTERVAL_MS', DEFAULT_TURN_WATCHDOG_INTERVAL_MS),
+  )
+  const unref = (monitor.timer as { unref?: () => void }).unref
+  if (unref) unref.call(monitor.timer)
+
+  sessionTurnMonitors.set(sessionId, monitor)
+  conversationService.onOutput(sessionId, monitor.callback)
+}
+
+function stopTurnMonitor(sessionId: string): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor) return
+  if (monitor.timer) clearInterval(monitor.timer)
+  conversationService.removeOutputCallback(sessionId, monitor.callback)
+  sessionTurnMonitors.delete(sessionId)
+}
+
+function completeTurnMonitor(sessionId: string): void {
+  stopTurnMonitor(sessionId)
+  if (!hasActiveClient(sessionId) && conversationService.hasSession(sessionId)) {
+    scheduleSessionCleanup(sessionId, DEFAULT_IDLE_SESSION_RECONNECT_GRACE_MS)
+  }
+}
+
+function noteTurnActivity(sessionId: string, cliMsg: any): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor) return
+
+  const now = Date.now()
+  if (cliMsg?.type === 'keep_alive') {
+    monitor.lastKeepAliveAt = now
+    monitor.sdkDisconnectedAt = null
+    monitor.sdkDisconnectNoticeSent = false
+    return
+  }
+
+  monitor.sdkDisconnectedAt = null
+  monitor.sdkDisconnectNoticeSent = false
+  monitor.lastProgressAt = now
+  monitor.nextNoticeAt = now + getEnvMs('CC_HAHA_TURN_PROGRESS_NOTICE_MS', DEFAULT_TURN_PROGRESS_NOTICE_MS)
+
+  if (cliMsg?.type === 'result') {
+    completeTurnMonitor(sessionId)
+    return
+  }
+  if (cliMsg?.type === 'stream_event') {
+    const eventType = cliMsg.event?.type
+    const contentBlock = cliMsg.event?.content_block
+    if (eventType === 'message_start') {
+      monitor.phase = 'thinking'
+      monitor.lastStopReason = null
+      monitor.currentMessageHasToolUse = false
+    } else if (eventType === 'content_block_start' && contentBlock?.type === 'tool_use') {
+      monitor.phase = 'tool_executing'
+      monitor.currentMessageHasToolUse = true
+    } else if (eventType === 'content_block_delta') {
+      monitor.phase = cliMsg.event?.delta?.type === 'thinking_delta' ? 'thinking' : 'streaming'
+    } else if (eventType === 'message_delta') {
+      if (typeof cliMsg.event?.delta?.stop_reason === 'string') {
+        monitor.lastStopReason = cliMsg.event.delta.stop_reason
+      }
+    } else if (eventType === 'message_stop') {
+      if (!monitor.currentMessageHasToolUse && monitor.lastStopReason !== 'tool_use') {
+        completeTurnMonitor(sessionId)
+      }
+    }
+    return
+  }
+  if (
+    cliMsg?.type === 'control_request' ||
+    cliMsg?.type === 'permission_request' ||
+    cliMsg?.request?.subtype === 'can_use_tool'
+  ) {
+    monitor.phase = 'permission_pending'
+    return
+  }
+  if (cliMsg?.type === 'assistant') {
+    monitor.phase = 'streaming'
+    return
+  }
+  if (cliMsg?.type === 'user' && Array.isArray(cliMsg.message?.content)) {
+    const hasToolResult = cliMsg.message.content.some((block: any) => block?.type === 'tool_result')
+    if (hasToolResult) monitor.phase = 'thinking'
+  }
+}
+
+function tickTurnMonitor(sessionId: string): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor) return
+  if (!conversationService.hasSession(sessionId)) {
+    stopTurnMonitor(sessionId)
+    return
+  }
+
+  const now = Date.now()
+  const noProgressMs = now - monitor.lastProgressAt
+
+  if (shouldRecoverForMissingAgentHeartbeat(
+    monitor,
+    now,
+    conversationService.hasSdkConnection(sessionId),
+  )) {
+    recoverStalledTurn(sessionId, 'Agent 连接长时间没有心跳，已中止本轮以恢复会话。')
+    return
+  }
+
+  if (now >= monitor.nextNoticeAt) {
+    broadcastToSession(sessionId, {
+      type: 'status',
+      state: monitor.phase,
+      verb: getTurnStatusVerb(monitor.phase),
+    })
+    monitor.nextNoticeAt = now + getEnvMs('CC_HAHA_TURN_PROGRESS_REMINDER_MS', DEFAULT_TURN_PROGRESS_REMINDER_MS)
+  }
+
+  if (monitor.sdkDisconnectedAt !== null && !monitor.sdkDisconnectNoticeSent) {
+    monitor.sdkDisconnectNoticeSent = true
+    broadcastToSession(sessionId, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: 'Agent 连接暂时中断，正在等待自动重连。你可以继续等待，或手动停止后重试。',
+      data: { reason: 'agent_connection_lost' },
+    })
+  }
+
+  if (
+    (monitor.phase === 'thinking' || monitor.phase === 'streaming') &&
+    noProgressMs >= getEnvMs('CC_HAHA_MODEL_STALL_NOTICE_MS', DEFAULT_MODEL_STALL_NOTICE_MS) &&
+    !monitor.modelStallNoticeSent
+  ) {
+    monitor.modelStallNoticeSent = true
+    broadcastToSession(sessionId, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+      data: { reason: 'model_stream_stalled', idleMs: noProgressMs },
+    })
+  }
+
+  if (monitor.phase === 'tool_executing') {
+    const toolNoticeMs = getEnvMs('CC_HAHA_TOOL_STALL_NOTICE_MS', DEFAULT_TOOL_STALL_NOTICE_MS)
+    if (noProgressMs >= toolNoticeMs && !monitor.toolStallNoticeSent) {
+      monitor.toolStallNoticeSent = true
+      broadcastToSession(sessionId, {
+        type: 'status',
+        state: 'tool_executing',
+        verb: '工具执行时间较长，仍在等待结果',
+      })
+    }
+
+    const toolTimeoutMs = getEnvMs('CC_HAHA_TOOL_IDLE_TIMEOUT_MS', DEFAULT_TOOL_IDLE_TIMEOUT_MS)
+    if (toolTimeoutMs > 0 && noProgressMs >= toolTimeoutMs) {
+      recoverStalledTurn(sessionId, '工具长时间没有返回结果，已中止本轮以恢复会话。')
+    }
+  }
+}
+
+function shouldRecoverForMissingAgentHeartbeat(
+  monitor: TurnMonitor,
+  now: number,
+  sdkConnected: boolean,
+): boolean {
+  if (sdkConnected) return false
+  if (monitor.sdkDisconnectedAt !== null) {
+    return now - monitor.sdkDisconnectedAt >= getEnvMs(
+      'CC_HAHA_SDK_RECONNECT_GRACE_MS',
+      DEFAULT_SDK_RECONNECT_GRACE_MS,
+    )
+  }
+  const noLivenessMs = now - Math.max(monitor.lastProgressAt, monitor.lastKeepAliveAt)
+  return noLivenessMs >= getEnvMs('CC_HAHA_SDK_LIVENESS_TIMEOUT_MS', DEFAULT_SDK_LIVENESS_TIMEOUT_MS)
+}
+
+function noteSdkConnected(sessionId: string): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor) return
+  if (monitor.sdkDisconnectedAt === null) return
+
+  monitor.sdkDisconnectedAt = null
+  monitor.sdkDisconnectNoticeSent = false
+  broadcastToSession(sessionId, {
+    type: 'system_notification',
+    subtype: 'agent_recovery',
+    message: 'Agent 连接已恢复，继续等待本轮结果。',
+    data: { reason: 'agent_connection_restored' },
+  })
+  broadcastToSession(sessionId, {
+    type: 'status',
+    state: monitor.phase,
+    verb: getTurnStatusVerb(monitor.phase),
+  })
+}
+
+function noteSdkDisconnected(sessionId: string): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor || monitor.sdkDisconnectedAt !== null) return
+  monitor.sdkDisconnectedAt = Date.now()
+}
+
+function recoverStalledTurn(sessionId: string, message: string): void {
+  stopTurnMonitor(sessionId)
+  sessionStopRequested.add(sessionId)
+  conversationService.stopSession(sessionId)
+  broadcastToSession(sessionId, {
+    type: 'system_notification',
+    subtype: 'agent_recovery',
+    message,
+    data: { reason: 'agent_stalled' },
+  })
+  broadcastToSession(sessionId, { type: 'status', state: 'idle' })
+
+  const ws = getFirstActiveClient(sessionId)
+  if (ws) {
+    handlePrewarmSession(ws)
+  }
+}
+
+function syncTurnMonitorStatus(ws: ServerWebSocket<WebSocketData>, sessionId: string): void {
+  const monitor = sessionTurnMonitors.get(sessionId)
+  if (!monitor) return
+  sendMessage(ws, {
+    type: 'status',
+    state: monitor.phase,
+    verb: getTurnStatusVerb(monitor.phase),
+  })
+}
+
 export const handleWebSocket = {
   open(ws: ServerWebSocket<WebSocketData>) {
     const { sessionId, channel, sdkToken } = ws.data
@@ -113,6 +454,7 @@ export const handleWebSocket = {
       }
 
       conversationService.attachSdkConnection(sessionId, ws)
+      noteSdkConnected(sessionId)
       console.log(`[WS] SDK connected for session: ${sessionId}`)
       return
     }
@@ -135,6 +477,7 @@ export const handleWebSocket = {
 
     const msg: ServerMessage = { type: 'connected', sessionId }
     ws.send(JSON.stringify(msg))
+    syncTurnMonitorStatus(ws, sessionId)
   },
 
   message(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer) {
@@ -168,6 +511,10 @@ export const handleWebSocket = {
           handleSetPermissionMode(ws, message)
           break
 
+        case 'set_effort':
+          void handleSetEffort(ws, message)
+          break
+
         case 'set_runtime_config':
           void handleSetRuntimeConfig(ws, message)
           break
@@ -198,6 +545,7 @@ export const handleWebSocket = {
     if (channel === 'sdk') {
       console.log(`[WS] SDK disconnected from session: ${sessionId} (${code}: ${reason})`)
       conversationService.detachSdkConnection(sessionId)
+      noteSdkDisconnected(sessionId)
       return
     }
 
@@ -206,17 +554,10 @@ export const handleWebSocket = {
     removeOutputCallbackForSocket(sessionId, ws)
     removeActiveClient(sessionId, ws)
 
-    // Schedule delayed cleanup: if the client doesn't reconnect within 30 seconds,
-    // stop the CLI subprocess to avoid leaking resources.
-    const cleanupTimer = setTimeout(() => {
-      sessionCleanupTimers.delete(sessionId)
-      if (!hasActiveClient(sessionId)) {
-        console.log(`[WS] Session ${sessionId} not reconnected after 30s, stopping CLI subprocess`)
-        conversationService.stopSession(sessionId)
-        cleanupSessionRuntimeState(sessionId)
-      }
-    }, 30_000)
-    sessionCleanupTimers.set(sessionId, cleanupTimer)
+    // Give active turns a longer reconnect grace so a transient GUI reload does
+    // not kill a long-running agent task.
+    const cleanupDelayMs = getSessionReconnectGraceMs(sessionId)
+    scheduleSessionCleanup(sessionId, cleanupDelayMs)
   },
 
   drain(ws: ServerWebSocket<WebSocketData>) {
@@ -233,7 +574,7 @@ async function handleUserMessage(
   message: Extract<ClientMessage, { type: 'user_message' }>
 ) {
   const { sessionId } = ws.data
-  const startupOverrides = getUserMessageRuntimeOverrides(message)
+  const startupOverrides = await getUserMessageRuntimeOverrides(message)
 
   // Clear any stale stop flag from a previous turn
   sessionStopRequested.delete(sessionId)
@@ -276,6 +617,43 @@ async function handleUserMessage(
   }
 
   // 启动 CLI 子进程（如果还没有）
+  let cliContent = message.content
+  let cliAttachments = message.attachments
+  if (message.attachments?.length) {
+    try {
+      sendMessage(ws, { type: 'status', state: 'thinking', verb: '正在解析附件' })
+      const prepared = await attachmentParserService.prepareMessageContent(
+        message.content,
+        sessionId,
+        message.attachments,
+      )
+      if (prepared.usedParser) {
+        cliContent = prepared.content
+        cliAttachments = prepared.attachments
+        sendMessage(ws, {
+          type: 'system_notification',
+          subtype: 'attachment_parser',
+          data: {
+            status: 'parsed',
+            preview: prepared.preview,
+          },
+        })
+      }
+    } catch (err) {
+      const messageText = err instanceof AttachmentParserError
+        ? err.message
+        : '附件解析失败，请检查 GLM 配置后重试。'
+      console.warn(`[WS] Attachment parsing failed for ${sessionId}: ${messageText}`)
+      sendMessage(ws, {
+        type: 'system_notification',
+        subtype: 'attachment_parser',
+        message: messageText,
+      })
+      sendMessage(ws, { type: 'status', state: 'idle' })
+      return
+    }
+  }
+
   try {
     await restartSessionForStartupOverrides(ws, sessionId, startupOverrides)
     await ensureCliSessionStarted(ws, sessionId, 'user_message', startupOverrides)
@@ -301,10 +679,11 @@ async function handleUserMessage(
     titleState = { userMessageCount: 0, hasCustomTitle: false, firstUserMessage: '', allUserMessages: [] }
     sessionTitleState.set(sessionId, titleState)
   }
+  const titleInputText = getTitleInputText(message.content)
   titleState.userMessageCount++
-  titleState.allUserMessages.push(message.content)
+  titleState.allUserMessages.push(titleInputText)
   if (titleState.userMessageCount === 1) {
-    titleState.firstUserMessage = message.content
+    titleState.firstUserMessage = titleInputText
   }
 
   // Register the callback before sending the turn so startup errors are not lost.
@@ -316,12 +695,20 @@ async function handleUserMessage(
     shouldForward: (cliMsg) => userMessageSent || (cliMsg.type === 'result' && cliMsg.is_error),
   })
 
+  startTurnMonitor(sessionId)
+  // Mark the turn as forwardable before sending. Some SDK bridges can emit the
+  // complete assistant/result sequence synchronously from socket.send(); if we
+  // wait until after sendMessage returns, the desktop may miss message_complete
+  // and leave the composer stuck in Stop.
+  userMessageSent = true
   const sent = conversationService.sendMessage(
     sessionId,
-    message.content,
-    message.attachments
+    cliContent,
+    cliAttachments
   )
   if (!sent) {
+    userMessageSent = false
+    stopTurnMonitor(sessionId)
     sendMessage(ws, {
       type: 'error',
       message: 'CLI process is not running. The session may have ended or the process crashed.',
@@ -330,8 +717,6 @@ async function handleUserMessage(
     sendMessage(ws, { type: 'status', state: 'idle' })
     return
   }
-
-  userMessageSent = true
 }
 
 async function handleDesktopClearCommand(
@@ -340,6 +725,7 @@ async function handleDesktopClearCommand(
   const { sessionId } = ws.data
 
   const workDir = conversationService.getSessionWorkDir(sessionId)
+  stopTurnMonitor(sessionId)
   conversationService.stopSession(sessionId)
   conversationService.clearOutputCallbacks(sessionId)
   sessionSlashCommands.delete(sessionId)
@@ -504,6 +890,46 @@ async function handleSetRuntimeConfig(
   )
 }
 
+async function handleSetEffort(
+  ws: ServerWebSocket<WebSocketData>,
+  message: Extract<ClientMessage, { type: 'set_effort' }>
+) {
+  const { sessionId } = ws.data
+  const level = typeof message.level === 'string' ? message.level.trim() : ''
+  if (!EFFORT_LEVELS.has(level)) {
+    sendMessage(ws, {
+      type: 'error',
+      message: 'Effort level is invalid.',
+      code: 'EFFORT_INVALID',
+    })
+    return
+  }
+
+  try {
+    await settingsService.updateUserSettings({ effort: level })
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    sendMessage(ws, {
+      type: 'error',
+      message: `Failed to update effort: ${errMsg}`,
+      code: 'EFFORT_UPDATE_FAILED',
+    })
+    return
+  }
+
+  if (!conversationService.hasSession(sessionId)) return
+
+  await enqueueRuntimeTransition(sessionId, () =>
+    restartSessionWithRuntimeConfig(
+      ws,
+      sessionId,
+      'Updating reasoning effort...',
+      'effort setting',
+      'Failed to update effort',
+    ),
+  )
+}
+
 async function restartSessionWithPermissionMode(
   ws: ServerWebSocket<WebSocketData>,
   sessionId: string,
@@ -524,6 +950,7 @@ async function restartSessionWithPermissionMode(
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    rememberSessionRuntime(sessionId, runtimeSettings)
 
     sendMessage(ws, { type: 'status', state: 'idle' })
     console.log(`[WS] Restarted CLI for ${sessionId} with permission mode: ${mode}`)
@@ -542,12 +969,15 @@ async function restartSessionWithPermissionMode(
 async function restartSessionWithRuntimeConfig(
   ws: ServerWebSocket<WebSocketData>,
   sessionId: string,
+  verb = 'Switching provider and model...',
+  reason = 'runtime override',
+  errorPrefix = 'Failed to switch provider/model',
 ): Promise<void> {
   try {
     sendMessage(ws, {
       type: 'status',
       state: 'thinking',
-      verb: 'Switching provider and model...',
+      verb,
     })
 
     const workDir = conversationService.getSessionWorkDir(sessionId)
@@ -558,15 +988,16 @@ async function restartSessionWithRuntimeConfig(
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    rememberSessionRuntime(sessionId, runtimeSettings)
 
     sendMessage(ws, { type: 'status', state: 'idle' })
-    console.log(`[WS] Restarted CLI for ${sessionId} with runtime override`)
+    console.log(`[WS] Restarted CLI for ${sessionId} with ${reason}`)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     console.error(`[WS] Failed to restart CLI for ${sessionId} after runtime override: ${errMsg}`)
     sendMessage(ws, {
       type: 'error',
-      message: `Failed to switch provider/model: ${errMsg}`,
+      message: `${errorPrefix}: ${errMsg}`,
       code: 'CLI_RESTART_FAILED',
     })
     sendMessage(ws, { type: 'status', state: 'idle' })
@@ -578,6 +1009,7 @@ function handleStopGeneration(ws: ServerWebSocket<WebSocketData>) {
   console.log(`[WS] Stop generation requested for session: ${sessionId}`)
 
   sessionStopRequested.add(sessionId)
+  stopTurnMonitor(sessionId)
 
   if (conversationService.hasSession(sessionId)) {
     // First try graceful interrupt via SDK control message
@@ -647,11 +1079,26 @@ function triggerTitleGeneration(ws: ServerWebSocket<WebSocketData>, sessionId: s
  */
 type SessionStreamState = {
   hasReceivedStreamEvents: boolean
-  activeBlockTypes: Map<number, 'text' | 'tool_use'>
+  /**
+   * True after at least one thinking_delta was forwarded for the current
+   * assistant message. When stream_events exist but the model only puts
+   * thinking in the final assistant payload (no streaming reasoning), we must
+   * still forward that block — but if we already streamed deltas, the final
+   * block is usually redundant and would duplicate the UI.
+   */
+  receivedThinkingDelta: boolean
+  activeBlockTypes: Map<number, 'text' | 'tool_use' | 'thinking'>
   activeToolBlocks: Map<number, { toolName: string; toolUseId: string; inputJson: string }>
   /** Tool blocks whose input JSON failed to parse in content_block_stop.
    *  The assistant message carries the complete input — defer to that. */
   pendingToolBlocks: Map<string, { toolName: string; toolUseId: string; parentToolUseId?: string }>
+  assistantTextSnapshot: string
+  assistantThinkingSnapshot: string
+  emittedAssistantToolUseIds: Set<string>
+  lastStopReason: string | null
+  currentMessageHasToolUse: boolean
+  completedFromMessageStop: boolean
+  latestUsage: TokenUsage
 }
 
 const sessionStreamStates = new Map<string, SessionStreamState>()
@@ -661,13 +1108,60 @@ function getStreamState(sessionId: string): SessionStreamState {
   if (!state) {
     state = {
       hasReceivedStreamEvents: false,
+      receivedThinkingDelta: false,
       activeBlockTypes: new Map(),
       activeToolBlocks: new Map(),
       pendingToolBlocks: new Map(),
+      assistantTextSnapshot: '',
+      assistantThinkingSnapshot: '',
+      emittedAssistantToolUseIds: new Set(),
+      lastStopReason: null,
+      currentMessageHasToolUse: false,
+      completedFromMessageStop: false,
+      latestUsage: { input_tokens: 0, output_tokens: 0 },
     }
     sessionStreamStates.set(sessionId, state)
   }
   return state
+}
+
+function normalizeStreamUsage(usage: unknown): TokenUsage {
+  if (!usage || typeof usage !== 'object') {
+    return { input_tokens: 0, output_tokens: 0 }
+  }
+  const value = usage as Partial<TokenUsage>
+  return {
+    input_tokens: typeof value.input_tokens === 'number' ? value.input_tokens : 0,
+    output_tokens: typeof value.output_tokens === 'number' ? value.output_tokens : 0,
+    ...(typeof value.cache_read_tokens === 'number' ? { cache_read_tokens: value.cache_read_tokens } : {}),
+    ...(typeof value.cache_creation_tokens === 'number' ? { cache_creation_tokens: value.cache_creation_tokens } : {}),
+  }
+}
+
+function getSnapshotDelta(previous: string, next: string): string {
+  if (!next) return ''
+  if (!previous) return next
+  if (next === previous) return ''
+  return next.startsWith(previous) ? next.slice(previous.length) : next
+}
+
+function resetAssistantSnapshots(streamState: SessionStreamState) {
+  streamState.assistantTextSnapshot = ''
+  streamState.assistantThinkingSnapshot = ''
+  streamState.emittedAssistantToolUseIds.clear()
+}
+
+function resetStreamStateForTurn(streamState: SessionStreamState) {
+  streamState.hasReceivedStreamEvents = false
+  streamState.receivedThinkingDelta = false
+  streamState.activeBlockTypes.clear()
+  streamState.activeToolBlocks.clear()
+  streamState.pendingToolBlocks.clear()
+  streamState.lastStopReason = null
+  streamState.currentMessageHasToolUse = false
+  streamState.completedFromMessageStop = false
+  streamState.latestUsage = { input_tokens: 0, output_tokens: 0 }
+  resetAssistantSnapshots(streamState)
 }
 
 /** Clean up stream state when an output binding disconnects */
@@ -684,6 +1178,7 @@ function cleanupStreamStatesForSession(sessionId: string) {
 }
 
 function cleanupSessionRuntimeState(sessionId: string) {
+  stopTurnMonitor(sessionId)
   const prewarmCallback = prewarmMetadataCallbacks.get(sessionId)
   if (prewarmCallback) {
     conversationService.removeOutputCallback(sessionId, prewarmCallback)
@@ -693,6 +1188,7 @@ function cleanupSessionRuntimeState(sessionId: string) {
   sessionSlashCommands.delete(sessionId)
   sessionTitleState.delete(sessionId)
   runtimeOverrides.delete(sessionId)
+  sessionStartupRuntime.delete(sessionId)
   runtimeTransitionPromises.delete(sessionId)
   sessionStartupPromises.delete(sessionId)
   clearPrewarmState(sessionId)
@@ -783,13 +1279,43 @@ async function resolveSessionWorkDir(sessionId: string, fallback = os.homedir())
   return workDir
 }
 
-function getUserMessageRuntimeOverrides(
+async function getUserMessageRuntimeOverrides(
   message: Extract<ClientMessage, { type: 'user_message' }>,
-): SessionStartupOverrides | undefined {
+): Promise<SessionStartupOverrides | undefined> {
   const mode = typeof message.permissionMode === 'string' ? message.permissionMode : undefined
-  if (!mode) return undefined
-  if (!ALLOWED_STARTUP_PERMISSION_MODES.has(mode)) return undefined
-  return { permissionMode: mode }
+  const overrides: SessionStartupOverrides = {}
+  if (mode && ALLOWED_STARTUP_PERMISSION_MODES.has(mode)) {
+    overrides.permissionMode = mode
+  }
+
+  const ceRuntime = await resolveCeModelStartupOverride(message.ceModelPreference)
+  if (ceRuntime) {
+    overrides.providerId = ceRuntime.providerId
+    overrides.model = ceRuntime.model
+  }
+
+  return Object.keys(overrides).length > 0 ? overrides : undefined
+}
+
+async function resolveCeModelStartupOverride(
+  preference: Extract<ClientMessage, { type: 'user_message' }>['ceModelPreference'],
+): Promise<{ providerId: string; model: string } | null> {
+  if (preference !== 'fast' && preference !== 'strong') return null
+  try {
+    const { providers, activeId } = await providerService.listProviders()
+    const provider = activeId ? providers.find((item) => item.id === activeId) : null
+    if (!provider) return null
+
+    const model = preference === 'fast'
+      ? provider.models.haiku || provider.models.main
+      : provider.models.opus || provider.models.sonnet || provider.models.main
+    const trimmed = typeof model === 'string' ? model.trim() : ''
+    if (!trimmed) return null
+    return { providerId: provider.id, model: trimmed }
+  } catch (error) {
+    console.warn('[WS] Failed to resolve CE model preference:', error)
+    return null
+  }
 }
 
 async function restartSessionForStartupOverrides(
@@ -798,10 +1324,22 @@ async function restartSessionForStartupOverrides(
   startupOverrides?: SessionStartupOverrides,
 ): Promise<void> {
   const requestedMode = startupOverrides?.permissionMode
-  if (!requestedMode || !conversationService.hasSession(sessionId)) return
+  const requestedRuntime = startupOverrides?.model
+    ? { providerId: startupOverrides.providerId, model: startupOverrides.model }
+    : undefined
+  if ((!requestedMode && !requestedRuntime) || !conversationService.hasSession(sessionId)) return
 
-  const currentMode = conversationService.getSessionPermissionMode(sessionId)
-  if (currentMode === requestedMode) return
+  const currentMode = requestedMode ? conversationService.getSessionPermissionMode(sessionId) : undefined
+  const currentRuntime = sessionStartupRuntime.get(sessionId)
+  const needsPermissionRestart = Boolean(requestedMode && currentMode !== requestedMode)
+  const needsRuntimeRestart = Boolean(
+    requestedRuntime &&
+    (
+      currentRuntime?.providerId !== requestedRuntime.providerId ||
+      currentRuntime?.model !== requestedRuntime.model
+    ),
+  )
+  if (!needsPermissionRestart && !needsRuntimeRestart) return
 
   const workDir = conversationService.getSessionWorkDir(sessionId)
   conversationService.stopSession(sessionId)
@@ -813,7 +1351,22 @@ async function restartSessionForStartupOverrides(
     ...startupOverrides,
   }
   await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
-  console.log(`[WS] Restarted CLI for ${sessionId} with startup permission mode: ${requestedMode}`)
+  rememberSessionRuntime(sessionId, runtimeSettings)
+  console.log(`[WS] Restarted CLI for ${sessionId} with startup overrides: ${JSON.stringify({
+    permissionMode: startupOverrides?.permissionMode,
+    model: startupOverrides?.model,
+    providerId: startupOverrides?.providerId,
+  })}`)
+}
+
+function rememberSessionRuntime(
+  sessionId: string,
+  runtimeSettings: { providerId?: string | null; model?: string },
+): void {
+  sessionStartupRuntime.set(sessionId, {
+    providerId: runtimeSettings.providerId,
+    model: runtimeSettings.model,
+  })
 }
 
 async function ensureCliSessionStarted(
@@ -842,6 +1395,7 @@ async function ensureCliSessionStarted(
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     console.log(`[WS] Starting CLI for ${sessionId} due to ${reason}`)
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
+    rememberSessionRuntime(sessionId, runtimeSettings)
   })()
 
   sessionStartupPromises.set(sessionId, startup)
@@ -854,7 +1408,8 @@ async function ensureCliSessionStarted(
   }
 }
 
-function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
+/** Exported for unit tests — translates one CLI stdout JSON line into WS payloads. */
+export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
   const streamState = getStreamState(sessionId)
   switch (cliMsg.type) {
     case 'assistant': {
@@ -876,25 +1431,66 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
             // Stream events handled most blocks — but any tool_use whose
             // input JSON failed to parse in content_block_stop was deferred.
             // Emit those now with the complete input from the assistant message.
-            if (block.type === 'tool_use' && streamState.pendingToolBlocks.has(block.id)) {
-              const pending = streamState.pendingToolBlocks.get(block.id)!
-              streamState.pendingToolBlocks.delete(block.id)
-              messages.push({
-                type: 'tool_use_complete',
-                toolName: pending.toolName || block.name,
-                toolUseId: block.id,
-                input: block.input,
-                parentToolUseId: pending.parentToolUseId,
-              })
+            if (block.type === 'tool_use') {
+              const pending = streamState.pendingToolBlocks.get(block.id)
+              if (pending) {
+                streamState.pendingToolBlocks.delete(block.id)
+              }
+              if (!streamState.emittedAssistantToolUseIds.has(block.id)) {
+                streamState.emittedAssistantToolUseIds.add(block.id)
+                messages.push({
+                  type: 'tool_use_complete',
+                  toolName: pending?.toolName || block.name,
+                  toolUseId: block.id,
+                  input: block.input,
+                  parentToolUseId:
+                    pending?.parentToolUseId ||
+                    (typeof cliMsg.parent_tool_use_id === 'string'
+                      ? cliMsg.parent_tool_use_id
+                      : undefined),
+                })
+              }
+            } else if (
+              block.type === 'thinking' &&
+              typeof block.thinking === 'string' &&
+              block.thinking.length > 0 &&
+              !streamState.receivedThinkingDelta
+            ) {
+              // Many providers stream text/tool_use but attach reasoning only on
+              // the final assistant message (no thinking_delta). Without this,
+              // the desktop never shows thinking while stream_events were seen.
+              messages.push({ type: 'thinking', text: block.thinking })
+            } else if (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
+              const textDelta = getSnapshotDelta(streamState.assistantTextSnapshot, block.text)
+              streamState.assistantTextSnapshot = block.text
+              if (textDelta) {
+                messages.push({ type: 'content_start', blockType: 'text' })
+                messages.push({ type: 'content_delta', text: textDelta })
+              }
             }
           } else {
             // No stream events received — this is the only source, process everything
             if (block.type === 'thinking' && block.thinking) {
-              messages.push({ type: 'thinking', text: block.thinking })
+              const thinkingDelta = getSnapshotDelta(
+                streamState.assistantThinkingSnapshot,
+                block.thinking,
+              )
+              streamState.assistantThinkingSnapshot = block.thinking
+              if (thinkingDelta) {
+                messages.push({ type: 'thinking', text: thinkingDelta })
+              }
             } else if (block.type === 'text' && block.text) {
-              messages.push({ type: 'content_start', blockType: 'text' })
-              messages.push({ type: 'content_delta', text: block.text })
-            } else if (block.type === 'tool_use') {
+              const textDelta = getSnapshotDelta(streamState.assistantTextSnapshot, block.text)
+              streamState.assistantTextSnapshot = block.text
+              if (textDelta) {
+                messages.push({ type: 'content_start', blockType: 'text' })
+                messages.push({ type: 'content_delta', text: textDelta })
+              }
+            } else if (
+              block.type === 'tool_use' &&
+              !streamState.emittedAssistantToolUseIds.has(block.id)
+            ) {
+              streamState.emittedAssistantToolUseIds.add(block.id)
               messages.push({
                 type: 'tool_use_complete',
                 toolName: block.name,
@@ -909,9 +1505,9 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
           }
         }
 
-        // Reset flags for next turn
-        streamState.hasReceivedStreamEvents = false
-        streamState.pendingToolBlocks.clear()
+        if (streamState.hasReceivedStreamEvents) {
+          resetStreamStateForTurn(streamState)
+        }
         return messages
       }
       return []
@@ -957,6 +1553,10 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
 
       switch (event.type) {
         case 'message_start': {
+          resetStreamStateForTurn(streamState)
+          streamState.hasReceivedStreamEvents = true
+          streamState.receivedThinkingDelta = false
+          streamState.latestUsage = normalizeStreamUsage(event.message?.usage)
           return [{ type: 'status', state: 'streaming' }]
         }
 
@@ -965,9 +1565,18 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
           if (!contentBlock) return []
 
           const index = event.index ?? 0
+
+          if (contentBlock.type === 'thinking') {
+            streamState.activeBlockTypes.set(index, 'thinking')
+            // Thinking UI is driven by thinking_delta / final assistant block — do not
+            // emit content_start:text (would clear the thinking spinner state wrongly).
+            return []
+          }
+
           streamState.activeBlockTypes.set(index, contentBlock.type === 'tool_use' ? 'tool_use' : 'text')
 
           if (contentBlock.type === 'tool_use') {
+            streamState.currentMessageHasToolUse = true
             // Track tool info so content_block_stop can emit complete data
             streamState.activeToolBlocks.set(index, {
               toolName: contentBlock.name || '',
@@ -993,6 +1602,7 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
           if (!delta) return []
 
           if (delta.type === 'text_delta' && delta.text) {
+            streamState.assistantTextSnapshot += delta.text
             return [{ type: 'content_delta', text: delta.text }]
           }
           if (delta.type === 'input_json_delta' && delta.partial_json) {
@@ -1003,6 +1613,7 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
             return [{ type: 'content_delta', toolInput: delta.partial_json }]
           }
           if (delta.type === 'thinking_delta' && delta.thinking) {
+            streamState.receivedThinkingDelta = true
             return [{ type: 'thinking', text: delta.thinking }]
           }
           return []
@@ -1025,6 +1636,7 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
               try { parsedInput = JSON.parse(toolBlock.inputJson) } catch {}
 
               if (parsedInput !== null) {
+                streamState.emittedAssistantToolUseIds.add(toolBlock.toolUseId)
                 return [{
                   type: 'tool_use_complete',
                   toolName: toolBlock.toolName,
@@ -1050,12 +1662,24 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
         }
 
         case 'message_stop': {
-          // message_stop is handled by the 'result' message
+          if (
+            !streamState.completedFromMessageStop &&
+            !streamState.currentMessageHasToolUse &&
+            streamState.lastStopReason !== 'tool_use'
+          ) {
+            streamState.completedFromMessageStop = true
+            return [{ type: 'message_complete', usage: streamState.latestUsage }]
+          }
           return []
         }
 
         case 'message_delta': {
-          // message_delta may contain stop_reason or usage updates
+          if (typeof event.delta?.stop_reason === 'string') {
+            streamState.lastStopReason = event.delta.stop_reason
+          }
+          if (event.usage) {
+            streamState.latestUsage = normalizeStreamUsage(event.usage)
+          }
           return []
         }
 
@@ -1086,6 +1710,7 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
       return []
 
     case 'result': {
+      resetStreamStateForTurn(streamState)
       // 对话结果（成功或错误）
       const usage = {
         input_tokens: cliMsg.usage?.input_tokens || 0,
@@ -1202,6 +1827,9 @@ function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
       // 其他 system 消息
       return []
     }
+
+    case 'keep_alive':
+      return []
 
     default:
       // 未知类型 — 调试输出但不转发
@@ -1465,4 +2093,59 @@ export function sendToSession(sessionId: string, message: ServerMessage): boolea
 
 export function getActiveSessionIds(): string[] {
   return Array.from(activeSessions.keys())
+}
+
+export const __testing = {
+  clearTurnMonitor(sessionId: string) {
+    stopTurnMonitor(sessionId)
+  },
+  getReconnectGraceMs(sessionId: string) {
+    return getSessionReconnectGraceMs(sessionId)
+  },
+  getTurnMonitorSnapshot(sessionId: string) {
+    const monitor = sessionTurnMonitors.get(sessionId)
+    if (!monitor) return null
+    return {
+      phase: monitor.phase,
+      startedAt: monitor.startedAt,
+      lastProgressAt: monitor.lastProgressAt,
+      lastKeepAliveAt: monitor.lastKeepAliveAt,
+      sdkDisconnectedAt: monitor.sdkDisconnectedAt,
+      nextNoticeAt: monitor.nextNoticeAt,
+    }
+  },
+  noteTurnActivity(sessionId: string, cliMsg: any) {
+    noteTurnActivity(sessionId, cliMsg)
+  },
+  shouldRecoverForMissingAgentHeartbeat(
+    sessionId: string,
+    now: number,
+    sdkConnected: boolean,
+  ) {
+    const monitor = sessionTurnMonitors.get(sessionId)
+    return monitor
+      ? shouldRecoverForMissingAgentHeartbeat(monitor, now, sdkConnected)
+      : false
+  },
+  setTurnMonitor(
+    sessionId: string,
+    partial: Partial<Omit<TurnMonitor, 'sessionId' | 'callback' | 'timer'>> = {},
+  ) {
+    stopTurnMonitor(sessionId)
+    const now = Date.now()
+    sessionTurnMonitors.set(sessionId, {
+      sessionId,
+      phase: partial.phase ?? 'thinking',
+      startedAt: partial.startedAt ?? now,
+      lastProgressAt: partial.lastProgressAt ?? now,
+      lastKeepAliveAt: partial.lastKeepAliveAt ?? now,
+      sdkDisconnectedAt: partial.sdkDisconnectedAt ?? null,
+      nextNoticeAt: partial.nextNoticeAt ?? now + DEFAULT_TURN_PROGRESS_NOTICE_MS,
+      modelStallNoticeSent: partial.modelStallNoticeSent ?? false,
+      sdkDisconnectNoticeSent: partial.sdkDisconnectNoticeSent ?? false,
+      toolStallNoticeSent: partial.toolStallNoticeSent ?? false,
+      callback: () => {},
+      timer: null,
+    })
+  },
 }

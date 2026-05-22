@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, useRef, type FormEvent, type ReactNode } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useProviderStore } from '../stores/providerStore'
-import { useTranslation } from '../i18n'
+import { useTranslation, type TranslationKey } from '../i18n'
 import { Modal } from '../components/shared/Modal'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { Input } from '../components/shared/Input'
@@ -31,6 +31,11 @@ import { ChatGPTConnect } from '../components/settings/ChatGPTConnect'
 import { useUpdateStore } from '../stores/updateStore'
 import { formatBytes } from '../lib/formatBytes'
 import { isTauriRuntime } from '../lib/desktopRuntime'
+import { attachmentParserApi } from '../api/attachmentParser'
+import type { AttachmentParserConfig, AttachmentParserTestResult } from '../types/attachmentParser'
+import { ConfigBackupSettings } from './ConfigBackupSettings'
+import { useBillingStore } from '../stores/billingStore'
+import type { BillingStatus } from '../types/billing'
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -50,6 +55,8 @@ export function Settings() {
         <div className="w-[180px] border-r border-[var(--color-border)] py-3 flex-shrink-0 flex flex-col">
           <div className="flex-1">
             <TabButton icon="dns" label={t('settings.tab.providers')} active={activeTab === 'providers'} onClick={() => setActiveTab('providers')} />
+            <TabButton icon="document_scanner" label={t('settings.tab.attachmentParser')} active={activeTab === 'attachmentParser'} onClick={() => setActiveTab('attachmentParser')} />
+            <TabButton icon="ios_share" label={t('settings.tab.configBackup')} active={activeTab === 'configBackup'} onClick={() => setActiveTab('configBackup')} />
             <TabButton icon="shield" label={t('settings.tab.permissions')} active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} />
             <TabButton icon="tune" label={t('settings.tab.general')} active={activeTab === 'general'} onClick={() => setActiveTab('general')} />
             <TabButton icon="chat" label={t('settings.tab.adapters')} active={activeTab === 'adapters'} onClick={() => setActiveTab('adapters')} />
@@ -61,6 +68,7 @@ export function Settings() {
             <TabButton icon="mouse" label={t('settings.tab.computerUse')} active={activeTab === 'computerUse'} onClick={() => setActiveTab('computerUse')} />
           </div>
           <div className="border-t border-[var(--color-border)]/40 pt-1">
+            <TabButton icon="workspace_premium" label={t('settings.tab.billing')} active={activeTab === 'billing'} onClick={() => setActiveTab('billing')} />
             <TabButton icon="info" label={t('settings.tab.about')} active={activeTab === 'about'} onClick={() => setActiveTab('about')} />
           </div>
         </div>
@@ -68,6 +76,8 @@ export function Settings() {
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {activeTab === 'providers' && <ProviderSettings />}
+          {activeTab === 'attachmentParser' && <AttachmentParserSettings />}
+          {activeTab === 'configBackup' && <ConfigBackupSettings />}
           {activeTab === 'permissions' && <PermissionSettings />}
           {activeTab === 'general' && <GeneralSettings />}
           {activeTab === 'adapters' && <AdapterSettings />}
@@ -77,6 +87,7 @@ export function Settings() {
           {activeTab === 'skills' && <SkillSettings />}
           {activeTab === 'plugins' && <PluginSettings />}
           {activeTab === 'computerUse' && <ComputerUseSettings />}
+          {activeTab === 'billing' && <BillingSettings />}
           {activeTab === 'about' && <AboutSettings />}
         </div>
       </div>
@@ -101,6 +112,221 @@ function TabButton({ icon, label, active, onClick }: { icon: string; label: stri
 }
 
 // ─── Provider Settings ──────────────────────────────────────
+
+type AttachmentParserFormState = {
+  enabled: boolean
+  apiKey: string
+  baseUrl: string
+  visionModel: string
+  ocrModel: string
+  summarizeModel: string
+}
+
+const DEFAULT_ATTACHMENT_PARSER_FORM: AttachmentParserFormState = {
+  enabled: false,
+  apiKey: '',
+  baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  visionModel: 'glm-5v-turbo',
+  ocrModel: 'glm-ocr',
+  summarizeModel: 'glm-5.1',
+}
+
+function AttachmentParserSettings() {
+  const t = useTranslation()
+  const [config, setConfig] = useState<AttachmentParserConfig | null>(null)
+  const [form, setForm] = useState<AttachmentParserFormState>(DEFAULT_ATTACHMENT_PARSER_FORM)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isTesting, setIsTesting] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [testResult, setTestResult] = useState<AttachmentParserTestResult | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    attachmentParserApi.getConfig()
+      .then(({ config }) => {
+        if (cancelled) return
+        setConfig(config)
+        setForm({
+          enabled: config.enabled,
+          apiKey: '',
+          baseUrl: config.baseUrl,
+          visionModel: config.visionModel,
+          ocrModel: config.ocrModel,
+          summarizeModel: config.summarizeModel,
+        })
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const updateForm = <K extends keyof AttachmentParserFormState>(
+    key: K,
+    value: AttachmentParserFormState[K],
+  ) => {
+    setForm((current) => ({ ...current, [key]: value }))
+    setMessage(null)
+    setTestResult(null)
+  }
+
+  const buildPayload = () => ({
+    enabled: form.enabled,
+    ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
+    ...(!config?.hasApiKey && !form.apiKey.trim() ? { apiKey: '' } : {}),
+    baseUrl: form.baseUrl.trim(),
+    visionModel: form.visionModel.trim(),
+    ocrModel: form.ocrModel.trim(),
+    summarizeModel: form.summarizeModel.trim(),
+  })
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    setMessage(null)
+    try {
+      const { config: next } = await attachmentParserApi.updateConfig(buildPayload())
+      setConfig(next)
+      setForm({
+        enabled: next.enabled,
+        apiKey: '',
+        baseUrl: next.baseUrl,
+        visionModel: next.visionModel,
+        ocrModel: next.ocrModel,
+        summarizeModel: next.summarizeModel,
+      })
+      setMessage({ type: 'success', text: t('settings.attachmentParser.saved') })
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleTest = async () => {
+    setIsTesting(true)
+    setMessage(null)
+    setTestResult(null)
+    try {
+      const { result } = await attachmentParserApi.test(buildPayload())
+      setTestResult(result)
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setIsTesting(false)
+    }
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{t('settings.attachmentParser.title')}</h2>
+          <p className="mt-0.5 text-sm text-[var(--color-text-tertiary)]">{t('settings.attachmentParser.description')}</p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={form.enabled}
+          onClick={() => updateForm('enabled', !form.enabled)}
+          disabled={isLoading}
+          className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors disabled:opacity-50 ${
+            form.enabled ? 'bg-[var(--color-brand)]' : 'bg-[var(--color-surface-container-high)]'
+          }`}
+        >
+          <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+            form.enabled ? 'translate-x-7' : 'translate-x-1'
+          }`} />
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-brand)] border-t-transparent" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Input
+              label={t('settings.attachmentParser.apiKey')}
+              type="password"
+              value={form.apiKey}
+              placeholder={config?.hasApiKey ? config.apiKey : t('settings.attachmentParser.apiKeyPlaceholder')}
+              onChange={(event) => updateForm('apiKey', event.target.value)}
+            />
+            <Input
+              label={t('settings.attachmentParser.baseUrl')}
+              value={form.baseUrl}
+              onChange={(event) => updateForm('baseUrl', event.target.value)}
+            />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Input
+                label={t('settings.attachmentParser.visionModel')}
+                value={form.visionModel}
+                onChange={(event) => updateForm('visionModel', event.target.value)}
+              />
+              <Input
+                label={t('settings.attachmentParser.ocrModel')}
+                value={form.ocrModel}
+                onChange={(event) => updateForm('ocrModel', event.target.value)}
+              />
+              <Input
+                label={t('settings.attachmentParser.summarizeModel')}
+                value={form.summarizeModel}
+                onChange={(event) => updateForm('summarizeModel', event.target.value)}
+              />
+            </div>
+
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+              {t('settings.attachmentParser.strategy')}
+            </div>
+
+            {testResult && (
+              <div className={`rounded-lg border px-3 py-2 text-xs ${
+                testResult.success
+                  ? 'border-[var(--color-success)]/30 text-[var(--color-success)]'
+                  : 'border-[var(--color-error)]/30 text-[var(--color-error)]'
+              }`}>
+                {testResult.success
+                  ? t('settings.attachmentParser.testOk', { latency: String(testResult.latencyMs) })
+                  : testResult.error || t('settings.attachmentParser.testFailed')}
+                <span className="ml-2 text-[var(--color-text-tertiary)]">{testResult.modelUsed}</span>
+              </div>
+            )}
+
+            {message && (
+              <div className={`rounded-lg border px-3 py-2 text-xs ${
+                message.type === 'success'
+                  ? 'border-[var(--color-success)]/30 text-[var(--color-success)]'
+                  : 'border-[var(--color-error)]/30 text-[var(--color-error)]'
+              }`}>
+                {message.text}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={handleTest} loading={isTesting}>
+                {t('settings.attachmentParser.test')}
+              </Button>
+              <Button onClick={handleSave} loading={isSaving}>
+                {t('common.save')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function ProviderSettings() {
   const {
@@ -299,6 +525,8 @@ function ProviderSettings() {
             const isActive = activeId === provider.id
             const test = testResults[provider.id]
             const preset = presetMap.get(provider.presetId)
+            const categoryLabel = formatPresetCategoryLabel(preset, t)
+            const routingSummary = formatProviderRoutingSummary(preset, provider.models, t)
             return (
               <div
                 key={provider.id}
@@ -318,11 +546,12 @@ function ProviderSettings() {
                     {preset && preset.id !== 'custom' && (
                       <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-text-tertiary)] leading-none">{preset.name}</span>
                     )}
-                    {provider.apiFormat && provider.apiFormat !== 'anthropic' && (
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-warning)] leading-none">
-                        {formatApiFormatLabel(provider.apiFormat, t)}
-                      </span>
+                    {categoryLabel && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-text-tertiary)] leading-none">{categoryLabel}</span>
                     )}
+                    <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-[var(--color-surface-container-high)] text-[var(--color-warning)] leading-none">
+                      {formatPresetProtocolLabel(preset, provider.apiFormat, t)}
+                    </span>
                     {isActive && (
                       <span className="px-1.5 py-0.5 text-[10px] font-bold rounded border border-[var(--color-brand)]/18 bg-[var(--color-brand)]/14 text-[var(--color-brand)] leading-none">{t('settings.providers.default')}</span>
                     )}
@@ -330,6 +559,11 @@ function ProviderSettings() {
                   <div className="text-xs text-[var(--color-text-tertiary)] truncate mt-0.5">
                     {provider.baseUrl} &middot; {provider.models.main}
                   </div>
+                  {routingSummary && (
+                    <div className="text-[11px] text-[var(--color-text-tertiary)] truncate mt-0.5">
+                      {routingSummary}
+                    </div>
+                  )}
                   {test && !test.loading && test.result && (
                     <div className="text-xs mt-1 flex flex-col gap-0.5">
                       <span className={test.result.connectivity.success ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}>
@@ -434,6 +668,149 @@ function formatApiFormatLabel(apiFormat: ApiFormat, t: ReturnType<typeof useTran
   if (apiFormat === 'openai_responses') return t('settings.providers.apiFormatOpenaiResponses')
   if (apiFormat === 'chatgpt_codex') return t('settings.providers.apiFormatChatgptCodex')
   return t('settings.providers.apiFormatAnthropic')
+}
+
+function inferPresetProtocol(preset: ProviderPreset | undefined, apiFormat: ApiFormat): NonNullable<ProviderPreset['protocol']> {
+  if (preset?.protocol) return preset.protocol
+  if (apiFormat === 'openai_chat') return 'openai_chat_proxy'
+  if (apiFormat === 'openai_responses') return 'openai_responses_proxy'
+  if (apiFormat === 'chatgpt_codex') return 'chatgpt_codex'
+  return preset?.id === 'official' ? 'anthropic_native' : 'anthropic_compatible'
+}
+
+function formatPresetCategoryLabel(preset: ProviderPreset | undefined, t: ReturnType<typeof useTranslation>): string | null {
+  switch (preset?.category) {
+    case 'official':
+      return t('settings.providers.categoryOfficial')
+    case 'domestic':
+      return t('settings.providers.categoryDomestic')
+    case 'domestic-coding':
+      return t('settings.providers.categoryDomesticCoding')
+    case 'aggregator':
+      return t('settings.providers.categoryAggregator')
+    case 'local':
+      return t('settings.providers.categoryLocal')
+    case 'custom':
+      return t('settings.providers.categoryCustom')
+    default:
+      return null
+  }
+}
+
+function formatPresetProtocolLabel(
+  preset: ProviderPreset | undefined,
+  apiFormat: ApiFormat,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  switch (inferPresetProtocol(preset, apiFormat)) {
+    case 'anthropic_native':
+      return t('settings.providers.protocolAnthropicNative')
+    case 'anthropic_compatible':
+      return t('settings.providers.protocolAnthropicCompatible')
+    case 'openai_chat_proxy':
+      return t('settings.providers.protocolOpenaiChatProxy')
+    case 'openai_responses_proxy':
+      return t('settings.providers.protocolOpenaiResponsesProxy')
+    case 'chatgpt_codex':
+      return t('settings.providers.protocolChatgptCodex')
+  }
+}
+
+function formatPresetAgentLabel(preset: ProviderPreset | undefined, apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): string {
+  if (preset?.agentCompatible === false) return t('settings.providers.agentNotReady')
+  if (apiFormat === 'openai_chat' || apiFormat === 'openai_responses') return t('settings.providers.agentReadyViaProxy')
+  if (apiFormat === 'chatgpt_codex') return t('settings.providers.agentReadyViaCodex')
+  return t('settings.providers.agentReady')
+}
+
+function getModelRoleLabel(role: NonNullable<ProviderPreset['routingHint']>['fast'], t: ReturnType<typeof useTranslation>): string {
+  if (role === 'haiku') return t('settings.providers.haikuModel')
+  if (role === 'sonnet') return t('settings.providers.sonnetModel')
+  if (role === 'opus') return t('settings.providers.opusModel')
+  return t('settings.providers.mainModel')
+}
+
+function getModelByRole(models: ModelMapping, role: NonNullable<ProviderPreset['routingHint']>['fast']): string {
+  if (role === 'haiku') return models.haiku || models.main
+  if (role === 'sonnet') return models.sonnet || models.main
+  if (role === 'opus') return models.opus || models.sonnet || models.main
+  return models.main
+}
+
+function formatProviderRoutingSummary(
+  preset: ProviderPreset | undefined,
+  models: ModelMapping,
+  t: ReturnType<typeof useTranslation>,
+): string | null {
+  const hint = preset?.routingHint ?? { fast: 'haiku' as const, balanced: 'main' as const, pro: 'opus' as const }
+  const fastModel = hint.fast ? getModelByRole(models, hint.fast) : ''
+  const balancedModel = hint.balanced ? getModelByRole(models, hint.balanced) : ''
+  const proModel = hint.pro ? getModelByRole(models, hint.pro) : ''
+  const segments = [
+    fastModel ? t('settings.providers.routingFast', { model: fastModel }) : '',
+    balancedModel ? t('settings.providers.routingBalanced', { model: balancedModel }) : '',
+    proModel ? t('settings.providers.routingPro', { model: proModel }) : '',
+  ].filter(Boolean)
+  return segments.length > 0 ? segments.join(' · ') : null
+}
+
+function formatProviderRoutingRoleSummary(
+  preset: ProviderPreset | undefined,
+  t: ReturnType<typeof useTranslation>,
+): string | null {
+  if (!preset?.routingHint) return null
+  const segments = [
+    preset.routingHint.fast
+      ? t('settings.providers.routingFast', { model: getModelRoleLabel(preset.routingHint.fast, t) })
+      : '',
+    preset.routingHint.balanced
+      ? t('settings.providers.routingBalanced', { model: getModelRoleLabel(preset.routingHint.balanced, t) })
+      : '',
+    preset.routingHint.pro
+      ? t('settings.providers.routingPro', { model: getModelRoleLabel(preset.routingHint.pro, t) })
+      : '',
+  ].filter(Boolean)
+  return segments.length > 0 ? segments.join(' · ') : null
+}
+
+type BaseUrlNotice = {
+  tone: 'neutral' | 'warning'
+  text: string
+}
+
+function formatEndpointPreview(baseUrl: string, apiFormat: ApiFormat): string | null {
+  const base = baseUrl.trim().replace(/\/+$/, '')
+  if (!base) return null
+  const isVersionedBase = /\/v\d+$/i.test(base)
+  if (apiFormat === 'openai_chat') {
+    return `${base}${isVersionedBase ? '' : '/v1'}/chat/completions`
+  }
+  if (apiFormat === 'openai_responses') {
+    return `${base}${isVersionedBase ? '' : '/v1'}/responses`
+  }
+  if (apiFormat === 'anthropic') {
+    return `${base}/v1/messages`
+  }
+  return null
+}
+
+function getBaseUrlNotice(baseUrl: string, apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): BaseUrlNotice | null {
+  const normalized = baseUrl.trim().replace(/\/+$/, '').toLowerCase()
+  if (!normalized || apiFormat === 'chatgpt_codex') return null
+
+  if (apiFormat === 'openai_chat' && normalized.endsWith('/chat/completions')) {
+    return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullOpenaiChat') }
+  }
+  if (apiFormat === 'openai_responses' && normalized.endsWith('/responses')) {
+    return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullOpenaiResponses') }
+  }
+  if (apiFormat === 'anthropic' && normalized.endsWith('/v1/messages')) {
+    return { tone: 'warning', text: t('settings.providers.baseUrlWarnFullAnthropic') }
+  }
+
+  const preview = formatEndpointPreview(baseUrl, apiFormat)
+  if (!preview) return null
+  return { tone: 'neutral', text: t('settings.providers.baseUrlResolvedEndpoint', { endpoint: preview }) }
 }
 
 function openExternalUrl(url: string) {
@@ -594,6 +971,12 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
     },
   ]
   const selectedApiFormatLabel = apiFormatItems.find((item) => item.value === apiFormat)?.label ?? t('settings.providers.apiFormatAnthropic')
+  const selectedCategoryLabel = formatPresetCategoryLabel(selectedPreset, t)
+  const selectedProtocolLabel = formatPresetProtocolLabel(selectedPreset, apiFormat, t)
+  const selectedAgentLabel = formatPresetAgentLabel(selectedPreset, apiFormat, t)
+  const selectedRoutingSummary = formatProviderRoutingSummary(selectedPreset, models, t)
+  const selectedRoutingRoleSummary = formatProviderRoutingRoleSummary(selectedPreset, t)
+  const baseUrlNotice = getBaseUrlNotice(baseUrl, apiFormat, t)
   const renderPresetButton = (preset: ProviderPreset) => (
     <button
       key={preset.id}
@@ -603,6 +986,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           ? 'border-[var(--color-brand)] bg-[var(--color-surface-container-high)] text-[var(--color-brand)] shadow-[var(--shadow-focus-ring)]'
           : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-hover)]'
       }`}
+      title={[formatPresetCategoryLabel(preset, t), formatPresetProtocolLabel(preset, preset.apiFormat, t)].filter(Boolean).join(' · ')}
     >
       {preset.name}
     </button>
@@ -718,11 +1102,48 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           </div>
         )}
 
+        <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selectedCategoryLabel && (
+              <span className="rounded bg-[var(--color-surface-container-high)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-text-tertiary)]">
+                {selectedCategoryLabel}
+              </span>
+            )}
+            <span className="rounded bg-[var(--color-surface-container-high)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-warning)]">
+              {selectedProtocolLabel}
+            </span>
+            <span className="rounded border border-[var(--color-success)]/20 bg-[var(--color-success)]/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-success)]">
+              {selectedAgentLabel}
+            </span>
+          </div>
+          {selectedRoutingSummary && (
+            <div className="mt-2 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
+              {selectedRoutingSummary}
+            </div>
+          )}
+          {selectedRoutingRoleSummary && (
+            <div className="mt-0.5 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
+              {selectedRoutingRoleSummary}
+            </div>
+          )}
+        </div>
+
         <Input label={t('settings.providers.name')} required value={name} onChange={(e) => setName(e.target.value)} placeholder={t('settings.providers.namePlaceholder')} />
 
         <Input label={t('settings.providers.notes')} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('settings.providers.notesPlaceholder')} />
 
-        <Input label={t('settings.providers.baseUrl')} required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t('settings.providers.baseUrlPlaceholder')} />
+        <div>
+          <Input label={t('settings.providers.baseUrl')} required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t('settings.providers.baseUrlPlaceholder')} />
+          {baseUrlNotice && (
+            <p className={`mt-1 text-[11px] leading-5 ${
+              baseUrlNotice.tone === 'warning'
+                ? 'text-[var(--color-warning)]'
+                : 'text-[var(--color-text-tertiary)]'
+            }`}>
+              {baseUrlNotice.text}
+            </p>
+          )}
+        </div>
 
         {/* API Format */}
         {(isCustom || mode === 'edit') ? (
@@ -1620,16 +2041,218 @@ function PluginSettings() {
   )
 }
 
+// ─── Billing Settings ──────────────────────────────────────
+
+const BILLING_STATUS_LABEL_KEYS: Record<BillingStatus, TranslationKey> = {
+  not_configured: 'settings.billing.status.notConfigured',
+  inactive: 'settings.billing.status.inactive',
+  active: 'settings.billing.status.active',
+  expired: 'settings.billing.status.expired',
+  check_failed: 'settings.billing.status.checkFailed',
+}
+
+const BILLING_STATUS_ICON: Record<BillingStatus, string> = {
+  not_configured: 'pending',
+  inactive: 'workspace_premium',
+  active: 'verified',
+  expired: 'event_busy',
+  check_failed: 'sync_problem',
+}
+
+const BILLING_STATUS_TONE: Record<BillingStatus, string> = {
+  not_configured: 'border-[var(--color-border)] text-[var(--color-text-secondary)]',
+  inactive: 'border-[var(--color-border)] text-[var(--color-text-secondary)]',
+  active: 'border-[var(--color-success)]/40 text-[var(--color-success)]',
+  expired: 'border-[var(--color-warning)]/40 text-[var(--color-warning)]',
+  check_failed: 'border-[var(--color-error)]/40 text-[var(--color-error)]',
+}
+
+function BillingSettings() {
+  const t = useTranslation()
+  const status = useBillingStore((s) => s.status)
+  const config = useBillingStore((s) => s.config)
+  const isLoading = useBillingStore((s) => s.isLoading)
+  const isSaving = useBillingStore((s) => s.isSaving)
+  const error = useBillingStore((s) => s.error)
+  const message = useBillingStore((s) => s.message)
+  const fetchBilling = useBillingStore((s) => s.fetchBilling)
+  const activateLicense = useBillingStore((s) => s.activateLicense)
+  const refresh = useBillingStore((s) => s.refresh)
+  const clearLicense = useBillingStore((s) => s.clearLicense)
+  const [licenseKey, setLicenseKey] = useState('')
+
+  useEffect(() => {
+    void fetchBilling()
+  }, [fetchBilling])
+
+  const currentStatus = status?.status ?? 'not_configured'
+  const purchaseUrl = status?.purchaseUrl ?? config?.purchaseUrl ?? null
+  const verifyConfigured = Boolean(config?.verifyUrlConfigured)
+  const lastCheckedAt = status?.lastCheckedAt ? formatBillingDate(status.lastCheckedAt) : null
+  const canActivate = verifyConfigured && licenseKey.trim().length > 0 && !isSaving
+
+  const handleActivate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!canActivate) return
+    await activateLicense(licenseKey)
+    setLicenseKey('')
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <div className="mb-5">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{t('settings.billing.title')}</h2>
+        <p className="mt-0.5 text-sm text-[var(--color-text-tertiary)]">{t('settings.billing.description')}</p>
+      </div>
+
+      <div className="space-y-4">
+        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+          {isLoading && !status ? (
+            <div className="flex justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-brand)] border-t-transparent" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.14em] text-[var(--color-text-tertiary)]">
+                    {t('settings.billing.currentStatus')}
+                  </div>
+                  <div className={`mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${BILLING_STATUS_TONE[currentStatus]}`}>
+                    <span className="material-symbols-outlined text-[17px]">{BILLING_STATUS_ICON[currentStatus]}</span>
+                    {t(BILLING_STATUS_LABEL_KEYS[currentStatus])}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void refresh()}
+                    loading={isSaving}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">sync</span>
+                    {t('settings.billing.refresh')}
+                  </Button>
+                  {status?.maskedLicenseKey && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void clearLicense()}
+                      loading={isSaving}
+                    >
+                      {t('settings.billing.clear')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <BillingDetail label={t('settings.billing.plan')} value={status?.plan || t('settings.billing.planFree')} />
+                <BillingDetail label={t('settings.billing.expiresAt')} value={status?.expiresAt ? formatBillingDate(status.expiresAt) : t('settings.billing.noExpiry')} />
+                <BillingDetail label={t('settings.billing.license')} value={status?.maskedLicenseKey || t('settings.billing.noLicense')} />
+              </div>
+
+              <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-secondary)]">
+                {message || status?.message || t('settings.billing.defaultMessage')}
+              </p>
+
+              {lastCheckedAt && (
+                <p className="text-xs text-[var(--color-text-tertiary)]">
+                  {t('settings.billing.lastCheckedAt', { time: lastCheckedAt })}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.purchaseTitle')}</h3>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+                {purchaseUrl ? t('settings.billing.purchaseReady') : t('settings.billing.purchaseComingSoon')}
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={!purchaseUrl}
+              onClick={() => purchaseUrl && openExternalUrl(purchaseUrl)}
+            >
+              <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+              {t('settings.billing.purchase')}
+            </Button>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+          <form onSubmit={handleActivate} className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.activationTitle')}</h3>
+              <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+                {verifyConfigured ? t('settings.billing.activationReady') : t('settings.billing.activationUnavailable')}
+              </p>
+            </div>
+
+            <Input
+              label={t('settings.billing.licenseInput')}
+              type="password"
+              value={licenseKey}
+              placeholder={t('settings.billing.licensePlaceholder')}
+              onChange={(event) => setLicenseKey(event.target.value)}
+              disabled={!verifyConfigured || isSaving}
+            />
+
+            {error && (
+              <div className="rounded-lg border border-[var(--color-error)]/30 px-3 py-2 text-xs text-[var(--color-error)]">
+                {error}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" loading={isSaving} disabled={!canActivate}>
+                {t('settings.billing.activate')}
+              </Button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function BillingDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 min-w-0">
+      <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-text-tertiary)] truncate">{label}</div>
+      <div className="mt-1 text-sm font-medium text-[var(--color-text-primary)] truncate">{value}</div>
+    </div>
+  )
+}
+
+function formatBillingDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 // ─── About Settings ──────────────────────────────────────
 
-const GITHUB_REPO = 'https://github.com/NanmiCoder/cc-haha'
-const GITHUB_ISSUES = `${GITHUB_REPO}/issues`
-const GITHUB_RELEASES = `${GITHUB_REPO}/releases`
-const AUTHOR_GITHUB = 'https://github.com/NanmiCoder'
+const CODE_REPO = 'https://gitee.com/xiyouwangluo/claude-code-gugu'
+const CODE_ISSUES = `${CODE_REPO}/issues`
+const CODE_RELEASES = `${CODE_REPO}/releases`
+const STUDIO_NAME = '谷星曜工作室'
+const AUTHOR_PROFILE = 'https://gitee.com/xiyouwangluo'
 const SOCIAL_LINKS = [
-  { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/434377496', label: '程序员阿江-Relakkes' },
-  { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAATJPY7LAlaa5X-c8uNdWkvz0jUGgpw4eeXIwu_8BhvqE', label: '程序员阿江-Relakkes' },
-  { name: 'Xiaohongshu', icon: '/icons/xiaohongshu.svg', url: 'https://www.xiaohongshu.com/user/profile/5f58bd990000000001003753', label: '程序员阿江-Relakkes' },
+  { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/434377496', label: STUDIO_NAME },
+  { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAATJPY7LAlaa5X-c8uNdWkvz0jUGgpw4eeXIwu_8BhvqE', label: STUDIO_NAME },
+  { name: 'Xiaohongshu', icon: '/icons/xiaohongshu.svg', url: 'https://www.xiaohongshu.com/user/profile/5f58bd990000000001003753', label: STUDIO_NAME },
 ] as const
 
 function AboutSettings() {
@@ -1704,14 +2327,14 @@ function AboutSettings() {
   return (
     <div className="w-full min-w-0 max-w-lg mx-auto flex flex-col items-center py-6">
       {/* Logo + App Name + Version */}
-      <img src="/app-icon.svg" alt="Claude Code GuGu" className="w-20 h-20 mb-4" />
-      <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Claude Code GuGu</h1>
+      <img src="/app-icon.svg" alt="Gugu Agent" className="w-20 h-20 mb-4" />
+      <h1 className="text-xl font-bold text-[var(--color-text-primary)]">Gugu Agent</h1>
       {version && (
         <div className="mt-1 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
           <span>{t('settings.about.version')} {version}</span>
           <span className="text-[var(--color-border)]">·</span>
           <button
-            onClick={() => openUrl(GITHUB_RELEASES)}
+            onClick={() => openUrl(CODE_RELEASES)}
             className="rounded-[var(--radius-sm)] text-[var(--color-text-accent)] transition-colors hover:text-[var(--color-brand)] focus:outline-none focus:shadow-[var(--shadow-focus-ring)]"
           >
             {t('settings.about.changelog')}
@@ -1719,15 +2342,15 @@ function AboutSettings() {
         </div>
       )}
 
-      {/* GitHub Repo */}
+      {/* Code Repository */}
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(GITHUB_REPO)}
+          onClick={() => openUrl(CODE_REPO)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <img src="/icons/github.svg" alt="GitHub" className="w-5 h-5 opacity-70" />
+          <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">source</span>
           <div className="flex-1 text-left">
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">NanmiCoder/cc-haha</div>
+            <div className="text-sm font-medium text-[var(--color-text-primary)]">xiyouwangluo/claude-code-gugu</div>
             <div className="text-xs text-[var(--color-text-tertiary)]">{t('settings.about.starHint')}</div>
           </div>
         </button>
@@ -1839,12 +2462,12 @@ function AboutSettings() {
       <div className="w-full">
         <h3 className="text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider mb-3">{t('settings.about.author')}</h3>
         <button
-          onClick={() => openUrl(AUTHOR_GITHUB)}
+          onClick={() => openUrl(AUTHOR_PROFILE)}
           className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
-          <img src="/icons/github.svg" alt="GitHub" className="w-4 h-4 opacity-60" />
-          <span className="text-sm text-[var(--color-text-primary)]">程序员阿江-Relakkes</span>
-          <span className="text-xs text-[var(--color-text-tertiary)] ml-auto">GitHub</span>
+          <span className="material-symbols-outlined text-[18px] text-[var(--color-text-tertiary)]">business_center</span>
+          <span className="text-sm text-[var(--color-text-primary)]">{STUDIO_NAME}</span>
+          <span className="text-xs text-[var(--color-text-tertiary)] ml-auto">Gitee</span>
         </button>
       </div>
 
@@ -1868,7 +2491,7 @@ function AboutSettings() {
 
       <div className="mt-6 w-full">
         <button
-          onClick={() => openUrl(GITHUB_ISSUES)}
+          onClick={() => openUrl(CODE_ISSUES)}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
         >
           <span className="material-symbols-outlined text-[20px] text-[var(--color-text-tertiary)]">feedback</span>

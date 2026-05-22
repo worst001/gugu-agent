@@ -3,7 +3,7 @@ import { Box, Text } from 'src/ink.js'
 import { Clawd } from './Clawd.js'
 
 const WELCOME_V2_WIDTH = 58
-const WELCOME_MESSAGE = 'Welcome to Claude Code GuGu'
+const WELCOME_MESSAGE = 'Welcome to Gugu Agent'
 
 export function WelcomeV2(): React.ReactNode {
   return (

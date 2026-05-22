@@ -15,7 +15,7 @@ describe('UpdateChecker', () => {
     useUpdateStore.setState({
       status: 'available',
       availableVersion: '0.1.5',
-      releaseNotes: '# Claude Code GuGu v0.1.5\n\n[Release notes](https://example.com/releases/v0.1.5)',
+      releaseNotes: '# Gugu Agent v0.1.5\n\n[Release notes](https://example.com/releases/v0.1.5)',
       progressPercent: 0,
       downloadedBytes: 0,
       totalBytes: null,
@@ -33,7 +33,7 @@ describe('UpdateChecker', () => {
     render(<UpdateChecker />)
 
     expect(screen.getByText('v0.1.5 available')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Claude Code GuGu v0.1.5' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Gugu Agent v0.1.5' })).toBeInTheDocument()
 
     const link = screen.getByRole('link', { name: 'Release notes' })
     expect(link).toHaveAttribute('href', 'https://example.com/releases/v0.1.5')
@@ -44,7 +44,7 @@ describe('UpdateChecker', () => {
     useUpdateStore.setState({
       status: 'downloading',
       availableVersion: '0.1.5',
-      releaseNotes: '# Claude Code GuGu v0.1.5',
+      releaseNotes: '# Gugu Agent v0.1.5',
       progressPercent: 0,
       downloadedBytes: 1536,
       totalBytes: null,

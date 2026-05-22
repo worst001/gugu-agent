@@ -8,12 +8,12 @@
  *
  *   claude-sidecar server   --app-root <path> --host 127.0.0.1 --port 12345
  *   claude-sidecar cli      --app-root <path> [其它 CLI 参数...]
- *   claude-sidecar adapters --app-root <path> [--feishu] [--telegram]
+ *   claude-sidecar adapters --app-root <path> [--feishu] [--telegram] [--dingtalk] [--wecom] [--qq]
  *
  * 任何模式都必须先做 process.env / process.argv 设置，再 await 进入相应的
  * 子模块树。原因：src/server/index.ts、src/entrypoints/cli.tsx、以及
  * adapters/feishu/index.ts 等顶层都会立即读 process.argv / process.env，
- * 必须在它们求值前 splice 掉 --app-root、mode、--feishu/--telegram 这些
+ * 必须在它们求值前 splice 掉 --app-root、mode、--feishu/--telegram 等这些
  * launcher-only 参数。
  */
 
@@ -51,12 +51,15 @@ if (mode === 'adapters') {
 }
 
 async function runAdapters(rawArgs: string[]): Promise<void> {
-  // adapters 模式的参数解析独立于 server/cli —— 这里只接受 --feishu /
-  // --telegram 选择启用哪个适配器，再加可选的 --app-root（透传给
+  // adapters 模式的参数解析独立于 server/cli —— 这里只接受 IM adapter
+  // 选择参数，再加可选的 --app-root（透传给
   // adapters/common/config.ts 内的 process.env 读取）。
   let appRoot: string | null = process.env.CLAUDE_APP_ROOT ?? null
   let enableFeishu = false
   let enableTelegram = false
+  let enableDingtalk = false
+  let enableWecom = false
+  let enableQq = false
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i]
@@ -73,12 +76,24 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
       enableTelegram = true
       continue
     }
+    if (arg === '--dingtalk') {
+      enableDingtalk = true
+      continue
+    }
+    if (arg === '--wecom') {
+      enableWecom = true
+      continue
+    }
+    if (arg === '--qq') {
+      enableQq = true
+      continue
+    }
     console.warn(`claude-sidecar adapters: ignoring unknown arg "${arg}"`)
   }
 
-  if (!enableFeishu && !enableTelegram) {
+  if (!enableFeishu && !enableTelegram && !enableDingtalk && !enableWecom && !enableQq) {
     console.error(
-      'claude-sidecar adapters: must enable at least one of --feishu / --telegram',
+      'claude-sidecar adapters: must enable at least one IM adapter flag',
     )
     process.exit(2)
   }
@@ -121,6 +136,59 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
       console.log('[claude-sidecar] starting Telegram adapter')
       // 副作用 import：telegram/index.ts 顶层会自动 bot.start()
       await import('../../adapters/telegram/index.ts')
+      started += 1
+    }
+  }
+
+  if (enableDingtalk) {
+    const hasAppCredentials = Boolean(config.dingtalk.clientId && config.dingtalk.clientSecret)
+    if (!hasAppCredentials) {
+      console.warn(
+        '[claude-sidecar] --dingtalk requested but DINGTALK_CLIENT_ID / DINGTALK_CLIENT_SECRET missing in env or ~/.claude/adapters.json — skipping',
+      )
+    } else {
+      console.log('[claude-sidecar] starting DingTalk adapter')
+      await import('../../adapters/dingtalk/index.ts')
+      started += 1
+    }
+  }
+
+  if (enableWecom) {
+    const hasAppCredentials = Boolean(
+      config.wecom.corpId
+      && config.wecom.agentId
+      && config.wecom.secret
+      && config.wecom.token
+      && config.wecom.encodingAesKey,
+    )
+    if (!hasAppCredentials) {
+      console.warn(
+        '[claude-sidecar] --wecom requested but WECOM_CORP_ID / WECOM_AGENT_ID / WECOM_SECRET / WECOM_TOKEN / WECOM_ENCODING_AES_KEY missing in env or ~/.claude/adapters.json — skipping',
+      )
+    } else {
+      console.log('[claude-sidecar] starting WeCom adapter')
+      try {
+        await import('../../adapters/wecom/index.ts')
+        started += 1
+      } catch (err) {
+        console.error(
+          '[claude-sidecar] failed to start WeCom adapter:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    }
+  }
+
+  if (enableQq) {
+    const hasOfficialBot = Boolean(config.qq.appId && (config.qq.appSecret || config.qq.token))
+    const hasOneBotBridge = Boolean(config.qq.oneBotUrl)
+    if (!hasOfficialBot && !hasOneBotBridge) {
+      console.warn(
+        '[claude-sidecar] --qq requested but QQ_APP_ID / QQ_APP_SECRET or QQ_ONEBOT_URL missing in env or ~/.claude/adapters.json — skipping',
+      )
+    } else {
+      console.log('[claude-sidecar] starting QQ adapter')
+      await import('../../adapters/qq/index.ts')
       started += 1
     }
   }

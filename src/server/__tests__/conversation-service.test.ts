@@ -70,6 +70,15 @@ describe('ConversationService', () => {
     expect(env.ANTHROPIC_MODEL).toBe('test-model')
   })
 
+  test('buildChildEnv exposes user-local CLI bins for RTK hooks', async () => {
+    const service = new ConversationService() as any
+    const env = (await service.buildChildEnv('D:\\workspace\\code\\myself_code\\cc-haha')) as Record<string, string>
+    const paths = (env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':')
+
+    expect(paths).toContain(path.join(os.homedir(), '.local', 'bin'))
+    expect(paths).toContain(path.join(os.homedir(), '.cargo', 'bin'))
+  })
+
   test('strips inherited provider env when desktop provider config exists', async () => {
     const ccHahaDir = path.join(tmpDir, 'cc-haha')
     await fs.mkdir(ccHahaDir, { recursive: true })

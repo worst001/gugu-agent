@@ -102,4 +102,28 @@ describe('AdapterHttpClient', () => {
       'http://127.0.0.1:3456/api/tasks/lists/session-123',
     )
   })
+
+  it('getSessionMessages calls GET /api/sessions/:id/messages', async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(new Response(JSON.stringify({
+        messages: [
+          {
+            id: 'msg-1',
+            type: 'assistant',
+            content: [{ type: 'text', text: 'hello from claude' }],
+            timestamp: '2026-05-20T05:19:40.000Z',
+          },
+        ],
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    ) as any
+
+    const messages = await client.getSessionMessages('session-123')
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.type).toBe('assistant')
+    expect((globalThis.fetch as any).mock.calls[0][0]).toBe(
+      'http://127.0.0.1:3456/api/sessions/session-123/messages',
+    )
+  })
 })

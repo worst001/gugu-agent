@@ -1,5 +1,22 @@
 import type { ApiFormat } from './provider'
 
+export type ProviderPresetCategory =
+  | 'official'
+  | 'domestic'
+  | 'domestic-coding'
+  | 'aggregator'
+  | 'local'
+  | 'custom'
+
+export type ProviderPresetProtocol =
+  | 'anthropic_native'
+  | 'anthropic_compatible'
+  | 'openai_chat_proxy'
+  | 'openai_responses_proxy'
+  | 'chatgpt_codex'
+
+export type ProviderPresetModelRole = 'main' | 'haiku' | 'sonnet' | 'opus'
+
 export type ModelMapping = {
   main: string
   haiku: string
@@ -15,6 +32,15 @@ export type ProviderPreset = {
   defaultModels: ModelMapping
   needsApiKey: boolean
   websiteUrl: string
+  category?: ProviderPresetCategory
+  protocol?: ProviderPresetProtocol
+  agentCompatible?: boolean
+  routingHint?: {
+    fast?: ProviderPresetModelRole
+    balanced?: ProviderPresetModelRole
+    pro?: ProviderPresetModelRole
+    note?: string
+  }
   apiKeyUrl?: string
   promoText?: string
   featured?: boolean

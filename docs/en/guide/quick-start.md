@@ -30,9 +30,9 @@ See [Environment Variables](./env-vars.md) for the full reference.
 ### macOS / Linux
 
 ```bash
-./bin/claude-gugu                          # Interactive TUI mode
-./bin/claude-gugu -p "your prompt here"    # Headless mode
-./bin/claude-gugu --help                   # Show all options
+./bin/cc-gugu                          # Interactive TUI mode
+./bin/cc-gugu -p "your prompt here"    # Headless mode
+./bin/cc-gugu --help                   # Show all options
 ```
 
 ### Windows
@@ -44,7 +44,7 @@ See [Environment Variables](./env-vars.md) for the full reference.
 bun --env-file=.env ./src/entrypoints/cli.tsx
 
 # Or run inside Git Bash
-./bin/claude-gugu
+./bin/cc-gugu
 ```
 
 ## 4. Global Usage (Optional)
@@ -60,5 +60,5 @@ export PATH="$HOME/path/to/claude-code-gugu/bin:$PATH"
 If the Ink TUI has issues, use the fallback Recovery CLI mode:
 
 ```bash
-CLAUDE_CODE_FORCE_RECOVERY_CLI=1 ./bin/claude-gugu
+CLAUDE_CODE_FORCE_RECOVERY_CLI=1 ./bin/cc-gugu
 ```

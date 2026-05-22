@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { adaptersApi } from '../api/adapters'
-import type { AdapterFileConfig } from '../types/adapter'
+import type { AdapterFileConfig, AdapterPlatform } from '../types/adapter'
 
 /**
  * Tauri command 触发器：让主进程 kill + respawn adapter sidecar，
@@ -10,11 +10,15 @@ import type { AdapterFileConfig } from '../types/adapter'
  * 在非 Tauri 环境（纯浏览器调试 / 单元测试）这会安静失败 —— 那种场景下
  * 本来也没有 sidecar 可重启。
  */
+async function restartAdaptersSidecar(): Promise<void> {
+  // 用 dynamic import 避开 SSR / non-tauri 测试环境的硬依赖
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('restart_adapters_sidecar')
+}
+
 async function notifyTauriRestartAdapters(): Promise<void> {
   try {
-    // 用 dynamic import 避开 SSR / non-tauri 测试环境的硬依赖
-    const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('restart_adapters_sidecar')
+    await restartAdaptersSidecar()
   } catch (err) {
     // 不阻塞保存流程 —— 配置文件已经写入，下次启动 App 也会生效
     if (typeof console !== 'undefined') {
@@ -48,7 +52,8 @@ type AdapterStore = {
   fetchConfig: () => Promise<void>
   updateConfig: (patch: Partial<AdapterFileConfig>) => Promise<void>
   generatePairingCode: () => Promise<string>
-  removePairedUser: (platform: 'telegram' | 'feishu', userId: string | number) => Promise<void>
+  removePairedUser: (platform: AdapterPlatform, userId: string | number) => Promise<void>
+  restartAdapters: () => Promise<void>
 }
 
 export const useAdapterStore = create<AdapterStore>((set, get) => ({
@@ -102,5 +107,9 @@ export const useAdapterStore = create<AdapterStore>((set, get) => ({
     await get().updateConfig({
       [platform]: { ...platformConfig, pairedUsers },
     })
+  },
+
+  restartAdapters: async () => {
+    await restartAdaptersSidecar()
   },
 }))

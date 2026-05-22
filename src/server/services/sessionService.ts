@@ -51,6 +51,37 @@ export type TrimSessionResult = {
   removedMessageIds: string[]
 }
 
+export type SessionCheckpoint = {
+  id: string
+  kind: 'user_turn'
+  messageId: string
+  title: string
+  timestamp: string
+  userMessageIndex: number
+  messagesIncluded: number
+  trackedFileCount: number
+}
+
+export type SessionCheckpointList = {
+  checkpoints: SessionCheckpoint[]
+}
+
+export type SessionForkSelector = {
+  targetUserMessageId?: string
+  userMessageIndex?: number
+  expectedContent?: string
+}
+
+export type SessionForkResult = {
+  sessionId: string
+  sourceSessionId: string
+  targetUserMessageId: string
+  userMessageIndex: number
+  title: string
+  workDir: string | null
+  messagesCopied: number
+}
+
 export type MessageEntry = {
   id: string
   type: 'user' | 'assistant' | 'system' | 'tool_use' | 'tool_result'
@@ -406,6 +437,151 @@ export class SessionService {
       .join('\n')
   }
 
+  private normalizePromptText(text: string): string {
+    return text.replace(/\r\n/g, '\n').trim()
+  }
+
+  private stripHiddenPromptScaffolding(text: string): string {
+    const attachmentMatch = text.match(/<用户正文>\s*([\s\S]*?)\s*<\/用户正文>/)
+    if (attachmentMatch?.[1]?.trim()) {
+      return this.stripHiddenPromptScaffolding(attachmentMatch[1])
+    }
+
+    const markerMatch = text.match(/(?:^|\n)User message:\s*\n([\s\S]*)$/)
+    if (markerMatch?.[1]?.trim()) {
+      return markerMatch[1].trim()
+    }
+
+    return text.trim()
+  }
+
+  private getVisiblePromptText(content: unknown): string {
+    return this.stripHiddenPromptScaffolding(this.extractTextFromContent(content))
+  }
+
+  private makeCheckpointTitle(content: unknown): string {
+    const text = this.getVisiblePromptText(content).replace(/\s+/g, ' ').trim()
+    if (!text) return 'Attachment-only prompt'
+    return text.length > 80 ? `${text.slice(0, 80)}...` : text
+  }
+
+  private cleanExtractedTitle(title: string): string | null {
+    const visible = this.stripHiddenPromptScaffolding(title).replace(/\s+/g, ' ').trim()
+    if (!visible || visible.startsWith('[Workflow:') || visible.includes('CE automation (binding)')) {
+      return null
+    }
+    return visible.length > 80 ? `${visible.slice(0, 80)}...` : visible
+  }
+
+  private assertExpectedPromptMatches(
+    targetMessage: MessageEntry,
+    expectedContent: string | undefined,
+  ): void {
+    if (expectedContent === undefined) return
+
+    const expected = this.normalizePromptText(expectedContent)
+    const raw = this.normalizePromptText(this.extractTextFromContent(targetMessage.content))
+    const visible = this.normalizePromptText(this.getVisiblePromptText(targetMessage.content))
+    if (expected !== raw && expected !== visible) {
+      throw ApiError.badRequest(
+        'The selected fork target no longer matches the prompt shown in the chat. Refresh the session and try again.',
+      )
+    }
+  }
+
+  private resolveUserTurnTarget(
+    activeMessages: MessageEntry[],
+    selector: SessionForkSelector,
+  ): {
+    targetUserMessageId: string
+    userMessageIndex: number
+    userMessageCount: number
+    targetMessageIndex: number
+    includeThroughMessageIndex: number
+  } {
+    const userMessages = activeMessages.filter((message) => message.type === 'user')
+    if (userMessages.length === 0) {
+      throw ApiError.badRequest('This session has no user messages to fork.')
+    }
+
+    let targetUserMessage: MessageEntry | null = null
+    let userMessageIndex = -1
+
+    if (selector.targetUserMessageId) {
+      const activeMessage = activeMessages.find(
+        (message) => message.id === selector.targetUserMessageId,
+      )
+      if (activeMessage) {
+        if (activeMessage.type !== 'user') {
+          throw ApiError.badRequest('The selected fork target is not a user message.')
+        }
+        targetUserMessage = activeMessage
+        userMessageIndex = userMessages.findIndex(
+          (message) => message.id === activeMessage.id,
+        )
+      }
+    }
+
+    if (!targetUserMessage && Number.isInteger(selector.userMessageIndex)) {
+      userMessageIndex = selector.userMessageIndex!
+      if (userMessageIndex >= 0 && userMessageIndex < userMessages.length) {
+        targetUserMessage = userMessages[userMessageIndex]!
+      }
+    }
+
+    if (
+      !targetUserMessage ||
+      userMessageIndex < 0 ||
+      userMessageIndex >= userMessages.length
+    ) {
+      throw ApiError.badRequest(
+        `Invalid fork target. Expected targetUserMessageId or userMessageIndex 0-${userMessages.length - 1}.`,
+      )
+    }
+
+    this.assertExpectedPromptMatches(targetUserMessage, selector.expectedContent)
+
+    const targetMessageIndex = activeMessages.findIndex(
+      (message) => message.id === targetUserMessage!.id,
+    )
+    if (targetMessageIndex < 0) {
+      throw ApiError.badRequest('The selected user message is not in the active chain.')
+    }
+
+    let includeThroughMessageIndex = activeMessages.length - 1
+    for (let i = targetMessageIndex + 1; i < activeMessages.length; i += 1) {
+      if (activeMessages[i]?.type === 'user') {
+        includeThroughMessageIndex = i - 1
+        break
+      }
+    }
+
+    return {
+      targetUserMessageId: targetUserMessage.id,
+      userMessageIndex,
+      userMessageCount: userMessages.length,
+      targetMessageIndex,
+      includeThroughMessageIndex,
+    }
+  }
+
+  private cloneEntryForFork(
+    entry: RawEntry,
+    newSessionId: string,
+    copiedEntryIds: Set<string>,
+  ): RawEntry {
+    const cloned = JSON.parse(JSON.stringify(entry)) as RawEntry
+    cloned.sessionId = newSessionId
+    if (
+      typeof cloned.parentUuid === 'string' &&
+      cloned.parentUuid.length > 0 &&
+      !copiedEntryIds.has(cloned.parentUuid)
+    ) {
+      cloned.parentUuid = null
+    }
+    return cloned
+  }
+
   private extractAgentIdFromResultText(text: string): string | undefined {
     const match = text.match(/(?:^|\n)\s*agentId:\s*([A-Za-z0-9_-]+)/)
     return match?.[1]
@@ -590,7 +766,8 @@ export class SessionService {
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i]!
       if (e.type === 'custom-title' && e.customTitle) {
-        return e.customTitle
+        const title = this.cleanExtractedTitle(e.customTitle)
+        if (title) return title
       }
     }
 
@@ -598,7 +775,8 @@ export class SessionService {
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i]!
       if (e.type === 'ai-title' && e.aiTitle) {
-        return e.aiTitle as string
+        const title = this.cleanExtractedTitle(e.aiTitle as string)
+        if (title) return title
       }
     }
 
@@ -616,7 +794,8 @@ export class SessionService {
           if (textBlock) text = textBlock.text as string
         }
         if (text) {
-          return text.length > 80 ? text.slice(0, 80) + '...' : text
+          const title = this.cleanExtractedTitle(text)
+          if (title) return title
         }
       }
     }
@@ -993,14 +1172,13 @@ export class SessionService {
     const sessionFiles = await this.discoverSessionFiles(options?.project)
 
     // Build session list items with metadata from file stats & first entries
-    const items: SessionListItem[] = []
+    const items: Array<Omit<SessionListItem, 'workDirExists'>> = []
 
     for (const { filePath, projectDir, sessionId } of sessionFiles) {
       try {
         const stat = await fs.stat(filePath)
         const entries = await this.readJsonlFile(filePath)
         const workDir = this.resolveWorkDirFromEntries(entries, projectDir)
-        const workDirExists = await this.pathExists(workDir)
 
         // Count transcript messages only (user + assistant)
         const messageCount = entries.filter(
@@ -1026,7 +1204,6 @@ export class SessionService {
           messageCount,
           projectPath: projectDir,
           workDir,
-          workDirExists,
         })
       } catch {
         // Skip unreadable files
@@ -1039,7 +1216,12 @@ export class SessionService {
     const total = items.length
     const offset = options?.offset ?? 0
     const limit = options?.limit ?? 50
-    const paginated = items.slice(offset, offset + limit)
+    const paginated = await Promise.all(
+      items.slice(offset, offset + limit).map(async (item) => ({
+        ...item,
+        workDirExists: await this.pathExists(item.workDir),
+      })),
+    )
 
     return { sessions: paginated, total }
   }
@@ -1100,6 +1282,163 @@ export class SessionService {
       sessionId,
       this.entriesToMessages(entries),
     )
+  }
+
+  async getSessionCheckpoints(sessionId: string): Promise<SessionCheckpointList> {
+    const found = await this.findSessionFile(sessionId)
+    if (!found) {
+      throw ApiError.notFound(`Session not found: ${sessionId}`)
+    }
+
+    const entries = await this.readJsonlFile(found.filePath)
+    const activeMessages = this.entriesToMessages(entries)
+    const trackedFilesByMessageId = new Map<string, number>()
+
+    for (const entry of entries) {
+      if (entry.type !== 'file-history-snapshot' || !entry.snapshot) continue
+      const snapshotMessageId =
+        typeof entry.snapshot.messageId === 'string'
+          ? entry.snapshot.messageId
+          : typeof entry.messageId === 'string'
+            ? entry.messageId
+            : null
+      if (!snapshotMessageId) continue
+      const trackedFileCount =
+        entry.snapshot.trackedFileBackups &&
+        typeof entry.snapshot.trackedFileBackups === 'object'
+          ? Object.keys(entry.snapshot.trackedFileBackups).length
+          : 0
+      trackedFilesByMessageId.set(snapshotMessageId, trackedFileCount)
+    }
+
+    const checkpoints: SessionCheckpoint[] = []
+    let userMessageIndex = -1
+    for (let messageIndex = 0; messageIndex < activeMessages.length; messageIndex += 1) {
+      const message = activeMessages[messageIndex]!
+      if (message.type !== 'user') continue
+
+      userMessageIndex += 1
+      let includeThroughMessageIndex = activeMessages.length - 1
+      for (let i = messageIndex + 1; i < activeMessages.length; i += 1) {
+        if (activeMessages[i]?.type === 'user') {
+          includeThroughMessageIndex = i - 1
+          break
+        }
+      }
+
+      checkpoints.push({
+        id: message.id,
+        kind: 'user_turn',
+        messageId: message.id,
+        title: this.makeCheckpointTitle(message.content),
+        timestamp: message.timestamp,
+        userMessageIndex,
+        messagesIncluded: includeThroughMessageIndex + 1,
+        trackedFileCount: trackedFilesByMessageId.get(message.id) ?? 0,
+      })
+    }
+
+    return { checkpoints }
+  }
+
+  async forkSessionFromMessage(
+    sessionId: string,
+    selector: SessionForkSelector,
+  ): Promise<SessionForkResult> {
+    const found = await this.findSessionFile(sessionId)
+    if (!found) {
+      throw ApiError.notFound(`Session not found: ${sessionId}`)
+    }
+
+    const entries = await this.readJsonlFile(found.filePath)
+    const activeMessages = this.entriesToMessages(entries)
+    const target = this.resolveUserTurnTarget(activeMessages, selector)
+    const includedMessages = activeMessages.slice(0, target.includeThroughMessageIndex + 1)
+    const includedMessageIds = new Set(includedMessages.map((message) => message.id))
+
+    const transcriptEntries = entries.filter((entry) => (
+      !!entry.message?.role &&
+      typeof entry.uuid === 'string' &&
+      includedMessageIds.has(entry.uuid)
+    ))
+
+    if (transcriptEntries.length === 0) {
+      throw ApiError.badRequest('No transcript messages are available before the selected fork target.')
+    }
+
+    const newSessionId = crypto.randomUUID()
+    const copiedEntryIds = new Set(
+      transcriptEntries
+        .map((entry) => entry.uuid)
+        .filter((uuid): uuid is string => typeof uuid === 'string' && uuid.length > 0),
+    )
+    const forkedTranscriptEntries = transcriptEntries.map((entry) =>
+      this.cloneEntryForFork(entry, newSessionId, copiedEntryIds),
+    )
+
+    const workDir = this.resolveWorkDirFromEntries(entries, found.projectDir)
+    const projectDir = workDir ? this.sanitizePath(workDir) : found.projectDir
+    const dirPath = path.join(this.getProjectsDir(), projectDir)
+    await fs.mkdir(dirPath, { recursive: true })
+
+    const now = new Date().toISOString()
+    const titleBase = this.extractTitle(entries)
+    const title = titleBase.endsWith(' (fork)') ? titleBase : `${titleBase} (fork)`
+    const initialEntry: RawEntry = {
+      type: 'file-history-snapshot',
+      messageId: crypto.randomUUID(),
+      snapshot: {
+        messageId: crypto.randomUUID(),
+        trackedFileBackups: {},
+        timestamp: now,
+      },
+      isSnapshotUpdate: false,
+    }
+    const metaEntry: RawEntry = {
+      type: 'session-meta',
+      isMeta: true,
+      workDir: workDir ?? this.desanitizePath(found.projectDir),
+      timestamp: now,
+    }
+    const forkEntry: RawEntry = {
+      type: 'session-fork',
+      isMeta: true,
+      sourceSessionId: sessionId,
+      targetUserMessageId: target.targetUserMessageId,
+      userMessageIndex: target.userMessageIndex,
+      sourceMessagesIncluded: includedMessages.length,
+      timestamp: now,
+    }
+    const titleEntry: RawEntry = {
+      type: 'custom-title',
+      customTitle: title,
+      timestamp: now,
+    }
+
+    const filePath = path.join(dirPath, `${newSessionId}.jsonl`)
+    const forkEntries = [
+      initialEntry,
+      metaEntry,
+      forkEntry,
+      titleEntry,
+      ...forkedTranscriptEntries,
+    ]
+
+    await fs.writeFile(
+      filePath,
+      forkEntries.map((entry) => JSON.stringify(entry)).join('\n') + '\n',
+      'utf-8',
+    )
+
+    return {
+      sessionId: newSessionId,
+      sourceSessionId: sessionId,
+      targetUserMessageId: target.targetUserMessageId,
+      userMessageIndex: target.userMessageIndex,
+      title,
+      workDir: workDir ?? this.desanitizePath(found.projectDir),
+      messagesCopied: forkedTranscriptEntries.length,
+    }
   }
 
   /**
@@ -1342,6 +1681,7 @@ export class SessionService {
     }
 
     const entries = await this.readJsonlFile(found.filePath)
+    const workDir = this.resolveWorkDirFromEntries(entries, found.projectDir)
     const activeMessages = this.entriesToMessages(entries)
     const startIndex = activeMessages.findIndex((message) => message.id === startMessageId)
 
@@ -1358,9 +1698,18 @@ export class SessionService {
     }
 
     const removedIds = new Set(removedMessageIds)
-    const filteredEntries = entries.filter(
+    const filteredEntries: RawEntry[] = entries.filter(
       (entry) => !(typeof entry.uuid === 'string' && removedIds.has(entry.uuid)),
     )
+    const hasSessionMeta = filteredEntries.some((entry) => entry.type === 'session-meta')
+    if (!hasSessionMeta && workDir) {
+      filteredEntries.unshift({
+        type: 'session-meta',
+        isMeta: true,
+        workDir,
+        timestamp: new Date().toISOString(),
+      })
+    }
 
     const content =
       filteredEntries.length > 0
@@ -1463,11 +1812,18 @@ export class SessionService {
   private async pathExists(targetPath: string | null): Promise<boolean> {
     if (!targetPath) return false
 
+    let timeout: ReturnType<typeof setTimeout> | null = null
     try {
-      const stat = await fs.stat(targetPath)
-      return stat.isDirectory()
+      return await Promise.race([
+        fs.stat(targetPath).then((stat) => stat.isDirectory()).catch(() => false),
+        new Promise<boolean>((resolve) => {
+          timeout = setTimeout(() => resolve(false), 1000)
+        }),
+      ])
     } catch {
       return false
+    } finally {
+      if (timeout) clearTimeout(timeout)
     }
   }
 }

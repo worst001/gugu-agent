@@ -90,7 +90,6 @@ export function NewTaskModal({ open, onClose, editTask }: Props) {
   const [prompt, setPrompt] = useState(editTask?.prompt || '')
   const [frequency, setFrequency] = useState<FrequencyKey>(parsed?.frequency || 'daily')
   const [time, setTime] = useState(parsed?.time || '09:00')
-  const [model, setModel] = useState(editTask?.model || '')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>((editTask?.permissionMode as PermissionMode) || 'default')
   const [folderPath, setFolderPath] = useState(editTask?.folderPath || defaultWorkDir)
   const [useWorktree, setUseWorktree] = useState(editTask?.useWorktree || false)
@@ -128,7 +127,7 @@ export function NewTaskModal({ open, onClose, editTask }: Props) {
         description: description.trim(),
         cron: cronValue,
         prompt: prompt.trim(),
-        model: model || undefined,
+        model: editTask?.model,
         permissionMode: permissionMode !== 'default' ? permissionMode : undefined,
         folderPath: folderPath.trim() || undefined,
         useWorktree: useWorktree || undefined,
@@ -197,8 +196,6 @@ export function NewTaskModal({ open, onClose, editTask }: Props) {
           placeholder={t('newTask.promptPlaceholder')}
           permissionMode={permissionMode}
           onPermissionModeChange={setPermissionMode}
-          modelId={model}
-          onModelChange={setModel}
           folderPath={folderPath}
           onFolderPathChange={setFolderPath}
           useWorktree={useWorktree}

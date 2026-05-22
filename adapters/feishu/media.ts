@@ -17,6 +17,28 @@ import type { LocalAttachment } from '../common/attachment/attachment-types.js'
 
 type LarkClient = InstanceType<typeof Lark.Client>
 
+function summarizeFeishuResponse(resp: any): string {
+  const code = resp?.code ?? resp?.error?.code
+  const msg = resp?.msg ?? resp?.message ?? resp?.error?.message
+  const parts = []
+  if (code !== undefined) parts.push(`code=${code}`)
+  if (msg) parts.push(`msg=${msg}`)
+  if (!parts.length && resp && typeof resp === 'object') {
+    const keys = Object.keys(resp).slice(0, 8)
+    if (keys.length) parts.push(`keys=${keys.join(',')}`)
+  }
+  if (!parts.length && resp !== null && resp !== undefined) {
+    parts.push(`type=${typeof resp}`)
+  }
+  return parts.join(', ') || 'unknown response'
+}
+
+function assertFeishuOk(resp: any, action: string): void {
+  if (resp?.code !== undefined && resp.code !== 0) {
+    throw new Error(`[FeishuMedia] ${action} failed: ${summarizeFeishuResponse(resp)}`)
+  }
+}
+
 /** Map a filename extension to Feishu's file_type enum. */
 function detectFeishuFileType(
   fileName: string,
@@ -131,8 +153,11 @@ export class FeishuMediaService {
         image: buffer,
       },
     })
-    const key = resp?.data?.image_key
-    if (!key) throw new Error('[FeishuMedia] uploadImage: missing image_key')
+    assertFeishuOk(resp, 'uploadImage')
+    const key = resp?.data?.image_key ?? resp?.image_key
+    if (!key) {
+      throw new Error(`[FeishuMedia] uploadImage: missing image_key (${summarizeFeishuResponse(resp)})`)
+    }
     return key
   }
 
@@ -145,14 +170,17 @@ export class FeishuMediaService {
         file: buffer,
       },
     })
-    const key = resp?.data?.file_key
-    if (!key) throw new Error('[FeishuMedia] uploadFile: missing file_key')
+    assertFeishuOk(resp, 'uploadFile')
+    const key = resp?.data?.file_key ?? resp?.file_key
+    if (!key) {
+      throw new Error(`[FeishuMedia] uploadFile: missing file_key (${summarizeFeishuResponse(resp)})`)
+    }
     return key
   }
 
   /** Send an image message to a chat. See OpenClaw media.ts:435. */
   async sendImageMessage(chatId: string, imageKey: string): Promise<void> {
-    await this.client.im.message.create({
+    const resp: any = await this.client.im.message.create({
       params: { receive_id_type: 'chat_id' },
       data: {
         receive_id: chatId,
@@ -160,11 +188,12 @@ export class FeishuMediaService {
         content: JSON.stringify({ image_key: imageKey }),
       },
     })
+    assertFeishuOk(resp, 'sendImageMessage')
   }
 
   /** Send a file message to a chat. See OpenClaw media.ts:466. */
   async sendFileMessage(chatId: string, fileKey: string): Promise<void> {
-    await this.client.im.message.create({
+    const resp: any = await this.client.im.message.create({
       params: { receive_id_type: 'chat_id' },
       data: {
         receive_id: chatId,
@@ -172,5 +201,6 @@ export class FeishuMediaService {
         content: JSON.stringify({ file_key: fileKey }),
       },
     })
+    assertFeishuOk(resp, 'sendFileMessage')
   }
 }

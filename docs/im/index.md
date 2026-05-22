@@ -1,7 +1,7 @@
 # IM 接入
 
 > 当前可用的 IM 接入方案总览。  
-> 如果你只是想把 Telegram 或飞书接进来，从这篇开始。
+> 如果你只是想快速接入，从 Telegram、飞书或钉钉开始；企业微信属于企业管理员高级接入，需要配置自建应用回调。
 
 ## 当前方案是什么
 
@@ -16,7 +16,7 @@ flowchart TD
     C --> D["本地配置持久化"]
     D --> E["~/.claude/adapters.json"]
 
-    E --> F["Telegram / 飞书 Adapter 进程"]
+    E --> F["Telegram / 飞书 / 钉钉 / 企业微信 / QQ Adapter 进程"]
     F --> G["加载平台配置"]
     F --> H["校验配对与授权"]
     F --> I["读取 / 写入会话映射"]
@@ -41,14 +41,14 @@ flowchart TD
     U --> V["流式消息 / 权限请求 / 状态事件"]
     V --> S
     S --> F
-    F --> W["Telegram / 飞书用户"]
+    F --> W["Telegram / 飞书 / 钉钉 / 企业微信 / QQ 用户"]
 ```
 
 可以把这条链路理解成四层：
 
 - 配置层：桌面端 webapp 负责填写平台凭据、默认项目和配对码管理
 - 存储层：本地服务端把配置写入 `~/.claude/adapters.json`
-- 适配层：Telegram / 飞书 adapter 进程负责接 IM 平台、做授权检查、恢复或创建会话
+- 适配层：各 IM adapter 进程负责接平台消息、做授权检查、恢复或创建会话
 - 会话层：adapter 通过 HTTP 创建 session，再通过 WebSocket 把 IM 消息桥接到 Claude Code 会话
 
 ## 用户怎么用
@@ -59,7 +59,7 @@ flowchart TD
 
 - `serverUrl`
 - `defaultProjectDir`
-- Telegram 或飞书各自的凭据
+- 目标 IM 平台各自的凭据
 - 可选 `allowedUsers`
 
 这里的配置会通过 `GET /api/adapters` 和 `PUT /api/adapters` 读写到 `~/.claude/adapters.json`。
@@ -73,7 +73,7 @@ flowchart TD
 - 码有效期 60 分钟
 - 配对成功后立即失效
 
-配对码是平台无关的，同一个码可以在 Telegram 或飞书私聊里使用一次。
+配对码是平台无关的，同一个码可以在任意已接通的 IM 私聊里使用一次。
 
 ### 3. 启动对应 Adapter 进程
 
@@ -85,6 +85,12 @@ bun install
 bun run telegram
 # 或
 bun run feishu
+# 或
+bun run dingtalk
+# 或
+bun run wecom
+# 或
+bun run qq
 ```
 
 ### 4. 在 IM 里私聊 Bot
@@ -105,6 +111,9 @@ bun run feishu
 - `pairing`
 - `telegram`
 - `feishu`
+- `wecom`
+- `dingtalk`
+- `qq`
 
 其中：
 
@@ -152,11 +161,17 @@ Adapter 不是直接把消息丢给一个全局 Claude 进程，而是：
 
 - Telegram：`grammy`，按钮审批，纯私聊模式
 - 飞书：`@larksuiteoapi/node-sdk`，长连接事件订阅，交互卡片审批，当前只处理 `p2p`
+- 钉钉：Stream 模式机器人，不需要公网回调
+- 企业微信：自建应用回调模式，需要企业管理员、Token、EncodingAESKey 和公网 HTTPS 回调
+- QQ：官方 Bot WebSocket 或 OneBot/NapCat 本地桥
 
 分别看：
 
 - [Telegram 接入](./telegram.md)
 - [飞书接入](./feishu.md)
+- [钉钉接入](./dingtalk.md)
+- [企业微信接入](./wecom.md)
+- [QQ 接入](./qq.md)
 
 ## 和 `docs/channel/` 的关系
 

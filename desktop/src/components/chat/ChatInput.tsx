@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { Mic, MicOff, WandSparkles } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useChatStore } from '../../stores/chatStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
@@ -7,14 +8,23 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi } from '../../api/sessions'
+import { promptOptimizeApi } from '../../api/promptOptimize'
+import { CeWorkflowRoleSelector } from '../controls/CeWorkflowRoleSelector'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
-import { ModelSelector } from '../controls/ModelSelector'
-import type { AttachmentRef } from '../../types/chat'
+import { buildCeWorkflowMessage } from '../../constants/ceWorkflowRoles'
+import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from './AttachmentGallery'
 import { ProjectContextChip } from '../shared/ProjectContextChip'
 import { DirectoryPicker } from '../shared/DirectoryPicker'
 import { FileSearchMenu, type FileSearchMenuHandle } from './FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from './LocalSlashCommandPanel'
+import {
+  appendVoiceTranscript,
+  getSpeechRecognitionConstructor,
+  isSpeechRecognitionAvailable,
+  type BrowserSpeechRecognition,
+  type BrowserSpeechRecognitionEvent,
+} from './speechRecognition'
 import {
   FALLBACK_SLASH_COMMANDS,
   findSlashTrigger,
@@ -22,6 +32,7 @@ import {
   replaceSlashToken,
   resolveSlashUiAction,
 } from './composerUtils'
+import { clearComposerDraft, loadComposerDraft, saveComposerDraft } from './composerDrafts'
 
 type GitInfo = { branch: string | null; repoName: string | null; workDir: string; changedFiles: number }
 
@@ -34,9 +45,23 @@ type Attachment = {
   data?: string
 }
 
+type PromptOptimizePreview = {
+  originalText: string
+  optimizedText: string
+  summary: string
+}
+
 type ChatInputProps = {
   variant?: 'default' | 'hero'
 }
+
+const PROMPT_OPTIMIZE_ESTIMATED_MS = 60_000
+const PROMPT_OPTIMIZE_INITIAL_PROGRESS = 6
+const PROMPT_OPTIMIZE_PROGRESS_CAP = 95
+const PROMPT_OPTIMIZE_PROGRESS_TICK_MS = 500
+const PROMPT_OPTIMIZE_SLOW_NOTICE_MS = 60_000
+const COMPOSER_DRAFT_SAVE_DELAY_MS = 250
+const LONG_PASTE_TEXT_THRESHOLD = 12_000
 
 export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const t = useTranslation()
@@ -50,15 +75,29 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const [atCursorPos, setAtCursorPos] = useState(-1)
   const [slashFilter, setSlashFilter] = useState('')
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [promptOptimizePreview, setPromptOptimizePreview] = useState<PromptOptimizePreview | null>(null)
+  const [isPromptOptimizing, setIsPromptOptimizing] = useState(false)
+  const [promptOptimizeStartedAt, setPromptOptimizeStartedAt] = useState<number | null>(null)
+  const [promptOptimizeProgress, setPromptOptimizeProgress] = useState(0)
+  const [showPromptOptimizeSlowNotice, setShowPromptOptimizeSlowNotice] = useState(false)
+  const [isPromptOptimizeContinuing, setIsPromptOptimizeContinuing] = useState(false)
+  const [promptOptimizeError, setPromptOptimizeError] = useState<string | null>(null)
+  const [voiceSupported, setVoiceSupported] = useState(false)
+  const [isVoiceRecording, setIsVoiceRecording] = useState(false)
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const promptOptimizeAbortRef = useRef<AbortController | null>(null)
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
+  const voiceBaseInputRef = useRef('')
   const plusMenuRef = useRef<HTMLDivElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
   const fileSearchRef = useRef<FileSearchMenuHandle>(null)
   const slashItemRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const inputRef = useRef(input)
   const { sendMessage, stopGeneration } = useChatStore()
   const activeTabId = useTabStore((s) => s.activeTabId)
+  const runtimeSelection = useSessionRuntimeStore((s) => activeTabId ? s.selections[activeTabId] : undefined)
   const sessionState = useChatStore((s) => activeTabId ? s.sessions[activeTabId] : undefined)
   const chatState = sessionState?.chatState ?? 'idle'
   const slashCommands = sessionState?.slashCommands ?? []
@@ -72,12 +111,130 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const isActive = chatState !== 'idle'
   const isWorkspaceMissing = activeSession?.workDirExists === false
   const canSubmit = !isWorkspaceMissing && (input.trim().length > 0 || (!isMemberSession && attachments.length > 0))
+  const canOptimizePrompt = Boolean(
+    activeTabId &&
+    !isMemberSession &&
+    !isWorkspaceMissing &&
+    !isActive &&
+    !isPromptOptimizing &&
+    input.trim().length > 0,
+  )
+  const canStartVoiceInput = Boolean(
+    activeTabId &&
+    !isMemberSession &&
+    !isWorkspaceMissing &&
+    !isActive &&
+    voiceSupported,
+  )
   const isHeroComposer = variant === 'hero' && !isMemberSession
   const resolvedWorkDir = activeSession?.workDir || gitInfo?.workDir || undefined
+  const promptOptimizeProgressPercent = isPromptOptimizing
+    ? Math.max(PROMPT_OPTIMIZE_INITIAL_PROGRESS, promptOptimizeProgress)
+    : 0
+
+  useEffect(() => {
+    inputRef.current = input
+  }, [input])
 
   useEffect(() => {
     textareaRef.current?.focus()
   }, [isActive])
+
+  useEffect(() => {
+    if (!isActive) return
+    setPlusMenuOpen(false)
+    setSlashMenuOpen(false)
+    setFileSearchOpen(false)
+    setLocalSlashPanel(null)
+  }, [isActive])
+
+  useEffect(() => {
+    setVoiceSupported(isSpeechRecognitionAvailable())
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      speechRecognitionRef.current?.abort()
+      speechRecognitionRef.current = null
+      setIsVoiceRecording(false)
+    }
+  }, [activeTabId])
+
+  useEffect(() => {
+    if (!isPromptOptimizing || promptOptimizeStartedAt === null) return
+
+    const updateProgress = () => {
+      const elapsed = Date.now() - promptOptimizeStartedAt
+      const ratio = Math.min(elapsed / PROMPT_OPTIMIZE_ESTIMATED_MS, 1)
+      const easedRatio = 1 - Math.pow(1 - ratio, 2)
+      const nextProgress = Math.round(easedRatio * PROMPT_OPTIMIZE_PROGRESS_CAP)
+
+      setPromptOptimizeProgress(Math.min(
+        PROMPT_OPTIMIZE_PROGRESS_CAP,
+        Math.max(PROMPT_OPTIMIZE_INITIAL_PROGRESS, nextProgress),
+      ))
+    }
+
+    updateProgress()
+    const intervalId = window.setInterval(updateProgress, PROMPT_OPTIMIZE_PROGRESS_TICK_MS)
+
+    return () => window.clearInterval(intervalId)
+  }, [isPromptOptimizing, promptOptimizeStartedAt])
+
+  useEffect(() => {
+    if (!isPromptOptimizing || promptOptimizeStartedAt === null || isPromptOptimizeContinuing) return
+
+    const elapsed = Date.now() - promptOptimizeStartedAt
+    const delay = Math.max(0, PROMPT_OPTIMIZE_SLOW_NOTICE_MS - elapsed)
+    const timeoutId = window.setTimeout(() => {
+      setShowPromptOptimizeSlowNotice(true)
+    }, delay)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [isPromptOptimizing, promptOptimizeStartedAt, isPromptOptimizeContinuing])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) {
+      inputRef.current = ''
+      setInput('')
+      setAttachments([])
+      return
+    }
+
+    const draft = loadComposerDraft(activeTabId)
+    const draftText = draft?.text ?? ''
+    inputRef.current = draftText
+    setInput(draftText)
+    setAttachments([])
+    setPlusMenuOpen(false)
+    setSlashMenuOpen(false)
+    setFileSearchOpen(false)
+    setLocalSlashPanel(null)
+    setSlashFilter('')
+    setAtFilter('')
+    setAtCursorPos(-1)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+  }, [activeTabId, isMemberSession])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) return
+
+    const timeoutId = window.setTimeout(() => {
+      saveComposerDraft(activeTabId, input)
+    }, COMPOSER_DRAFT_SAVE_DELAY_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [activeTabId, input, isMemberSession])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) return
+    const sessionId = activeTabId
+
+    return () => {
+      saveComposerDraft(sessionId, inputRef.current)
+    }
+  }, [activeTabId, isMemberSession])
 
   useEffect(() => {
     if (!composerPrefill) return
@@ -101,6 +258,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     setSlashFilter('')
     setAtFilter('')
     setAtCursorPos(-1)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
 
     requestAnimationFrame(() => {
       const el = textareaRef.current
@@ -277,6 +436,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
   const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
     if (isMemberSession) {
       setInput(value)
       return
@@ -300,13 +461,19 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     })
   }, [input])
 
-  const handleSubmit = () => {
-    const text = input.trim()
+  const handleSubmit = (overrideText?: string) => {
+    if (!activeTabId) return
+    if (!isMemberSession && isActive) return
+    const text = (overrideText ?? input).trim()
     if ((!text && (!attachments.length || isMemberSession)) || isWorkspaceMissing) return
 
-    const slashUiAction = !isMemberSession && text.startsWith('/') ? resolveSlashUiAction(text.slice(1)) : null
+    const slashUiAction = overrideText === undefined && !isMemberSession && text.startsWith('/')
+      ? resolveSlashUiAction(text.slice(1))
+      : null
     if (slashUiAction?.type === 'panel') {
       setLocalSlashPanel(slashUiAction.command as LocalSlashCommandName)
+      if (activeTabId) clearComposerDraft(activeTabId)
+      inputRef.current = ''
       setInput('')
       setSlashMenuOpen(false)
       setFileSearchOpen(false)
@@ -317,6 +484,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     if (slashUiAction?.type === 'settings') {
       useUIStore.getState().setPendingSettingsTab(slashUiAction.tab)
       useTabStore.getState().openTab(SETTINGS_TAB_ID, 'Settings', 'settings')
+      if (activeTabId) clearComposerDraft(activeTabId)
+      inputRef.current = ''
       setInput('')
       setSlashMenuOpen(false)
       setFileSearchOpen(false)
@@ -324,20 +493,117 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       return
     }
 
-    const attachmentPayload: AttachmentRef[] = attachments.map((attachment) => ({
+    const attachmentPayload = attachments.map((attachment) => ({
       type: attachment.type,
       name: attachment.name,
       data: attachment.data,
       mimeType: attachment.mimeType,
     }))
 
-    sendMessage(activeTabId!, text, attachmentPayload)
+    if (!isMemberSession) {
+      const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId]
+      const { wire, display, modelPreference } = buildCeWorkflowMessage(roleId, text)
+      sendMessage(activeTabId, wire, attachmentPayload, {
+        displayContent: display,
+        displayAttachments: attachmentPayload,
+        ceModelPreference: modelPreference,
+      })
+    } else {
+      sendMessage(activeTabId, text)
+    }
+    if (activeTabId) clearComposerDraft(activeTabId)
+    inputRef.current = ''
     setInput('')
     setAttachments([])
     setPlusMenuOpen(false)
     setSlashMenuOpen(false)
     setFileSearchOpen(false)
     setLocalSlashPanel(null)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+  }
+
+  const handleOptimizePrompt = async () => {
+    if (!activeTabId || !canOptimizePrompt) return
+    const originalText = input.trim()
+    setIsPromptOptimizing(true)
+    setPromptOptimizeStartedAt(Date.now())
+    setPromptOptimizeProgress(PROMPT_OPTIMIZE_INITIAL_PROGRESS)
+    setShowPromptOptimizeSlowNotice(false)
+    setIsPromptOptimizeContinuing(false)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+    const controller = new AbortController()
+    promptOptimizeAbortRef.current = controller
+    try {
+      const result = await promptOptimizeApi.optimize({
+        text: originalText,
+        sessionId: activeTabId,
+        ...(runtimeSelection
+          ? {
+              providerId: runtimeSelection.providerId,
+            }
+          : {}),
+      }, {
+        signal: controller.signal,
+      })
+      const optimizedText = getSafeOptimizedPromptText(result.optimizedText)
+      if (!optimizedText) {
+        throw new Error(t('chat.promptOptimize.failed'))
+      }
+      setPromptOptimizePreview({
+        originalText,
+        optimizedText,
+        summary: getSafePromptOptimizeSummary(result.summary),
+      })
+    } catch (error) {
+      if (controller.signal.aborted) return
+      const message = error instanceof Error ? error.message : ''
+      setPromptOptimizeError(
+        message && !isPromptOptimizeInternalError(message)
+          ? message
+          : t('chat.promptOptimize.failed'),
+      )
+    } finally {
+      if (promptOptimizeAbortRef.current === controller) {
+        promptOptimizeAbortRef.current = null
+      }
+      setIsPromptOptimizing(false)
+      setPromptOptimizeStartedAt(null)
+      setPromptOptimizeProgress(0)
+      setShowPromptOptimizeSlowNotice(false)
+      setIsPromptOptimizeContinuing(false)
+    }
+  }
+
+  const continuePromptOptimization = () => {
+    setShowPromptOptimizeSlowNotice(false)
+    setIsPromptOptimizeContinuing(true)
+  }
+
+  const cancelPromptOptimization = () => {
+    promptOptimizeAbortRef.current?.abort()
+    promptOptimizeAbortRef.current = null
+    setIsPromptOptimizing(false)
+    setPromptOptimizeStartedAt(null)
+    setPromptOptimizeProgress(0)
+    setShowPromptOptimizeSlowNotice(false)
+    setIsPromptOptimizeContinuing(false)
+    setPromptOptimizeError(null)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const replaceWithOptimizedPrompt = () => {
+    if (!promptOptimizePreview) return
+    setInput(promptOptimizePreview.optimizedText)
+    setPromptOptimizePreview(null)
+    setPromptOptimizeError(null)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const sendOptimizedPrompt = () => {
+    if (!promptOptimizePreview) return
+    handleSubmit(promptOptimizePreview.optimizedText)
   }
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -414,37 +680,63 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const handlePaste = (event: React.ClipboardEvent) => {
     if (isMemberSession) return
     const items = event.clipboardData?.items
-    if (!items) return
 
     let hasImage = false
-    for (let i = 0; i < items.length; i += 1) {
-      const item = items[i]
-      if (!item || !item.type.startsWith('image/')) continue
+    if (items) {
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i]
+        if (!item || !item.type.startsWith('image/')) continue
 
-      hasImage = true
-      event.preventDefault()
-      const file = item.getAsFile()
-      if (!file) continue
+        hasImage = true
+        event.preventDefault()
+        const file = item.getAsFile()
+        if (!file) continue
 
-      const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const reader = new FileReader()
-      reader.onload = () => {
-        setAttachments((prev) => [
-          ...prev,
-          {
-            id,
-            name: `pasted-image-${Date.now()}.png`,
-            type: 'image',
-            mimeType: file.type || 'image/png',
-            previewUrl: reader.result as string,
-            data: reader.result as string,
-          },
-        ])
+        const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        const reader = new FileReader()
+        reader.onload = () => {
+          setAttachments((prev) => [
+            ...prev,
+            {
+              id,
+              name: `pasted-image-${Date.now()}.png`,
+              type: 'image',
+              mimeType: file.type || 'image/png',
+              previewUrl: reader.result as string,
+              data: reader.result as string,
+            },
+          ])
+        }
+        reader.readAsDataURL(file)
       }
-      reader.readAsDataURL(file)
     }
 
-    if (!hasImage) return
+    if (hasImage) return
+
+    const text = event.clipboardData.getData('text/plain')
+    if (text.length < LONG_PASTE_TEXT_THRESHOLD) return
+
+    event.preventDefault()
+    const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const name = `pasted-text-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`
+    const reader = new FileReader()
+    reader.onload = () => {
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id,
+          name,
+          type: 'file',
+          mimeType: 'text/plain',
+          data: reader.result as string,
+        },
+      ])
+      useUIStore.getState().addToast({
+        type: 'info',
+        message: t('chat.longPasteConverted'),
+      })
+    }
+    reader.readAsDataURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -504,6 +796,72 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     })
   }
 
+  const stopVoiceInput = () => {
+    const recognition = speechRecognitionRef.current
+    speechRecognitionRef.current = null
+    recognition?.stop()
+    setIsVoiceRecording(false)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const handleVoiceInput = () => {
+    if (isVoiceRecording) {
+      stopVoiceInput()
+      return
+    }
+
+    const SpeechRecognition = getSpeechRecognitionConstructor()
+    if (!SpeechRecognition) {
+      useUIStore.getState().addToast({
+        type: 'info',
+        message: t('chat.voice.unavailable'),
+      })
+      setVoiceSupported(false)
+      return
+    }
+
+    if (!canStartVoiceInput) return
+
+    try {
+      const recognition = new SpeechRecognition()
+      recognition.lang = window.navigator.language || 'zh-CN'
+      recognition.continuous = false
+      recognition.interimResults = true
+      recognition.onresult = (event: BrowserSpeechRecognitionEvent) => {
+        let transcript = ''
+        for (let index = 0; index < event.results.length; index += 1) {
+          transcript += event.results[index]?.[0]?.transcript ?? ''
+        }
+        setInput(appendVoiceTranscript(voiceBaseInputRef.current, transcript))
+      }
+      recognition.onerror = (event) => {
+        const message = event.error === 'not-allowed' || event.error === 'service-not-allowed'
+          ? t('chat.voice.permissionDenied')
+          : t('chat.voice.failed')
+        useUIStore.getState().addToast({ type: 'error', message })
+        speechRecognitionRef.current = null
+        setIsVoiceRecording(false)
+      }
+      recognition.onend = () => {
+        speechRecognitionRef.current = null
+        setIsVoiceRecording(false)
+        requestAnimationFrame(() => textareaRef.current?.focus())
+      }
+
+      voiceBaseInputRef.current = input
+      speechRecognitionRef.current = recognition
+      setIsVoiceRecording(true)
+      recognition.start()
+    } catch {
+      speechRecognitionRef.current = null
+      setIsVoiceRecording(false)
+      useUIStore.getState().addToast({
+        type: 'error',
+        message: t('chat.voice.failed'),
+      })
+    }
+  }
+
   const composerPlaceholder =
     isHeroComposer
       ? t('empty.placeholder')
@@ -515,6 +873,11 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
   const addFilesLabel = isHeroComposer ? t('empty.addFiles') : t('chat.addFiles')
   const slashCommandsLabel = isHeroComposer ? t('empty.slashCommands') : t('chat.slashCommands')
+  const voiceButtonTitle = !voiceSupported
+    ? t('chat.voice.unavailable')
+    : isVoiceRecording
+      ? t('chat.voice.stop')
+      : t('chat.voice.start')
 
   return (
     <div className={isHeroComposer ? 'bg-[var(--color-surface)] px-8 pb-4' : 'bg-[var(--color-surface)] px-4 py-4'}>
@@ -609,6 +972,129 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             )
           )}
 
+          {!isMemberSession && isVoiceRecording && (
+            <div className={isHeroComposer ? 'flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]' : 'mx-1 mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]'}>
+              <Mic className="h-4 w-4 animate-pulse text-[var(--color-text-accent)]" />
+              <span>{t('chat.voice.listening')}</span>
+            </div>
+          )}
+
+          {!isMemberSession && (isPromptOptimizing || promptOptimizePreview || promptOptimizeError) && (
+            <div className={isHeroComposer ? 'space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3' : 'mx-1 mb-3 space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3'}>
+              {isPromptOptimizing ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <WandSparkles className="h-4 w-4 shrink-0 animate-pulse text-[var(--color-text-accent)]" />
+                      <span className="truncate">{t('chat.promptOptimize.loading')}</span>
+                    </div>
+                    <span className="shrink-0 tabular-nums text-[var(--color-text-tertiary)]">
+                      {t('chat.promptOptimize.progress', { progress: promptOptimizeProgressPercent })}
+                    </span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label={t('chat.promptOptimize.loading')}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={promptOptimizeProgressPercent}
+                    className="h-1.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-border)_55%,transparent)]"
+                  >
+                    <div
+                      className="h-full rounded-full bg-[image:var(--gradient-btn-primary)] transition-[width] duration-500 ease-out"
+                      style={{ width: `${promptOptimizeProgressPercent}%` }}
+                    />
+                  </div>
+                  {showPromptOptimizeSlowNotice && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                      <span className="min-w-0 flex-1 leading-relaxed">
+                        {t('chat.promptOptimize.slowNotice')}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelPromptOptimization}
+                          className="rounded-md px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        >
+                          {t('chat.promptOptimize.cancelWait')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={continuePromptOptimization}
+                          className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        >
+                          {t('chat.promptOptimize.continueWait')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {isPromptOptimizeContinuing && (
+                    <div className="text-xs leading-relaxed text-[var(--color-text-tertiary)]">
+                      {t('chat.promptOptimize.continuing')}
+                    </div>
+                  )}
+                </div>
+              ) : promptOptimizePreview ? (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="min-w-0">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-tertiary)]">
+                        {t('chat.promptOptimize.original')}
+                      </div>
+                      <div className="max-h-[120px] overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--color-surface-container-lowest)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                        {promptOptimizePreview.originalText}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-tertiary)]">
+                        {t('chat.promptOptimize.optimized')}
+                      </div>
+                      <div className="max-h-[160px] overflow-y-auto whitespace-pre-wrap rounded-md bg-[var(--color-surface-container-lowest)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-primary)]">
+                        {promptOptimizePreview.optimizedText}
+                      </div>
+                    </div>
+                  </div>
+                  {promptOptimizePreview.summary && (
+                    <div className="text-xs leading-relaxed text-[var(--color-text-tertiary)]">
+                      <span className="font-semibold text-[var(--color-text-secondary)]">{t('chat.promptOptimize.summary')}</span>
+                      <span className="ml-2">{promptOptimizePreview.summary}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPromptOptimizePreview(null)
+                        setPromptOptimizeError(null)
+                      }}
+                      className="rounded-md px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                    >
+                      {t('chat.promptOptimize.cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={replaceWithOptimizedPrompt}
+                      className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                    >
+                      {t('chat.promptOptimize.replace')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={sendOptimizedPrompt}
+                      className="rounded-md bg-[image:var(--gradient-btn-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)] transition-all hover:brightness-105"
+                    >
+                      {t('chat.promptOptimize.send')}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                  {promptOptimizeError}
+                </div>
+              )}
+            </div>
+          )}
+
           {isHeroComposer ? (
             <div className="flex items-start gap-3">
               <textarea
@@ -649,9 +1135,11 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 <>
                   <div ref={plusMenuRef} className="relative">
                     <button
+                      type="button"
                       onClick={() => setPlusMenuOpen((value) => !value)}
+                      disabled={isActive || isWorkspaceMissing}
                       aria-label="Open composer tools"
-                      className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                      className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <span className="material-symbols-outlined text-[18px]">add</span>
                     </button>
@@ -679,6 +1167,33 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     )}
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={handleOptimizePrompt}
+                    disabled={!canOptimizePrompt}
+                    title={isPromptOptimizing ? t('chat.promptOptimize.loading') : t('chat.promptOptimize.title')}
+                    aria-label={t('chat.promptOptimize.title')}
+                    className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <WandSparkles className={`h-[18px] w-[18px] ${isPromptOptimizing ? 'animate-pulse text-[var(--color-text-accent)]' : ''}`} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleVoiceInput}
+                    disabled={!isVoiceRecording && !canStartVoiceInput}
+                    title={voiceButtonTitle}
+                    aria-label={isVoiceRecording ? t('chat.voice.stop') : t('chat.voice.start')}
+                    aria-pressed={isVoiceRecording}
+                    className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    {isVoiceRecording ? (
+                      <MicOff className="h-[18px] w-[18px] text-[var(--color-text-accent)]" />
+                    ) : (
+                      <Mic className="h-[18px] w-[18px]" />
+                    )}
+                  </button>
+
                   <PermissionModeSelector />
                 </>
               )}
@@ -686,10 +1201,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
             <div className="flex items-center gap-2">
               {!isMemberSession && activeTabId && (
-                <ModelSelector runtimeKey={activeTabId} disabled={isActive} />
+                <CeWorkflowRoleSelector sessionKey={activeTabId} disabled={isWorkspaceMissing} />
               )}
               <button
-                onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : handleSubmit}
+                onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : () => handleSubmit()}
                 disabled={!isMemberSession && isActive ? false : !canSubmit}
                 title={!isMemberSession && isActive ? t('chat.stopTitle') : undefined}
                 className={`flex w-[112px] items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all hover:brightness-105 disabled:opacity-30 ${
@@ -728,6 +1243,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   const { disconnectSession, connectToSession } = useChatStore.getState()
                   const newId = await createSession(newWorkDir)
                   useSessionRuntimeStore.getState().moveSelection(oldId, newId)
+                  useCeWorkflowRoleStore.getState().moveRole(oldId, newId)
                   disconnectSession(oldId)
                   replaceTabSession(oldId, newId)
                   connectToSession(newId)
@@ -740,4 +1256,29 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       </div>
     </div>
   )
+}
+
+function getSafeOptimizedPromptText(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  if (!text || looksLikePromptOptimizeJson(text)) return null
+  return text
+}
+
+function getSafePromptOptimizeSummary(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const text = value.trim()
+  return looksLikePromptOptimizeJson(text) ? '' : text
+}
+
+function looksLikePromptOptimizeJson(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  if (/^```(?:json)?\s*[{[]/i.test(trimmed)) return true
+  if (/^[{[]/.test(trimmed)) return true
+  return /"(optimizedText|summary)"\s*:/.test(trimmed)
+}
+
+function isPromptOptimizeInternalError(message: string): boolean {
+  return /Prompt optimization returned (malformed JSON|invalid JSON|no text)/i.test(message)
 }

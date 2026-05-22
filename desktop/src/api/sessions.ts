@@ -23,6 +23,27 @@ export type SessionRewindResponse = {
   }
 }
 
+export type SessionCheckpoint = {
+  id: string
+  kind: 'user_turn'
+  messageId: string
+  title: string
+  timestamp: string
+  userMessageIndex: number
+  messagesIncluded: number
+  trackedFileCount: number
+}
+
+export type SessionForkResponse = {
+  sessionId: string
+  sourceSessionId: string
+  targetUserMessageId: string
+  userMessageIndex: number
+  title: string
+  workDir: string | null
+  messagesCopied: number
+}
+
 export type RecentProject = {
   projectPath: string
   realPath: string
@@ -194,6 +215,20 @@ export const sessionsApi = {
     dryRun?: boolean
   }) {
     return api.post<SessionRewindResponse>(`/api/sessions/${sessionId}/rewind`, body, {
+      timeout: 60_000,
+    })
+  },
+
+  getCheckpoints(sessionId: string) {
+    return api.get<{ checkpoints: SessionCheckpoint[] }>(`/api/sessions/${sessionId}/checkpoints`)
+  },
+
+  fork(sessionId: string, body: {
+    targetUserMessageId?: string
+    userMessageIndex?: number
+    expectedContent?: string
+  }) {
+    return api.post<SessionForkResponse>(`/api/sessions/${sessionId}/fork`, body, {
       timeout: 60_000,
     })
   },

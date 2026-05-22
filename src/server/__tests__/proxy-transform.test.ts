@@ -161,6 +161,67 @@ describe('anthropicToOpenaiChat', () => {
     expect(msg.tool_calls![0].function.arguments).toBe('{"city":"NYC"}')
   })
 
+  test('assistant thinking blocks are preserved as reasoning_content', () => {
+    const req: AnthropicRequest = {
+      model: 'deepseek-reasoner',
+      max_tokens: 100,
+      messages: [{
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'I need to inspect the updater config.' },
+          { type: 'text', text: 'I will check the updater settings.' },
+        ],
+      }],
+    }
+    const result = anthropicToOpenaiChat(req)
+    const msg = result.messages[0]
+
+    expect(msg.role).toBe('assistant')
+    expect(msg.content).toBe('I will check the updater settings.')
+    expect(msg.reasoning_content).toBe('I need to inspect the updater config.')
+  })
+
+  test('split assistant thinking is attached to the following tool call', () => {
+    const req: AnthropicRequest = {
+      model: 'deepseek-reasoner',
+      max_tokens: 100,
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'I should create the task first.' },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'toolu_1', name: 'TaskCreate', input: { title: 'Create page' } },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: 'toolu_1', content: 'Task #1 created successfully' },
+          ],
+        },
+      ],
+    }
+    const result = anthropicToOpenaiChat(req)
+    const msg = result.messages[0]
+
+    expect(result.messages).toHaveLength(2)
+    expect(msg.role).toBe('assistant')
+    expect(msg.content).toBeNull()
+    expect(msg.reasoning_content).toBe('I should create the task first.')
+    expect(msg.tool_calls).toHaveLength(1)
+    expect(msg.tool_calls![0].id).toBe('toolu_1')
+    expect(result.messages[1]).toEqual({
+      role: 'tool',
+      tool_call_id: 'toolu_1',
+      content: 'Task #1 created successfully',
+    })
+  })
+
   test('user message with tool_result', () => {
     const req: AnthropicRequest = {
       model: 'gpt-4',

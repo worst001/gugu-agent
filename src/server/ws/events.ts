@@ -10,7 +10,13 @@
 
 export type ClientMessage =
   | { type: 'prewarm_session' }
-  | { type: 'user_message'; content: string; attachments?: AttachmentRef[]; permissionMode?: string }
+  | {
+      type: 'user_message'
+      content: string
+      attachments?: AttachmentRef[]
+      permissionMode?: string
+      ceModelPreference?: 'fast' | 'strong'
+    }
   | {
       type: 'permission_response'
       requestId: string
@@ -24,6 +30,7 @@ export type ClientMessage =
       response: ComputerUsePermissionResponse
     }
   | { type: 'set_permission_mode'; mode: string }
+  | { type: 'set_effort'; level: string }
   | { type: 'set_runtime_config'; providerId: string | null; modelId: string }
   | { type: 'stop_generation' }
   | { type: 'ping' }

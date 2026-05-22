@@ -233,7 +233,7 @@ export function TabBar() {
   return (
     <div
       data-testid="tab-bar"
-      className="flex items-stretch bg-[var(--color-surface-container)] min-h-[37px] select-none border-b border-[var(--color-border)]"
+      className="flex min-h-[38px] select-none items-stretch border-b border-[var(--color-border)]/70 bg-[var(--color-surface-container)]/86 shadow-[inset_0_-1px_0_rgba(255,255,255,0.3)]"
     >
 
       {canScrollLeft && (
@@ -374,11 +374,11 @@ const TabItem = forwardRef<HTMLDivElement, {
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
       className={`
-        tab-bar-hit-area group flex-shrink-0 flex items-center gap-1.5 px-3 min-h-[37px] relative
+        tab-bar-hit-area group relative flex min-h-[38px] flex-shrink-0 items-center gap-1.5 px-3
         ${isDragging ? 'z-20 cursor-grabbing' : 'cursor-grab'}
-        transition-[background-color,box-shadow,opacity,transform] duration-150 ease-out
+        transition-[background-color,box-shadow,opacity,transform,color] duration-150 ease-out
         ${isActive
-          ? 'bg-[var(--color-surface)]'
+          ? 'bg-[var(--color-surface-bright)] shadow-[inset_0_-2px_0_var(--color-brand)]'
           : 'bg-transparent hover:bg-[var(--color-surface-hover)]'
         }
         ${isDragging ? 'opacity-95 shadow-[0_10px_24px_rgba(0,0,0,0.18)] ring-1 ring-[var(--color-border)]' : ''}
@@ -406,7 +406,7 @@ const TabItem = forwardRef<HTMLDivElement, {
         <span className="material-symbols-outlined text-[14px] flex-shrink-0 text-[var(--color-text-tertiary)]">terminal</span>
       )}
 
-      <span className={`flex-1 truncate text-xs ${isActive ? 'text-[var(--color-text-primary)] font-medium' : 'text-[var(--color-text-secondary)]'}`}>
+      <span className={`flex-1 truncate text-xs ${isActive ? 'text-[var(--color-text-primary)] font-semibold' : 'text-[var(--color-text-secondary)]'}`}>
         {tab.title || 'Untitled'}
       </span>
 

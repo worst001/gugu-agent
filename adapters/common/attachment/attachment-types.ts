@@ -6,7 +6,7 @@ import type { AttachmentRef } from '../ws-bridge.js'
 export type { AttachmentRef }
 
 /** Platform tag — used for local staging subdir and telemetry. */
-export type ImPlatform = 'feishu' | 'telegram'
+export type ImPlatform = 'feishu' | 'telegram' | 'qq'
 
 /** Result of downloading an IM resource into the local stage dir. */
 export interface LocalAttachment {
@@ -26,4 +26,11 @@ export interface PendingUpload {
     | { kind: 'path'; path: string; mime?: string }
     | { kind: 'url'; url: string; mime?: string }
   alt?: string
+}
+
+/** Pending outbound file found in Agent stream output. */
+export interface PendingFileUpload {
+  id: string
+  source: { kind: 'path'; path: string; mime?: string }
+  label?: string
 }

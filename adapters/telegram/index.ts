@@ -27,6 +27,7 @@ import { checkAttachmentLimit } from '../common/attachment/attachment-limits.js'
 import type { AttachmentRef } from '../common/ws-bridge.js'
 import { ImageBlockWatcher } from '../common/attachment/image-block-watcher.js'
 import type { PendingUpload } from '../common/attachment/attachment-types.js'
+import { redactInternalBranding, wrapImUserMessage } from '../common/brand.js'
 import * as fs from 'node:fs/promises'
 
 const TELEGRAM_TEXT_LIMIT = 4000 // leave margin below 4096
@@ -179,7 +180,7 @@ async function buildStatusText(chatId: string): Promise<string> {
 async function flushToTelegram(chatId: string, newText: string, isComplete: boolean): Promise<void> {
   const numericChatId = Number(chatId)
   const prev = accumulatedText.get(chatId) ?? ''
-  const fullText = prev + newText
+  const fullText = redactInternalBranding(prev + newText)
   accumulatedText.set(chatId, fullText)
 
   const placeholder = placeholders.get(chatId)
@@ -421,7 +422,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
       await buf.complete()
       // Ensure placeholder is always cleaned up even if buffer was already empty
       if (placeholders.has(chatId)) {
-        const text = accumulatedText.get(chatId)
+        const text = redactInternalBranding(accumulatedText.get(chatId) ?? '')
         if (text?.trim()) {
           try {
             const chunks = splitMessage(text, TELEGRAM_TEXT_LIMIT)
@@ -478,7 +479,7 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
 // ---------- bot handlers ----------
 
 async function sendHelp(ctx: Context): Promise<void> {
-  await ctx.reply(`👋 Claude Code Bot 已就绪。\n\n${formatImHelp()}`)
+  await ctx.reply(`👋 Gu Agent 已就绪。\n\n${formatImHelp()}`)
 }
 
 bot.command('start', (ctx) => void sendHelp(ctx))
@@ -598,9 +599,9 @@ async function routeUserMessage(
     const displayName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ')
     const success = tryPair(text.trim(), { userId, displayName }, 'telegram')
     if (success) {
-      await ctx.reply('✅ 配对成功！现在可以开始聊天了。\n\n发送消息即可与 Claude 对话。')
+      await ctx.reply('✅ 配对成功！现在可以开始聊天了。\n\n发送消息即可与 Gu Agent 对话。')
     } else {
-      await ctx.reply('🔒 未授权。请在 Claude Code 桌面端生成配对码后发送给我。')
+      await ctx.reply('🔒 未授权。请在 Gugu Agent 桌面端生成配对码后发送给我。')
     }
     return
   }
@@ -615,7 +616,7 @@ async function routeUserMessage(
     const effective =
       text || (attachments.length > 0 ? '(用户发送了附件)' : '')
     if (!effective && attachments.length === 0) return
-    const sent = bridge.sendUserMessage(chatId, effective, attachments.length ? attachments : undefined)
+    const sent = bridge.sendUserMessage(chatId, wrapImUserMessage(effective), attachments.length ? attachments : undefined)
     if (!sent) {
       await bot.api.sendMessage(Number(chatId), '⚠️ 消息发送失败，连接可能已断开。请发送 /new 重新开始。')
     }
@@ -738,7 +739,7 @@ bot.on('callback_query:data', async (ctx) => {
 
 console.log('[Telegram] Starting bot...')
 console.log(`[Telegram] Server: ${config.serverUrl}`)
-console.log(`[Telegram] Allowed users: ${config.telegram.allowedUsers.length === 0 ? 'all' : config.telegram.allowedUsers.join(', ')}`)
+console.log(`[Telegram] Allowed users: ${config.telegram.allowedUsers.length === 0 ? 'paired users only' : config.telegram.allowedUsers.join(', ')}`)
 
 bot.start({
   onStart: () => console.log('[Telegram] Bot is running!'),

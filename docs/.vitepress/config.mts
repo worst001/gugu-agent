@@ -62,6 +62,9 @@ const zhSidebar = [
       { text: '总览', link: '/im/' },
       { text: 'Telegram', link: '/im/telegram' },
       { text: '飞书', link: '/im/feishu' },
+      { text: '钉钉', link: '/im/dingtalk' },
+      { text: '企业微信', link: '/im/wecom' },
+      { text: 'QQ', link: '/im/qq' },
     ],
   },
   {
