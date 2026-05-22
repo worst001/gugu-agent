@@ -617,19 +617,10 @@ describe('Gugu Gateway', () => {
     expect(body.payment).toBeNull()
   })
 
-  test('creates Alipay precreate orders when payment is configured', async () => {
+  test('creates Alipay page pay orders when payment is configured', async () => {
     const fixture = await makeAlipayFixture(tmpDir)
-    const precreateCalls: Array<{ url: string; form: URLSearchParams; bizContent: Record<string, unknown> }> = []
-    globalThis.fetch = (async (input, init) => {
-      const form = new URLSearchParams(String(init?.body ?? ''))
-      const bizContent = JSON.parse(form.get('biz_content') || '{}') as Record<string, unknown>
-      precreateCalls.push({ url: String(input), form, bizContent })
-      return signedAlipayResponse(fixture, {
-        code: '10000',
-        msg: 'Success',
-        out_trade_no: String(bizContent.out_trade_no),
-        qr_code: 'https://qr.alipay.com/test-code',
-      })
+    globalThis.fetch = (async () => {
+      throw new Error('Alipay page pay should not call fetch while creating an order.')
     }) as typeof fetch
 
     const { handler } = makeGateway({ alipay: fixture.config })
@@ -650,21 +641,22 @@ describe('Gugu Gateway', () => {
     }
 
     expect(created.status).toBe(200)
-    expect(precreateCalls).toHaveLength(1)
-    expect(precreateCalls[0]?.url).toBe(fixture.config.gatewayUrl)
-    expect(precreateCalls[0]?.form.get('method')).toBe('alipay.trade.precreate')
-    expect(precreateCalls[0]?.form.get('app_id')).toBe(fixture.config.appId)
-    expect(precreateCalls[0]?.form.get('sign_type')).toBe('RSA2')
-    expect(precreateCalls[0]?.form.get('notify_url')).toBe(fixture.config.notifyUrl)
-    expect(precreateCalls[0]?.form.get('sign')).toBeTruthy()
-    expect(precreateCalls[0]?.bizContent.out_trade_no).toBe(body.order.orderId)
-    expect(precreateCalls[0]?.bizContent.total_amount).toBe('49.00')
+    const paymentUrl = new URL(body.payment.codeUrl)
+    const bizContent = JSON.parse(paymentUrl.searchParams.get('biz_content') || '{}') as Record<string, unknown>
+    expect(`${paymentUrl.origin}${paymentUrl.pathname}`).toBe(fixture.config.gatewayUrl)
+    expect(paymentUrl.searchParams.get('method')).toBe('alipay.trade.page.pay')
+    expect(paymentUrl.searchParams.get('app_id')).toBe(fixture.config.appId)
+    expect(paymentUrl.searchParams.get('sign_type')).toBe('RSA2')
+    expect(paymentUrl.searchParams.get('notify_url')).toBe(fixture.config.notifyUrl)
+    expect(paymentUrl.searchParams.get('sign')).toBeTruthy()
+    expect(bizContent.out_trade_no).toBe(body.order.orderId)
+    expect(bizContent.total_amount).toBe('49.00')
+    expect(bizContent.product_code).toBe('FAST_INSTANT_TRADE_PAY')
     expect(body.order.paymentProvider).toBe('alipay')
-    expect(body.order.paymentCodeUrl).toBe('https://qr.alipay.com/test-code')
+    expect(body.order.paymentCodeUrl).toBe(body.payment.codeUrl)
     expect(body.order.paymentExpiresAt).toBe(body.payment.expiresAt)
     expect(body.orderToken.startsWith('ord_')).toBe(true)
     expect(body.payment.provider).toBe('alipay')
-    expect(body.payment.codeUrl).toBe('https://qr.alipay.com/test-code')
     expect(body.payment.qrDataUrl.startsWith('data:image/png;base64,')).toBe(true)
   })
 
@@ -936,22 +928,6 @@ function disabledAlipayConfig(): GatewayConfig['alipay'] {
     gatewayUrl: 'https://openapi.alipay.com/gateway.do',
     sellerId: '',
   }
-}
-
-function signedAlipayResponse(
-  fixture: AlipayFixture,
-  response: Record<string, unknown>,
-  init?: ResponseInit,
-): Response {
-  const responseText = JSON.stringify(response)
-  const body = JSON.stringify({
-    alipay_trade_precreate_response: response,
-    sign: signAlipayPayload(fixture.alipayPrivateKey, responseText),
-  })
-  return new Response(body, {
-    status: init?.status ?? 200,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-  })
 }
 
 function alipayNotifyRequest(

@@ -14,16 +14,6 @@ import type {
 } from './types.js'
 
 const PAYMENT_TTL_MINUTES = 30
-
-type AlipayPrecreateResponse = {
-  code?: unknown
-  msg?: unknown
-  sub_code?: unknown
-  sub_msg?: unknown
-  out_trade_no?: unknown
-  qr_code?: unknown
-}
-
 export type AlipayPaymentResult = GatewayPaymentResponse & {
   payload: Record<string, unknown>
 }
@@ -50,7 +40,7 @@ export function isAlipayReady(config: GatewayConfig): boolean {
   )
 }
 
-export async function createAlipayPrecreatePayment(
+export async function createAlipayPagePayment(
   config: GatewayConfig,
   order: GatewayOrder,
 ): Promise<AlipayPaymentResult> {
@@ -62,30 +52,27 @@ export async function createAlipayPrecreatePayment(
     total_amount: formatAmountYuan(order.amountCents),
     subject: truncateText(`Gugu Agent ${order.packageName}`, 127),
     body: truncateText(order.packageId, 128),
+    product_code: 'FAST_INSTANT_TRADE_PAY',
     timeout_express: `${PAYMENT_TTL_MINUTES}m`,
-    qr_code_timeout_express: `${PAYMENT_TTL_MINUTES}m`,
   }
-  const params = buildAlipayCommonParams(alipay, 'alipay.trade.precreate', {
+  const params = buildAlipayCommonParams(alipay, 'alipay.trade.page.pay', {
     notify_url: alipay.notifyUrl!,
     biz_content: JSON.stringify(bizContent),
   })
-  const responseText = await signedAlipayPost(alipay, params)
-  const parsed = parseAlipayResponse(alipay, responseText, 'alipay_trade_precreate_response') as AlipayPrecreateResponse
-  assertAlipaySuccess(parsed)
-  const returnedOrderId = stringField(parsed.out_trade_no)
-  if (returnedOrderId && returnedOrderId !== order.orderId) {
-    throw new Error('Alipay precreate response order id does not match the order.')
+  const signedParams = {
+    ...params,
+    sign: signAlipayParams(alipay, params),
   }
-  const codeUrl = stringField(parsed.qr_code)
-  if (!codeUrl) throw new Error('Alipay precreate response did not include qr_code.')
+  const codeUrl = buildAlipayGatewayUrl(alipay.gatewayUrl, signedParams)
 
   return {
     provider: 'alipay',
     codeUrl,
-    qrDataUrl: await toDataURL(codeUrl, { margin: 1, width: 260 }),
+    qrDataUrl: await toDataURL(codeUrl, { margin: 1, width: 300 }),
     expiresAt,
     payload: {
-      precreateResponse: parsed as Record<string, unknown>,
+      method: 'alipay.trade.page.pay',
+      productCode: bizContent.product_code,
     },
   }
 }
@@ -151,65 +138,9 @@ function buildAlipayCommonParams(
   }
 }
 
-async function signedAlipayPost(
-  config: GatewayAlipayConfig,
-  params: Record<string, string>,
-): Promise<string> {
-  const signed = {
-    ...params,
-    sign: signAlipayParams(config, params),
-  }
-  const response = await fetch(config.gatewayUrl, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-    },
-    body: new URLSearchParams(signed).toString(),
-  })
-  const responseText = await response.text()
-  if (!response.ok) throw new Error(`Alipay request failed (${response.status}).`)
-  return responseText
-}
-
-function parseAlipayResponse(
-  config: GatewayAlipayConfig,
-  raw: string,
-  responseKey: string,
-): Record<string, unknown> {
-  const parsed = parseJson(raw) as Record<string, unknown>
-  const response = parsed[responseKey]
-  if (!response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new Error(`Alipay response is missing ${responseKey}.`)
-  }
-  const signature = typeof parsed.sign === 'string' ? parsed.sign : ''
-  if (signature) {
-    const signedContent = extractAlipayResponseObject(raw, responseKey) || JSON.stringify(response)
-    validateAlipayResponseSignature(signedContent, signature, config.alipayPublicKeyPath)
-  }
-  return response as Record<string, unknown>
-}
-
-function assertAlipaySuccess(response: AlipayPrecreateResponse): void {
-  if (response.code === '10000') return
-  const code = stringField(response.sub_code) || stringField(response.code)
-  const message = stringField(response.sub_msg) || stringField(response.msg)
-  throw new Error([code, message].filter(Boolean).join(': ') || 'Alipay returned an unsuccessful response.')
-}
-
 function signAlipayParams(config: GatewayAlipayConfig, params: Record<string, string>): string {
   const privateKey = createPrivateKey(normalizePrivateKey(fs.readFileSync(config.privateKeyPath, 'utf8')))
   return sign('RSA-SHA256', Buffer.from(canonicalizeAlipayRequestParams(params)), privateKey).toString('base64')
-}
-
-function validateAlipayResponseSignature(
-  signedContent: string,
-  signature: string,
-  publicKeyPath: string,
-): void {
-  const publicKey = createPublicKey(normalizePublicKey(fs.readFileSync(publicKeyPath, 'utf8')))
-  const valid = verify('RSA-SHA256', Buffer.from(signedContent), publicKey, Buffer.from(signature, 'base64'))
-  if (!valid) throw new Error('Invalid Alipay response signature.')
 }
 
 function validateAlipaySignature(
@@ -241,42 +172,12 @@ function canonicalizeAlipayParams(params: Record<string, string>, excludedKeys: 
     .join('&')
 }
 
-function extractAlipayResponseObject(raw: string, responseKey: string): string | null {
-  const key = `"${responseKey}"`
-  const keyIndex = raw.indexOf(key)
-  if (keyIndex < 0) return null
-  const colonIndex = raw.indexOf(':', keyIndex + key.length)
-  if (colonIndex < 0) return null
-  const objectStart = raw.indexOf('{', colonIndex + 1)
-  if (objectStart < 0) return null
-
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let index = objectStart; index < raw.length; index += 1) {
-    const char = raw[index]
-    if (inString) {
-      if (escaped) {
-        escaped = false
-      } else if (char === '\\') {
-        escaped = true
-      } else if (char === '"') {
-        inString = false
-      }
-      continue
-    }
-
-    if (char === '"') {
-      inString = true
-    } else if (char === '{') {
-      depth += 1
-    } else if (char === '}') {
-      depth -= 1
-      if (depth === 0) return raw.slice(objectStart, index + 1)
-    }
+function buildAlipayGatewayUrl(gatewayUrl: string, params: Record<string, string>): string {
+  const url = new URL(gatewayUrl)
+  for (const [key, value] of Object.entries(params)) {
+    if (value) url.searchParams.set(key, value)
   }
-
-  return null
+  return url.toString()
 }
 
 function parseFormBody(rawBody: string): URLSearchParams {
@@ -322,19 +223,6 @@ function wrapPem(label: string, value: string): string {
   return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----`
 }
 
-function stringField(value: unknown): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : ''
-}
-
 function truncateText(value: string, maxLength: number): string {
   return value.length <= maxLength ? value : value.slice(0, maxLength)
-}
-
-function parseJson(raw: string): unknown {
-  try {
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    throw new Error('Invalid Alipay JSON payload.')
-  }
 }

@@ -4,3 +4,4 @@
 *.sqlite-wal
 data/
 wxcert/
+alicert/

@@ -4,7 +4,7 @@ import { createDashboardPageHtml } from './dashboardPage.js'
 import { createDownloadPageHtml, createHomePageHtml } from './sitePages.js'
 import { isPurchasablePackageId } from './packages.js'
 import {
-  createAlipayPrecreatePayment,
+  createAlipayPagePayment,
   isAlipayReady,
   parseAlipayPaymentNotify,
 } from './alipayPay.js'
@@ -235,7 +235,7 @@ async function createAlipayOrderResponse(
   }
 
   try {
-    const payment = await createAlipayPrecreatePayment(config, order)
+    const payment = await createAlipayPagePayment(config, order)
     const updatedOrder = store.attachOrderPayment(order.orderId, {
       provider: payment.provider,
       codeUrl: payment.codeUrl,
