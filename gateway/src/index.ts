@@ -124,6 +124,8 @@ export function createGatewayHandler(config: GatewayConfig, store = new GatewayS
           packageId,
           asString(body.contact),
           paymentProvider as GatewayPaymentProvider | undefined,
+          asString(body.orderId),
+          asString(body.orderToken),
         )
       }
 
@@ -175,13 +177,38 @@ async function createOrderResponse(
   packageId: string,
   contact?: string,
   paymentProvider: GatewayPaymentProvider = 'wechat',
+  existingOrderId?: string,
+  existingOrderToken?: string,
 ): Promise<Response> {
-  const order = store.createOrder({ packageId, contact })
-  const orderToken = store.getOrderToken(order.orderId)
+  const { order, orderToken } = resolvePaymentOrder(store, packageId, contact, existingOrderId, existingOrderToken)
   if (paymentProvider === 'alipay') {
     return await createAlipayOrderResponse(config, store, order, orderToken)
   }
   return await createWechatOrderResponse(config, store, order, orderToken)
+}
+
+function resolvePaymentOrder(
+  store: GatewayStore,
+  packageId: string,
+  contact?: string,
+  existingOrderId?: string,
+  existingOrderToken?: string,
+): { order: ReturnType<GatewayStore['createOrder']>; orderToken: string } {
+  if (!existingOrderId && !existingOrderToken) {
+    const order = store.createOrder({ packageId, contact })
+    return { order, orderToken: store.getOrderToken(order.orderId) }
+  }
+  if (!existingOrderId || !existingOrderToken) {
+    throw new Error('Both orderId and orderToken are required to reuse an order.')
+  }
+  const status = store.getOrderStatus(existingOrderId, existingOrderToken)
+  if (status.order.packageId !== packageId) {
+    throw new Error('Order package does not match the requested package.')
+  }
+  if (status.order.status !== 'pending_payment') {
+    throw new Error('Only pending orders can switch payment methods.')
+  }
+  return { order: status.order, orderToken: existingOrderToken }
 }
 
 async function createWechatOrderResponse(
@@ -633,6 +660,13 @@ function handleGatewayError(error: unknown): Response {
     return errorJson(401, 'UNAUTHORIZED', error.message)
   }
   if (error instanceof Error && error.message === 'Invalid JSON body') {
+    return errorJson(400, 'BAD_REQUEST', error.message)
+  }
+  if (error instanceof Error && (
+    error.message === 'Both orderId and orderToken are required to reuse an order.' ||
+    error.message === 'Order package does not match the requested package.' ||
+    error.message === 'Only pending orders can switch payment methods.'
+  )) {
     return errorJson(400, 'BAD_REQUEST', error.message)
   }
   console.error('[gugu-gateway] unexpected error:', error)

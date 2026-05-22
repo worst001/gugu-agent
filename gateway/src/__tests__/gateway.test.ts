@@ -88,7 +88,11 @@ describe('Gugu Gateway', () => {
     expect(html).toContain('支付宝即将上线')
     expect(html).toContain('/v1/orders')
     expect(html).toContain('paymentProvider: provider')
+    expect(html).toContain('currentOrderId')
+    expect(html).toContain('selectPaymentMethod')
     expect(html).toContain('data-provider="alipay"')
+    expect(html).not.toContain('推荐')
+    expect(html).not.toContain('>可用<')
     expect(html).toContain('沪ICP备2026021385号-1')
   })
 
@@ -658,6 +662,54 @@ describe('Gugu Gateway', () => {
     expect(body.orderToken.startsWith('ord_')).toBe(true)
     expect(body.payment.provider).toBe('alipay')
     expect(body.payment.qrDataUrl.startsWith('data:image/png;base64,')).toBe(true)
+  })
+
+  test('reuses the same pending order when switching payment providers', async () => {
+    const wechatFixture = await makeWechatPayFixture(tmpDir)
+    const alipayFixture = await makeAlipayFixture(tmpDir)
+    const nativeCalls: Array<Record<string, unknown>> = []
+    globalThis.fetch = (async (input, init) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      nativeCalls.push({ url: String(input), body })
+      return signedWechatResponse(wechatFixture, JSON.stringify({ code_url: 'weixin://wxpay/reuse-test' }))
+    }) as typeof fetch
+
+    const { handler } = makeGateway({
+      wechatPay: wechatFixture.config,
+      alipay: alipayFixture.config,
+    })
+    const wechatCreated = await handler(jsonRequest('/v1/orders', {
+      packageId: 'light-monthly',
+      contact: 'switch-provider',
+      paymentProvider: 'wechat',
+    }))
+    const wechatBody = await wechatCreated.json() as {
+      order: { orderId: string; paymentProvider: string | null }
+      orderToken: string
+      payment: { provider: string; codeUrl: string }
+    }
+    const alipayCreated = await handler(jsonRequest('/v1/orders', {
+      packageId: 'light-monthly',
+      contact: 'switch-provider-updated',
+      paymentProvider: 'alipay',
+      orderId: wechatBody.order.orderId,
+      orderToken: wechatBody.orderToken,
+    }))
+    const alipayBody = await alipayCreated.json() as {
+      order: { orderId: string; paymentProvider: string | null; paymentCodeUrl: string | null }
+      orderToken: string
+      payment: { provider: string; codeUrl: string }
+    }
+
+    expect(wechatCreated.status).toBe(200)
+    expect(alipayCreated.status).toBe(200)
+    expect(nativeCalls).toHaveLength(1)
+    expect(wechatBody.order.orderId).toBe(alipayBody.order.orderId)
+    expect(wechatBody.orderToken).toBe(alipayBody.orderToken)
+    expect(wechatBody.payment.provider).toBe('wechat')
+    expect(alipayBody.payment.provider).toBe('alipay')
+    expect(alipayBody.order.paymentProvider).toBe('alipay')
+    expect(alipayBody.order.paymentCodeUrl).toBe(alipayBody.payment.codeUrl)
   })
 
   test('rejects invalid Alipay notifications without fulfilling orders', async () => {

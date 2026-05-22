@@ -549,7 +549,7 @@ export class GatewayStore {
       .query(
         `UPDATE orders
          SET status = CASE WHEN status = 'fulfilled' THEN status ELSE 'paid' END,
-             payment_provider = COALESCE(payment_provider, 'wechat'),
+             payment_provider = 'wechat',
              wechat_transaction_id = COALESCE(wechat_transaction_id, ?),
              wechat_trade_state = ?,
              wechat_success_time = COALESCE(wechat_success_time, ?),
@@ -596,7 +596,7 @@ export class GatewayStore {
       .query(
         `UPDATE orders
          SET status = CASE WHEN status = 'fulfilled' THEN status ELSE 'paid' END,
-             payment_provider = COALESCE(payment_provider, 'alipay'),
+             payment_provider = 'alipay',
              alipay_trade_no = COALESCE(alipay_trade_no, ?),
              alipay_trade_status = ?,
              alipay_success_time = COALESCE(alipay_success_time, ?),

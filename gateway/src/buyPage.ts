@@ -187,7 +187,7 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
                 <strong>微信支付</strong>
                 <small>${options.wechatPayEnabled ? '扫码后自动发放激活码' : '当前走人工兜底处理'}</small>
               </span>
-              <em>${options.wechatPayEnabled ? '推荐' : '兜底'}</em>
+              <em>${options.wechatPayEnabled ? '扫码支付' : '人工处理'}</em>
             </button>
 
             <button id="alipayPayButton" class="payment-method ${options.alipayPayEnabled ? '' : 'unavailable'}" type="button" data-provider="alipay" aria-disabled="${options.alipayPayEnabled ? 'false' : 'true'}">
@@ -196,7 +196,7 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
                 <strong>支付宝</strong>
                 <small>${options.alipayPayEnabled ? '扫码后自动发放激活码' : '即将上线，请先使用微信支付'}</small>
               </span>
-              <em>${options.alipayPayEnabled ? '可用' : '即将上线'}</em>
+              <em>${options.alipayPayEnabled ? '扫码支付' : '即将上线'}</em>
             </button>
           </div>
 
@@ -209,7 +209,7 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
             <span id="payAmount">${escapeHtml(formatAmountCny(selected.amountCents))}</span>
           </div>
           <div id="paymentState" class="payment-state">
-            <p>请选择微信支付生成二维码。</p>
+            <p>请选择一种支付方式生成二维码。</p>
           </div>
           <div id="orderResult" class="order-result" hidden></div>
         </section>
@@ -221,6 +221,10 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
         const alipayPayEnabled = ${options.alipayPayEnabled ? 'true' : 'false'}
         let pollTimer = null
         let countdownTimer = null
+        let currentOrderId = null
+        let currentOrderToken = null
+        let activeProvider = 'wechat'
+        const paymentCache = {}
         const contact = document.getElementById('contact')
         const notice = document.getElementById('notice')
         const paymentState = document.getElementById('paymentState')
@@ -228,14 +232,27 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
         const wechatPayButton = document.getElementById('wechatPayButton')
         const alipayPayButton = document.getElementById('alipayPayButton')
 
-        wechatPayButton.addEventListener('click', function () { createPaymentOrder('wechat') })
+        wechatPayButton.addEventListener('click', function () {
+          selectPaymentMethod('wechat')
+          usePaymentProvider('wechat')
+        })
         alipayPayButton.addEventListener('click', function () {
           if (!alipayPayEnabled) {
             showNotice('支付宝即将上线，请先使用微信支付。', 'info')
             return
           }
-          createPaymentOrder('alipay')
+          selectPaymentMethod('alipay')
+          usePaymentProvider('alipay')
         })
+
+        function usePaymentProvider(provider) {
+          stopTimers()
+          if (paymentCache[provider]) {
+            renderOrder(paymentCache[provider])
+            return
+          }
+          createPaymentOrder(provider)
+        }
 
         async function createPaymentOrder(provider) {
           stopTimers()
@@ -246,14 +263,19 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
           paymentState.innerHTML = '<p>正在生成订单...</p>'
 
           try {
+            const payload = {
+              packageId: selectedPackage.id,
+              contact: contact.value.trim(),
+              paymentProvider: provider,
+            }
+            if (currentOrderId && currentOrderToken) {
+              payload.orderId = currentOrderId
+              payload.orderToken = currentOrderToken
+            }
             const response = await fetch('/v1/orders', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                packageId: selectedPackage.id,
-                contact: contact.value.trim(),
-                paymentProvider: provider,
-              }),
+              body: JSON.stringify(payload),
             })
             const body = await response.json().catch(function () { return {} })
             if (!response.ok) {
@@ -275,8 +297,13 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
             showNotice('订单响应异常，请稍后重试。', 'error')
             return
           }
+          currentOrderId = order.orderId
+          currentOrderToken = body.orderToken || currentOrderToken
 
           if (payment && payment.qrDataUrl) {
+            activeProvider = payment.provider
+            paymentCache[payment.provider] = body
+            selectPaymentMethod(payment.provider)
             const providerLabel = payment.provider === 'alipay' ? '支付宝' : '微信'
             paymentState.innerHTML = [
               '<img class="qr" src="' + escapeAttr(payment.qrDataUrl) + '" alt="' + providerLabel + '支付二维码">',
@@ -371,6 +398,12 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
         function setBusy(busy) {
           wechatPayButton.disabled = busy
           alipayPayButton.disabled = busy
+        }
+
+        function selectPaymentMethod(provider) {
+          activeProvider = provider
+          wechatPayButton.classList.toggle('selected', provider === 'wechat')
+          alipayPayButton.classList.toggle('selected', provider === 'alipay')
         }
 
         function showNotice(message, tone) {
