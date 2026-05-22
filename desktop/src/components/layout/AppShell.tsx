@@ -11,6 +11,7 @@ import { TabBar } from './TabBar'
 import { StartupErrorView } from './StartupErrorView'
 import { useTabStore, SETTINGS_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useBillingStore } from '../../stores/billingStore'
 import { useTranslation } from '../../i18n'
 
 export function AppShell() {
@@ -31,6 +32,7 @@ export function AppShell() {
       try {
         await initializeDesktopServerUrl()
         await fetchSettings()
+        void useBillingStore.getState().fetchBilling()
 
         // Restore tabs from localStorage
         await useTabStore.getState().restoreTabs()

@@ -11,6 +11,8 @@ let originalConfigDir: string | undefined
 let originalProxyStreamTimeout: string | undefined
 let originalProxyStreamIdleTimeout: string | undefined
 let originalProxyStreamPingInterval: string | undefined
+let originalGatewayUrl: string | undefined
+let originalDisableManagedDefault: string | undefined
 let originalFetch: typeof fetch
 
 async function setup() {
@@ -19,8 +21,11 @@ async function setup() {
   originalProxyStreamTimeout = process.env.CC_HAHA_PROXY_STREAM_CONNECT_TIMEOUT_MS
   originalProxyStreamIdleTimeout = process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS
   originalProxyStreamPingInterval = process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS
+  originalGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
+  originalDisableManagedDefault = process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   originalFetch = globalThis.fetch
   process.env.CLAUDE_CONFIG_DIR = tmpDir
+  process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = '1'
 }
 
 async function teardown() {
@@ -39,6 +44,16 @@ async function teardown() {
     delete process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS
   } else {
     process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS = originalProxyStreamPingInterval
+  }
+  if (originalGatewayUrl === undefined) {
+    delete process.env.CC_GUGU_GATEWAY_URL
+  } else {
+    process.env.CC_GUGU_GATEWAY_URL = originalGatewayUrl
+  }
+  if (originalDisableManagedDefault === undefined) {
+    delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+  } else {
+    process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = originalDisableManagedDefault
   }
   if (originalConfigDir === undefined) {
     delete process.env.CLAUDE_CONFIG_DIR
@@ -552,5 +567,65 @@ describe('ChatGPT provider integration', () => {
     expect(text).toContain('event: ping')
     expect(text).toContain('event: error')
     expect(text).toContain('已中止本轮以恢复会话')
+  })
+
+  test('Gugu Managed stream returns an SSE error when gateway is misconfigured', async () => {
+    const requestedPaths: string[] = []
+    const gateway = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        requestedPaths.push(url.pathname)
+        if (url.pathname === '/v1/devices') {
+          return Response.json({
+            deviceId: 'device-1',
+            deviceToken: 'device-token-1',
+            entitlement: {
+              status: 'active',
+              plan: 'free',
+              creditsTotal: 50,
+              creditsRemaining: 50,
+              isTrial: true,
+            },
+          })
+        }
+        if (url.pathname === '/v1/messages') {
+          return Response.json({
+            error: {
+              code: 'UPSTREAM_NOT_CONFIGURED',
+              message: 'GUGU_DEEPSEEK_API_KEY is not configured',
+            },
+          }, { status: 503 })
+        }
+        return Response.json({}, { status: 404 })
+      },
+    })
+
+    process.env.CC_GUGU_GATEWAY_URL = `http://127.0.0.1:${gateway.port}`
+
+    try {
+      const req = new Request('http://127.0.0.1:3456/proxy/gugu-managed/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'gugu-managed-main',
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      })
+
+      const res = await handleProxyRequest(req, new URL(req.url))
+      const text = await res.text()
+
+      expect(requestedPaths).toContain('/v1/devices')
+      expect(requestedPaths).toContain('/v1/messages')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Content-Type')).toContain('text/event-stream')
+      expect(text).toContain('event: error')
+      expect(text).toContain('GUGU_DEEPSEEK_API_KEY is not configured')
+    } finally {
+      gateway.stop(true)
+    }
   })
 })

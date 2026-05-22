@@ -142,7 +142,7 @@ export const useCapabilityStore = create<CapabilityStore>((set, get) => ({
       const config = parserResult.value.config
       const status: AttachmentParserCapabilityStatus = !config.enabled
         ? 'off'
-        : config.hasApiKey
+        : config.mode === 'managed' || config.hasApiKey
           ? 'ready'
           : 'needs_config'
       next.attachmentParser = {

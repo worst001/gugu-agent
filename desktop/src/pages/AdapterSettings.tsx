@@ -8,7 +8,7 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { adaptersApi } from '../api/adapters'
 import type { AdapterDiagnostics, AdapterPlatform } from '../types/adapter'
 
-type ImTab = AdapterPlatform
+type ImTab = Exclude<AdapterPlatform, 'telegram'>
 const visibleAdapterPlatforms = new Set<AdapterPlatform>(['feishu', 'dingtalk', 'wecom', 'qq'])
 const FEISHU_DEVELOPER_CONSOLE_URL = 'https://open.feishu.cn/app?lang=zh-CN'
 const DINGTALK_DEVELOPER_CONSOLE_URL = 'https://open.dingtalk.com/'
@@ -23,15 +23,6 @@ function openExternalUrl(url: string) {
 
 function hasText(value: string | undefined): boolean {
   return Boolean(value?.trim())
-}
-
-function parseTelegramAllowedUsers(value: string): number[] {
-  return value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map(Number)
-    .filter((n) => !Number.isNaN(n))
 }
 
 function parseStringAllowedUsers(value: string): string[] {
@@ -59,10 +50,6 @@ export function AdapterSettings() {
   // Server —— serverUrl 不再暴露在 UI 里（见下方 Server URL 注释），
   // 桌面端用 Tauri env var 注入动态端口。
   const [defaultProjectDir, setDefaultProjectDir] = useState('')
-
-  // Telegram
-  const [tgBotToken, setTgBotToken] = useState('')
-  const [tgAllowedUsers, setTgAllowedUsers] = useState('')
 
   // Feishu
   const [fsAppId, setFsAppId] = useState('')
@@ -121,8 +108,6 @@ export function AdapterSettings() {
   // Sync form state when config is loaded
   useEffect(() => {
     setDefaultProjectDir(config.defaultProjectDir ?? '')
-    setTgBotToken(config.telegram?.botToken ?? '')
-    setTgAllowedUsers(config.telegram?.allowedUsers?.join(', ') ?? '')
     setFsAppId(config.feishu?.appId ?? '')
     setFsAppSecret(config.feishu?.appSecret ?? '')
     setFsEncryptKey(config.feishu?.encryptKey ?? '')
@@ -159,13 +144,6 @@ export function AdapterSettings() {
       const patch: Record<string, unknown> = {}
 
       patch.defaultProjectDir = defaultProjectDir.trim()
-      const tgUsers = parseTelegramAllowedUsers(tgAllowedUsers)
-
-      patch.telegram = {
-        botToken: tgBotToken.trim(),
-        allowedUsers: tgUsers.length ? tgUsers : [],
-      }
-
       const fsUsers = parseStringAllowedUsers(fsAllowedUsers)
 
       patch.feishu = {
@@ -278,7 +256,6 @@ export function AdapterSettings() {
 
   // Collect all paired users across platforms
   const allPairedUsers = [
-    ...(config.telegram?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'telegram' as const })),
     ...(config.feishu?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'feishu' as const })),
     ...(config.dingtalk?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'dingtalk' as const })),
     ...(config.wecom?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'wecom' as const })),
@@ -301,6 +278,7 @@ export function AdapterSettings() {
     + Number(dingtalkCredentialsReady)
     + Number(wecomCredentialsReady)
     + Number(qqCredentialsReady)
+  const visibleDiagnosticChannels = diagnostics?.channels.filter((channel) => channel.platform !== 'telegram') ?? []
 
   // Check pairing expiry
   const pairingExpiry = config.pairing?.expiresAt
@@ -338,7 +316,13 @@ export function AdapterSettings() {
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={handleCheckConfig} loading={isChecking}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleCheckConfig}
+                loading={isChecking}
+                icon={<span className="material-symbols-outlined text-[15px]" aria-hidden="true">fact_check</span>}
+              >
                 {t('settings.adapters.checkConfig')}
               </Button>
               <Button
@@ -390,7 +374,7 @@ export function AdapterSettings() {
               </span>
             </div>
             <div className="grid gap-2 md:grid-cols-2">
-              {diagnostics.channels.filter((channel) => visibleAdapterPlatforms.has(channel.platform)).map((channel) => (
+              {visibleDiagnosticChannels.map((channel) => (
                 <ChannelDiagnostic key={channel.platform} channel={channel} />
               ))}
             </div>

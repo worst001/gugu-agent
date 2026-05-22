@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA" />
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">用户为什么需要它</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">不是替代编辑器，而是补齐“本地 AI 工程工作流”的缺口</text>
+  </g>
+  <g id="value_grid">
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M88,168 H612 A8,8 0 0 1 620,176 V318 A8,8 0 0 1 612,326 H88 A8,8 0 0 1 80,318 V176 A8,8 0 0 1 88,168 Z" />
+    <circle cx="126" cy="218" r="22" fill="#2D628F" />
+    <text x="126" y="225" text-anchor="middle" font-family="Microsoft YaHei" font-size="20" font-weight="700" fill="#FFFFFF">1</text>
+    <text x="170" y="214" font-family="Microsoft YaHei" font-size="26" font-weight="700" fill="#1D2329">本地执行更可控</text>
+    <text x="170" y="252" font-family="Microsoft YaHei" font-size="19" fill="#667085">文件、工具、桌面控制与会话状态围绕本地机器运行。</text>
+    <text x="170" y="282" font-family="Microsoft YaHei" font-size="19" fill="#667085">适合私有项目、长任务、半自动化开发场景。</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M668,168 H1192 A8,8 0 0 1 1200,176 V318 A8,8 0 0 1 1192,326 H668 A8,8 0 0 1 660,318 V176 A8,8 0 0 1 668,168 Z" />
+    <circle cx="706" cy="218" r="22" fill="#8F482F" />
+    <text x="706" y="225" text-anchor="middle" font-family="Microsoft YaHei" font-size="20" font-weight="700" fill="#FFFFFF">2</text>
+    <text x="750" y="214" font-family="Microsoft YaHei" font-size="26" font-weight="700" fill="#1D2329">模型选择不被锁定</text>
+    <text x="750" y="252" font-family="Microsoft YaHei" font-size="19" fill="#667085">支持 Anthropic 兼容接口和多种第三方模型。</text>
+    <text x="750" y="282" font-family="Microsoft YaHei" font-size="19" fill="#667085">成本、速度、能力可以按任务切换。</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M88,366 H612 A8,8 0 0 1 620,374 V516 A8,8 0 0 1 612,524 H88 A8,8 0 0 1 80,516 V374 A8,8 0 0 1 88,366 Z" />
+    <circle cx="126" cy="416" r="22" fill="#4F6237" />
+    <text x="126" y="423" text-anchor="middle" font-family="Microsoft YaHei" font-size="20" font-weight="700" fill="#FFFFFF">3</text>
+    <text x="170" y="412" font-family="Microsoft YaHei" font-size="26" font-weight="700" fill="#1D2329">远程触达真实工作台</text>
+    <text x="170" y="450" font-family="Microsoft YaHei" font-size="19" fill="#667085">通过 Telegram / 飞书发消息、收结果、批权限。</text>
+    <text x="170" y="480" font-family="Microsoft YaHei" font-size="19" fill="#667085">离开电脑也能推动 Agent 继续工作。</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M668,366 H1192 A8,8 0 0 1 1200,374 V516 A8,8 0 0 1 1192,524 H668 A8,8 0 0 1 660,516 V374 A8,8 0 0 1 668,366 Z" />
+    <circle cx="706" cy="416" r="22" fill="#F4C95D" />
+    <text x="706" y="423" text-anchor="middle" font-family="Microsoft YaHei" font-size="20" font-weight="700" fill="#1D2329">4</text>
+    <text x="750" y="412" font-family="Microsoft YaHei" font-size="26" font-weight="700" fill="#1D2329">复杂任务可以并行拆解</text>
+    <text x="750" y="450" font-family="Microsoft YaHei" font-size="19" fill="#667085">多 Agent、Teams、后台任务和 worktree 隔离。</text>
+    <text x="750" y="480" font-family="Microsoft YaHei" font-size="19" fill="#667085">适合调研、实现、验证、文档协同推进。</text>
+  </g>
+  <g id="takeaway">
+    <path fill="#D9E8F6" stroke="#2D628F" d="M88,574 H1192 A8,8 0 0 1 1200,582 V630 A8,8 0 0 1 1192,638 H88 A8,8 0 0 1 80,630 V582 A8,8 0 0 1 88,574 Z" />
+    <text x="116" y="615" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#183F5D">结论：</text>
+    <text x="190" y="615" font-family="Microsoft YaHei" font-size="22" fill="#1D2329">Gugu Agent 的目标是让 AI 编程从“对话工具”升级为“本地工程执行系统”。</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">03 / 08</text>
+  </g>
+</svg>

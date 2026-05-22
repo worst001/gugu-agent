@@ -43,7 +43,6 @@ if (-not (Test-Path -LiteralPath $desktopDir -PathType Container)) {
   "claude-sidecar-aarch64-pc-windows-msvc.exe",
   "claude-code-desktop.exe",
   "Gugu Agent.exe",
-  "Claude Code GuGu.exe",
   "cargo.exe",
   "rustc.exe"
 ) | ForEach-Object { Stop-ProcessByImageName $_ }

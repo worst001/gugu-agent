@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA" />
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">桌面端与 IM：把 Agent 放进日常工作入口</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">可视化管理本地会话，也能通过 Telegram / 飞书远程推进任务</text>
+  </g>
+  <g id="desktop_window">
+    <path fill="#FFFFFF" stroke="#D8DEE6" stroke-width="2" d="M98,170 H628 A10,10 0 0 1 638,180 V532 A10,10 0 0 1 628,542 H98 A10,10 0 0 1 88,532 V180 A10,10 0 0 1 98,170 Z" />
+    <path fill="#1D2329" d="M98,170 H628 A10,10 0 0 1 638,180 V206 A10,10 0 0 1 628,216 H98 A10,10 0 0 1 88,206 V180 A10,10 0 0 1 98,170 Z" />
+    <circle cx="122" cy="194" r="6" fill="#F4DAD4" />
+    <circle cx="146" cy="194" r="6" fill="#F4C95D" />
+    <circle cx="170" cy="194" r="6" fill="#E2EBDD" />
+    <text x="210" y="201" font-family="Microsoft YaHei" font-size="16" fill="#FFFFFF">Gugu Agent Desktop</text>
+    <path fill="#D9E8F6" d="M124,248 H288 A8,8 0 0 1 296,256 V296 A8,8 0 0 1 288,304 H124 A8,8 0 0 1 116,296 V256 A8,8 0 0 1 124,248 Z" />
+    <text x="206" y="283" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#183F5D">多标签会话</text>
+    <path fill="#F3E7DA" d="M330,248 H494 A8,8 0 0 1 502,256 V296 A8,8 0 0 1 494,304 H330 A8,8 0 0 1 322,296 V256 A8,8 0 0 1 330,248 Z" />
+    <text x="412" y="283" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#8F482F">权限审批</text>
+    <path fill="#E2EBDD" d="M124,328 H288 A8,8 0 0 1 296,336 V376 A8,8 0 0 1 288,384 H124 A8,8 0 0 1 116,376 V336 A8,8 0 0 1 124,328 Z" />
+    <text x="206" y="363" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#4F6237">提供商管理</text>
+    <path fill="#F4DAD4" d="M330,328 H494 A8,8 0 0 1 502,336 V376 A8,8 0 0 1 494,384 H330 A8,8 0 0 1 322,376 V336 A8,8 0 0 1 330,328 Z" />
+    <text x="412" y="363" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#8F482F">Skills / Agents</text>
+    <path fill="#EEF1F5" stroke="#D8DEE6" d="M124,408 H494 A8,8 0 0 1 502,416 V474 A8,8 0 0 1 494,482 H124 A8,8 0 0 1 116,474 V416 A8,8 0 0 1 124,408 Z" />
+    <text x="140" y="438" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">Diff、工具调用、Markdown、Mermaid、定时任务</text>
+    <text x="140" y="466" font-family="Microsoft YaHei" font-size="16" fill="#667085">让本地 Agent 操作看得见、批得准、追得上。</text>
+  </g>
+  <g id="im_phone">
+    <path fill="#1D2329" d="M811,160 H1049 A36,36 0 0 1 1085,196 V554 A36,36 0 0 1 1049,590 H811 A36,36 0 0 1 775,554 V196 A36,36 0 0 1 811,160 Z" />
+    <path fill="#FFFFFF" d="M818,206 H1042 A18,18 0 0 1 1060,224 V526 A18,18 0 0 1 1042,544 H818 A18,18 0 0 1 800,526 V224 A18,18 0 0 1 818,206 Z" />
+    <path fill="#D9E8F6" d="M836,238 H990 A12,12 0 0 1 1002,250 V272 A12,12 0 0 1 990,284 H836 A12,12 0 0 1 824,272 V250 A12,12 0 0 1 836,238 Z" />
+    <text x="842" y="267" font-family="Microsoft YaHei" font-size="16" fill="#183F5D">/new 项目路径</text>
+    <path fill="#F3E7DA" d="M870,306 H1024 A12,12 0 0 1 1036,318 V356 A12,12 0 0 1 1024,368 H870 A12,12 0 0 1 858,356 V318 A12,12 0 0 1 870,306 Z" />
+    <text x="876" y="333" font-family="Microsoft YaHei" font-size="15" fill="#8F482F">请审批写文件</text>
+    <text x="876" y="356" font-family="Microsoft YaHei" font-size="15" fill="#8F482F">允许 / 拒绝</text>
+    <path fill="#E2EBDD" d="M836,394 H1010 A12,12 0 0 1 1022,406 V456 A12,12 0 0 1 1010,468 H836 A12,12 0 0 1 824,456 V406 A12,12 0 0 1 836,394 Z" />
+    <text x="842" y="423" font-family="Microsoft YaHei" font-size="15" fill="#4F6237">任务完成：</text>
+    <text x="842" y="448" font-family="Microsoft YaHei" font-size="15" fill="#4F6237">返回摘要和文件路径</text>
+    <circle cx="930" cy="568" r="10" fill="#667085" />
+  </g>
+  <g id="bridge">
+    <line x1="650" y1="360" x2="760" y2="360" stroke="#2D628F" stroke-width="4" />
+    <path d="M760 360 L738 348 L738 372 Z" fill="#2D628F" />
+    <text x="704" y="334" text-anchor="middle" font-family="Microsoft YaHei" font-size="18" fill="#667085">Adapter Sidecar</text>
+    <text x="704" y="393" text-anchor="middle" font-family="Microsoft YaHei" font-size="16" fill="#667085">Telegram / 飞书</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">06 / 08</text>
+  </g>
+</svg>

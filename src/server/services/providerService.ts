@@ -57,6 +57,16 @@ const CHATGPT_PROVIDER_MODELS = {
   sonnet: 'gpt-5.4',
   opus: 'gpt-5.4',
 }
+export const GUGU_MANAGED_PROVIDER_ID = 'gugu-managed'
+export const GUGU_MANAGED_PROVIDER_PRESET_ID = 'gugu-managed'
+const GUGU_MANAGED_PROVIDER_NAME = 'Gugu Managed'
+const GUGU_MANAGED_PROVIDER_BASE_URL = 'gugu://managed'
+const GUGU_MANAGED_PROVIDER_MODELS = {
+  main: 'gugu-managed-main',
+  haiku: 'gugu-managed-fast',
+  sonnet: 'gugu-managed-main',
+  opus: 'gugu-managed-strong',
+}
 
 export function getProviderModelIds(provider: Pick<SavedProvider, 'models'>): string[] {
   return [
@@ -89,6 +99,19 @@ export function resolveProviderModelId(
   if (fallback && isProviderModelId(provider, fallback)) return fallback
 
   return provider.models.main.trim()
+}
+
+export function isGuguManagedProvider(provider: Pick<SavedProvider, 'id' | 'presetId' | 'apiFormat' | 'authKind'>): boolean {
+  return provider.id === GUGU_MANAGED_PROVIDER_ID ||
+    provider.presetId === GUGU_MANAGED_PROVIDER_PRESET_ID ||
+    provider.apiFormat === 'gugu_managed' ||
+    provider.authKind === 'gugu_managed'
+}
+
+function isChatGPTConnectProvider(provider: Pick<SavedProvider, 'presetId' | 'apiFormat' | 'authKind'>): boolean {
+  return provider.presetId === CHATGPT_PROVIDER_PRESET_ID ||
+    provider.apiFormat === 'chatgpt_codex' ||
+    provider.authKind === 'chatgpt_oauth'
 }
 
 function getPresetDefaultEnv(presetId: string): Record<string, string> {
@@ -192,15 +215,81 @@ export class ProviderService {
     await this.writeSettings(Object.assign({}, current, settings))
   }
 
+  private async ensureManagedProviderIndex(index: ProvidersIndex): Promise<ProvidersIndex> {
+    if (process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT === '1') return index
+
+    let changed = false
+    let provider = index.providers.find(isGuguManagedProvider)
+
+    if (!provider) {
+      provider = {
+        id: GUGU_MANAGED_PROVIDER_ID,
+        presetId: GUGU_MANAGED_PROVIDER_PRESET_ID,
+        name: GUGU_MANAGED_PROVIDER_NAME,
+        apiKey: '',
+        baseUrl: GUGU_MANAGED_PROVIDER_BASE_URL,
+        apiFormat: 'gugu_managed',
+        authKind: 'gugu_managed',
+        models: { ...GUGU_MANAGED_PROVIDER_MODELS },
+        notes: 'Built-in managed service. Uses this device token and Gugu Gateway; no upstream key is stored locally.',
+      }
+      index.providers.unshift(provider)
+      changed = true
+    } else {
+      const normalized: SavedProvider = {
+        ...provider,
+        id: GUGU_MANAGED_PROVIDER_ID,
+        presetId: GUGU_MANAGED_PROVIDER_PRESET_ID,
+        name: provider.name || GUGU_MANAGED_PROVIDER_NAME,
+        apiKey: '',
+        baseUrl: GUGU_MANAGED_PROVIDER_BASE_URL,
+        apiFormat: 'gugu_managed',
+        authKind: 'gugu_managed',
+        models: {
+          ...GUGU_MANAGED_PROVIDER_MODELS,
+          ...provider.models,
+        },
+      }
+      if (JSON.stringify(normalized) !== JSON.stringify(provider)) {
+        const idx = index.providers.findIndex((p) => p.id === provider!.id)
+        index.providers[idx] = normalized
+        provider = normalized
+        changed = true
+      }
+    }
+
+    if (index.activeId === null) {
+      index.activeId = GUGU_MANAGED_PROVIDER_ID
+      changed = true
+    }
+
+    if (index.activeId && index.activeId !== GUGU_MANAGED_PROVIDER_ID) {
+      const active = index.providers.find((p) => p.id === index.activeId)
+      if (!active || isGuguManagedProvider(active) || isChatGPTConnectProvider(active)) {
+        index.activeId = GUGU_MANAGED_PROVIDER_ID
+        changed = true
+      }
+    }
+
+    if (changed) {
+      await this.writeIndex(index)
+      if (index.activeId === GUGU_MANAGED_PROVIDER_ID) {
+        await this.syncToSettings(provider)
+      }
+    }
+
+    return index
+  }
+
   // --- CRUD ---
 
   async listProviders(): Promise<{ providers: SavedProvider[]; activeId: string | null }> {
-    const index = await this.readIndex()
+    const index = await this.ensureManagedProviderIndex(await this.readIndex())
     return { providers: index.providers, activeId: index.activeId }
   }
 
   async getProvider(id: string): Promise<SavedProvider> {
-    const index = await this.readIndex()
+    const index = await this.ensureManagedProviderIndex(await this.readIndex())
     const provider = index.providers.find((p) => p.id === id)
     if (!provider) throw ApiError.notFound(`Provider not found: ${id}`)
     return provider
@@ -351,7 +440,7 @@ export class ProviderService {
     options?: { proxyPath?: string },
   ): Record<string, string> {
     const needsProxy = provider.apiFormat != null && provider.apiFormat !== 'anthropic'
-    const proxyPath = options?.proxyPath ?? '/proxy'
+    const proxyPath = options?.proxyPath ?? (isGuguManagedProvider(provider) ? '/proxy/gugu-managed' : '/proxy')
     const baseUrl = needsProxy
       ? `http://127.0.0.1:${ProviderService.serverPort}${proxyPath}`
       : provider.baseUrl
@@ -370,7 +459,7 @@ export class ProviderService {
   async getProviderRuntimeEnv(id: string): Promise<Record<string, string>> {
     const provider = await this.getProvider(id)
     return this.buildManagedEnv(provider, {
-      proxyPath: `/proxy/providers/${provider.id}`,
+      proxyPath: isGuguManagedProvider(provider) ? '/proxy/gugu-managed' : `/proxy/providers/${provider.id}`,
     })
   }
 
@@ -422,9 +511,12 @@ export class ProviderService {
     activeProvider?: string
   }> {
     // 1. Check cc-haha active provider
-    const index = await this.readIndex()
+    const index = await this.ensureManagedProviderIndex(await this.readIndex())
     if (index.activeId) {
       const provider = index.providers.find(p => p.id === index.activeId)
+      if (provider && isGuguManagedProvider(provider)) {
+        return { hasAuth: true, source: 'cc-haha-provider', activeProvider: provider.name }
+      }
       if (provider?.authKind === 'chatgpt_oauth') {
         const tokens = await chatgptAuthService.ensureFreshTokens()
         if (tokens) {
@@ -475,7 +567,7 @@ export class ProviderService {
       }
     }
 
-    const index = await this.readIndex()
+    const index = await this.ensureManagedProviderIndex(await this.readIndex())
     if (!index.activeId) return null
     const provider = index.providers.find((p) => p.id === index.activeId)
     if (!provider) return null
@@ -507,6 +599,16 @@ export class ProviderService {
     const modelId = overrides?.modelId || provider.models.main
     const apiFormat = overrides?.apiFormat ?? provider.apiFormat ?? 'anthropic'
 
+    if (apiFormat === 'gugu_managed') {
+      return {
+        connectivity: {
+          success: true,
+          latencyMs: 0,
+          modelUsed: modelId,
+        },
+      }
+    }
+
     if (!baseUrl || (apiFormat !== 'chatgpt_codex' && !provider.apiKey)) {
       return { connectivity: { success: false, latencyMs: 0, error: 'Missing baseUrl or apiKey' } }
     }
@@ -521,6 +623,16 @@ export class ProviderService {
   async testProviderConfig(input: TestProviderInput): Promise<ProviderTestResult> {
     const format: ApiFormat = input.apiFormat ?? 'anthropic'
     const base = input.baseUrl.replace(/\/+$/, '')
+
+    if (format === 'gugu_managed') {
+      return {
+        connectivity: {
+          success: true,
+          latencyMs: 0,
+          modelUsed: input.modelId,
+        },
+      }
+    }
 
     // ── Step 1: Basic connectivity ───────────────────────────
     // Directly call the upstream API to verify URL, key, and model.

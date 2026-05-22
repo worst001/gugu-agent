@@ -139,10 +139,6 @@ describe('AdapterSettings', () => {
     await waitFor(() => {
       expect(adaptersApi.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
         defaultProjectDir: 'D:\\work',
-        telegram: expect.objectContaining({
-          botToken: '****oken',
-          allowedUsers: [123],
-        }),
         feishu: expect.objectContaining({
           appId: 'cli_abc',
           appSecret: '****cret',
@@ -150,6 +146,7 @@ describe('AdapterSettings', () => {
           streamingCard: true,
         }),
       }))
+      expect(vi.mocked(adaptersApi.updateConfig).mock.calls[0]?.[0]).not.toHaveProperty('telegram')
     })
   })
 
@@ -164,6 +161,7 @@ describe('AdapterSettings', () => {
     expect(screen.getByText('No active pairing code')).toBeInTheDocument()
     expect(screen.getAllByText('Ready')).toHaveLength(1)
     expect(screen.getByText('Allowlist 1, paired 1, missing None')).toBeInTheDocument()
+    expect(screen.queryByText('Telegram')).not.toBeInTheDocument()
     expect(adaptersApi.updateConfig).not.toHaveBeenCalled()
   })
 

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA"/>
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">下一步：从可运行到可交付、可扩展</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">围绕稳定性、体验、生态和发布流程持续收敛</text>
+  </g>
+  <g id="roadmap">
+    <line x1="142" y1="348" x2="1138" y2="348" stroke="#D8DEE6" stroke-width="8"/>
+    <circle cx="206" cy="348" r="26" fill="#2D628F"/>
+    <circle cx="466" cy="348" r="26" fill="#8F482F"/>
+    <circle cx="726" cy="348" r="26" fill="#4F6237"/>
+    <circle cx="986" cy="348" r="26" fill="#F4C95D"/>
+    <rect x="98" y="196" width="218" height="110" rx="8" fill="#FFFFFF" stroke="#D8DEE6"/>
+    <text x="126" y="236" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#183F5D">体验打磨</text>
+    <text x="126" y="272" font-family="Microsoft YaHei" font-size="17" fill="#667085">桌面端、多标签、权限、Diff</text>
+    <rect x="358" y="390" width="218" height="120" rx="8" fill="#FFFFFF" stroke="#D8DEE6"/>
+    <text x="386" y="430" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#8F482F">生态扩展</text>
+    <text x="386" y="466" font-family="Microsoft YaHei" font-size="17" fill="#667085">插件、Skills、MCP、模板</text>
+    <rect x="618" y="196" width="218" height="110" rx="8" fill="#FFFFFF" stroke="#D8DEE6"/>
+    <text x="646" y="236" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#4F6237">协作增强</text>
+    <text x="646" y="272" font-family="Microsoft YaHei" font-size="17" fill="#667085">Teams、IM、后台任务、记忆</text>
+    <rect x="878" y="390" width="218" height="120" rx="8" fill="#FFFFFF" stroke="#D8DEE6"/>
+    <text x="906" y="430" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#1D2329">发布闭环</text>
+    <text x="906" y="466" font-family="Microsoft YaHei" font-size="17" fill="#667085">桌面构建、版本、文档、FAQ</text>
+    <line x1="206" y1="322" x2="206" y2="306" stroke="#2D628F" stroke-width="3"/>
+    <line x1="466" y1="374" x2="466" y2="390" stroke="#8F482F" stroke-width="3"/>
+    <line x1="726" y1="322" x2="726" y2="306" stroke="#4F6237" stroke-width="3"/>
+    <line x1="986" y1="374" x2="986" y2="390" stroke="#F4C95D" stroke-width="3"/>
+  </g>
+  <g id="closing">
+    <rect x="96" y="580" width="1088" height="64" rx="8" fill="#1D2329"/>
+    <text x="134" y="621" font-family="Microsoft YaHei" font-size="22" font-weight="700" fill="#FFFFFF">最终目标：</text>
+    <text x="244" y="621" font-family="Microsoft YaHei" font-size="22" fill="#FFFFFF">成为团队可以长期运行、持续扩展、跨端协作的本地 AI 工程工作台。</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">08 / 08</text>
+  </g>
+</svg>

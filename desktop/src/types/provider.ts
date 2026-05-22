@@ -1,7 +1,7 @@
 // desktop/src/types/provider.ts
 
-export type ApiFormat = 'anthropic' | 'openai_chat' | 'openai_responses' | 'chatgpt_codex'
-export type ProviderAuthKind = 'api_key' | 'chatgpt_oauth'
+export type ApiFormat = 'anthropic' | 'openai_chat' | 'openai_responses' | 'chatgpt_codex' | 'gugu_managed'
+export type ProviderAuthKind = 'api_key' | 'chatgpt_oauth' | 'gugu_managed'
 
 export type ModelMapping = {
   main: string

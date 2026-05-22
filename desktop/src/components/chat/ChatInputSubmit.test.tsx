@@ -45,8 +45,12 @@ vi.mock('../layout/CapabilityBar', () => ({
 }))
 
 import { ContentRouter } from '../layout/ContentRouter'
+import { sessionsApi } from '../../api/sessions'
+import { wsManager } from '../../api/websocket'
 import { ActiveSession } from '../../pages/ActiveSession'
+import { useAgentRunModeStore } from '../../stores/agentRunModeStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
@@ -79,7 +83,18 @@ describe('ChatInput submit', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+    useAgentRunModeStore.setState({ selections: {} })
+    useCeWorkflowRoleStore.setState({ selections: {} })
   })
+
+  function getLastUserMessagePayload() {
+    const userMessageCalls = vi.mocked(wsManager.send).mock.calls.filter(([, payload]) => {
+      return typeof payload === 'object' && payload !== null && (payload as { type?: string }).type === 'user_message'
+    })
+    return userMessageCalls[userMessageCalls.length - 1]?.[1] as
+      | { type: 'user_message'; content: string; ceModelPreference?: string }
+      | undefined
+  }
 
   it('optimistically shows image and text messages from an empty session', async () => {
     seedEmptySession('empty-image-session')
@@ -100,7 +115,116 @@ describe('ChatInput submit', () => {
       expect(screen.getByText('what is this')).toBeInTheDocument()
     })
     expect(screen.getByRole('img', { name: 'whale.png' })).toBeInTheDocument()
-    expect(screen.queryByText('Start a fresh coding session. Claude is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Start a fresh coding session. Gugu is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toBe('what is this')
+    expect(payload?.content).not.toContain('CE automation')
+    expect(payload?.ceModelPreference).toBeUndefined()
+  })
+
+  it('wraps messages with plan mode scaffolding when the plan toggle is selected', async () => {
+    seedEmptySession('plan-mode-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
+    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'plan the composer modes', selectionStart: 23 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('plan the composer modes')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Agent mode: plan]')
+    expect(payload?.content).toContain('/ce-plan')
+    expect(payload?.content).toContain('User message:\nplan the composer modes')
+    expect(payload?.ceModelPreference).toBe('strong')
+  })
+
+  it('uses a matching CE pre-route in default mode when a relevant skill is available', async () => {
+    vi.mocked(sessionsApi.getSlashCommands).mockResolvedValueOnce({
+      commands: [{
+        name: 'compound-engineering:ce-frontend-design',
+        description: 'Build web interfaces with genuine design quality.',
+      }],
+    })
+    seedEmptySession('default-ce-router-session')
+    render(<ActiveSession />)
+
+    await waitFor(() => {
+      expect(useChatStore.getState().sessions['default-ce-router-session']?.slashCommands).toEqual([
+        expect.objectContaining({ name: 'compound-engineering:ce-frontend-design' }),
+      ])
+    })
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'UI feels ugly, help me improve the toggle', selectionStart: 43 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('UI feels ugly, help me improve the toggle')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Agent mode: default + CE pre-route]')
+    expect(payload?.content).toContain('compound-engineering:ce-frontend-design')
+    expect(payload?.content).toContain('Use at most this one CE Skill')
+    expect(payload?.ceModelPreference).toBe('strong')
+  })
+
+  it('enables CE workflow mode with the light iteration preset by default', async () => {
+    seedEmptySession('ce-mode-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
+    fireEvent.click(screen.getByRole('button', { name: 'CE' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'fix the failing test', selectionStart: 20 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('fix the failing test')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Workflow: quick iteration]')
+    expect(payload?.content).toContain('CE automation (binding)')
+    expect(payload?.content).not.toContain('/ce-plan')
+    expect(payload?.ceModelPreference).toBe('fast')
+  })
+
+  it('switches from plan to CE mode and uses the selected CE workflow', async () => {
+    seedEmptySession('ce-workflow-selection-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
+    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
+    expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Plan' }))
+    fireEvent.click(screen.getByRole('button', { name: 'CE' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Light iteration' }))
+    fireEvent.click(screen.getByRole('button', { name: /Standard delivery/ }))
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'build a normal feature', selectionStart: 22 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('build a normal feature')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Workflow: standard delivery]')
+    expect(payload?.content).toContain('/ce-plan')
+    expect(payload?.ceModelPreference).toBe('strong')
   })
 
   it('creates a session from the empty composer and preserves the submitted image and text', async () => {
@@ -133,6 +257,6 @@ describe('ChatInput submit', () => {
       expect(screen.getByText('what is this')).toBeInTheDocument()
     })
     expect(screen.getByRole('img', { name: 'whale.png' })).toBeInTheDocument()
-    expect(screen.queryByText('Start a fresh coding session. Claude is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Start a fresh coding session. Gugu is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
   })
 })

@@ -217,7 +217,7 @@ describe('Content-only pages render without errors', () => {
 
     render(<ActiveSession />)
 
-    const textarea = screen.getByPlaceholderText('Ask Claude to edit, debug or explain...')
+    const textarea = screen.getByPlaceholderText('Ask Gugu to edit, debug or explain...')
     expect(textarea).toHaveAttribute('rows', '1')
 
     useTabStore.setState({ tabs: [], activeTabId: null })

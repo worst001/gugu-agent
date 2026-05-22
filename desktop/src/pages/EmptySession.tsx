@@ -7,9 +7,11 @@ import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
 import { DirectoryPicker } from '../components/shared/DirectoryPicker'
-import { CeWorkflowRoleSelector } from '../components/controls/CeWorkflowRoleSelector'
+import { AgentRunModeControl } from '../components/controls/AgentRunModeControl'
 import { PermissionModeSelector } from '../components/controls/PermissionModeSelector'
-import { CE_WORKFLOW_DEFAULT_ROLE_ID, buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
+import { CE_WORKFLOW_DEFAULT_ROLE_ID } from '../constants/ceWorkflowRoles'
+import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage } from '../constants/agentRunModes'
+import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../stores/agentRunModeStore'
 import { DRAFT_CE_WORKFLOW_KEY, useCeWorkflowRoleStore } from '../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
 import { FileSearchMenu, type FileSearchMenuHandle } from '../components/chat/FileSearchMenu'
@@ -273,6 +275,9 @@ export function EmptySession() {
       const sessionId = await createSession(workDir || undefined)
       const draftRole =
         useCeWorkflowRoleStore.getState().selections[DRAFT_CE_WORKFLOW_KEY] ?? CE_WORKFLOW_DEFAULT_ROLE_ID
+      const draftMode =
+        useAgentRunModeStore.getState().selections[DRAFT_AGENT_RUN_MODE_KEY] ?? AGENT_RUN_MODE_DEFAULT
+      useAgentRunModeStore.getState().setMode(sessionId, draftMode)
       useCeWorkflowRoleStore.getState().setRole(sessionId, draftRole)
 
       setActiveView('code')
@@ -284,11 +289,19 @@ export function EmptySession() {
         data: attachment.data,
         mimeType: attachment.mimeType,
       }))
-      const { wire, display, modelPreference } = buildCeWorkflowMessage(draftRole, text)
+      const availableSkillNames = slashCommands.length > 0
+        ? slashCommands.map((command) => command.name)
+        : undefined
+      const { wire, display, modelPreference } = buildAgentRunModeMessage(
+        draftMode,
+        draftRole,
+        text,
+        availableSkillNames,
+      )
       sendMessage(sessionId, wire, attachmentPayload, {
         displayContent: display,
         displayAttachments: attachmentPayload,
-        ceModelPreference: modelPreference,
+        ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
       })
       setInput('')
       setAttachments([])
@@ -636,7 +649,7 @@ export function EmptySession() {
               </div>
 
               <div className="flex items-center gap-3">
-                <CeWorkflowRoleSelector sessionKey={DRAFT_CE_WORKFLOW_KEY} disabled={isSubmitting} />
+                <AgentRunModeControl sessionKey={DRAFT_AGENT_RUN_MODE_KEY} disabled={isSubmitting} />
                 <button
                   onClick={handleSubmit}
                   disabled={(!input.trim() && attachments.length === 0) || isSubmitting}

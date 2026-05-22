@@ -23,6 +23,7 @@ import {
   CHATGPT_CODEX_API_ENDPOINT,
   chatgptAuthService,
 } from '../services/chatgptAuthService.js'
+import { billingService } from '../services/billingService.js'
 
 const providerService = new ProviderService()
 const DEFAULT_PROXY_STREAM_CONNECT_TIMEOUT_MS = 0
@@ -96,6 +97,26 @@ async function fetchUpstream(
 
 function formatSse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+function streamAnthropicErrorResponse(
+  message: string,
+  type: 'api_error' | 'quota_exceeded' | 'authentication_error' | 'invalid_request_error' = 'api_error',
+): Response {
+  return new Response(formatSse('error', {
+    type: 'error',
+    error: {
+      type,
+      message,
+    },
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
 }
 
 function getStreamIdleTimeoutMs(): number | undefined {
@@ -229,16 +250,35 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
   const providerMatch = url.pathname.match(/^\/proxy\/providers\/([^/]+)\/v1\/messages$/)
   const providerId = providerMatch ? decodeURIComponent(providerMatch[1]!) : undefined
   const isActiveProxyPath = url.pathname === '/proxy/v1/messages'
+  const isGuguManagedProxyPath = url.pathname === '/proxy/gugu-managed/v1/messages'
 
   // Only handle POST /proxy/v1/messages or POST /proxy/providers/:providerId/v1/messages
-  if (req.method !== 'POST' || (!isActiveProxyPath && !providerMatch)) {
+  if (req.method !== 'POST' || (!isActiveProxyPath && !providerMatch && !isGuguManagedProxyPath)) {
     return Response.json(
       {
         error: 'Not Found',
-        message: 'Proxy only handles POST /proxy/v1/messages and POST /proxy/providers/:providerId/v1/messages',
+        message: 'Proxy only handles POST /proxy/v1/messages, POST /proxy/gugu-managed/v1/messages, and POST /proxy/providers/:providerId/v1/messages',
       },
       { status: 404 },
     )
+  }
+
+  if (isGuguManagedProxyPath) {
+    try {
+      return await handleGuguManaged(req)
+    } catch (err) {
+      console.error('[Proxy] Gugu Gateway request failed:', err)
+      return Response.json(
+        {
+          type: 'error',
+          error: {
+            type: 'api_error',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+        { status: 502 },
+      )
+    }
   }
 
   // Read active/default provider config or an explicitly-scoped provider config.
@@ -293,6 +333,9 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
     if (config.apiFormat === 'chatgpt_codex') {
       return await handleChatGPTCodex(body, isStream, requestTimeoutMs)
     }
+    if (config.apiFormat === 'gugu_managed') {
+      return await handleGuguManaged(req, body)
+    }
     if (config.apiFormat === 'openai_chat') {
       return await handleOpenaiChat(body, baseUrl, config.apiKey, isStream, requestTimeoutMs)
     } else {
@@ -335,6 +378,128 @@ function getUnsupportedImageInputMessage(baseUrl: string, model: string): string
     return `DeepSeek's Anthropic-compatible API currently does not support image content blocks, including DeepSeek V4 models. Model "${model}" can only receive text/tool content through this provider. Switch to a vision-capable provider/model, or send text only.`
   }
   return `Model "${model}" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.`
+}
+
+async function handleGuguManaged(
+  req: Request,
+  parsedBody?: AnthropicRequest,
+): Promise<Response> {
+  let body = parsedBody
+  if (!body) {
+    try {
+      body = (await req.json()) as AnthropicRequest
+    } catch {
+      return Response.json(
+        { type: 'error', error: { type: 'invalid_request_error', message: 'Invalid JSON in request body' } },
+        { status: 400 },
+      )
+    }
+  }
+
+  const isStream = body.stream === true
+  const requestTimeoutMs = getRequestTimeoutHeader(req)
+  let auth: Awaited<ReturnType<typeof billingService.ensureGatewayDevice>>
+  try {
+    auth = await billingService.ensureGatewayDevice()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (isStream) {
+      return streamAnthropicErrorResponse(message)
+    }
+    throw err
+  }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${auth.deviceToken}`,
+    'anthropic-version': req.headers.get('anthropic-version') || '2023-06-01',
+  }
+  const anthropicBeta = req.headers.get('anthropic-beta')
+  if (anthropicBeta) headers['anthropic-beta'] = anthropicBeta
+
+  let upstream: Response
+  let abortUpstream: (() => void) | undefined
+  try {
+    const upstreamResult = await fetchUpstream(`${auth.gatewayUrl}/v1/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    }, isStream, { requestTimeoutMs })
+    upstream = upstreamResult.response
+    abortUpstream = upstreamResult.abort
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (isStream) {
+      return streamAnthropicErrorResponse(message)
+    }
+    throw err
+  }
+
+  if (!upstream.ok) {
+    const errText = await upstream.text().catch(() => '')
+    const errorBody = parseJsonObject(errText)
+    const quotaMessage = readGatewayQuotaMessage(errorBody)
+    const errorType = upstream.status === 402 ? 'quota_exceeded' : 'api_error'
+    const message = quotaMessage || `Gugu Gateway returned HTTP ${upstream.status}: ${errText.slice(0, 500)}`
+    if (isStream) {
+      return streamAnthropicErrorResponse(message, errorType)
+    }
+    return Response.json(
+      {
+        type: 'error',
+        error: {
+          type: errorType,
+          message,
+        },
+        ...(errorBody ? { gugu: errorBody } : {}),
+      },
+      { status: upstream.status },
+    )
+  }
+
+  if (isStream) {
+    if (!upstream.body) {
+      return streamAnthropicErrorResponse('Gugu Gateway returned no body for stream')
+    }
+    await billingService.updateGatewayCreditsFromHeaders(upstream.headers).catch(() => {})
+    return new Response(monitorAnthropicSseStream(upstream.body, abortUpstream), {
+      status: upstream.status,
+      headers: {
+        'Content-Type': upstream.headers.get('Content-Type') || 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    })
+  }
+
+  const responseBody = await upstream.text()
+  await billingService.updateGatewayCreditsFromHeaders(upstream.headers).catch(() => {})
+  return new Response(responseBody, {
+    status: upstream.status,
+    headers: {
+      'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
+    },
+  })
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  if (!text.trim()) return null
+  try {
+    const value = JSON.parse(text) as unknown
+    return value && typeof value === 'object' ? value as Record<string, unknown> : null
+  } catch {
+    return null
+  }
+}
+
+function readGatewayQuotaMessage(body: Record<string, unknown> | null): string | null {
+  const error = body?.error
+  if (!error || typeof error !== 'object') return null
+  const record = error as Record<string, unknown>
+  if (record.code !== 'GUGU_QUOTA_EXHAUSTED' && record.code !== 'GUGU_SUBSCRIPTION_INACTIVE') return null
+  const message = typeof record.message === 'string' && record.message.trim()
+    ? record.message.trim()
+    : 'Included credits have been used up. Purchase or activate a plan to continue.'
+  return `[GUGU_QUOTA_EXHAUSTED] ${message}`
 }
 
 async function handleAnthropicPassThrough(

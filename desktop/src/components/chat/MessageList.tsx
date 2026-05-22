@@ -52,6 +52,37 @@ function appendChildToolCall(
   }
 }
 
+function isGuguQuotaError(message: Extract<UIMessage, { type: 'error' }>): boolean {
+  return message.code === 'GUGU_QUOTA_EXHAUSTED' ||
+    message.message.includes('[GUGU_QUOTA_EXHAUSTED]') ||
+    message.message.includes('quota_exceeded')
+}
+
+function GuguQuotaCard({ message }: { message: string }) {
+  const t = useTranslation()
+  const openBilling = () => {
+    useUIStore.getState().setPendingSettingsTab('billing')
+    useUIStore.getState().setActiveView('settings')
+  }
+  return (
+    <div className="mb-3 rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)]">
+      <div className="mb-1 flex items-center gap-2 font-medium">
+        <span className="material-symbols-outlined text-[18px] text-[var(--color-warning)]">workspace_premium</span>
+        {t('chat.guguQuota.title')}
+      </div>
+      <p className="text-[var(--color-text-secondary)]">
+        {message.replace('[GUGU_QUOTA_EXHAUSTED]', '').trim() || t('chat.guguQuota.message')}
+      </p>
+      <div className="mt-3">
+        <Button size="sm" variant="secondary" onClick={openBilling}>
+          <span className="material-symbols-outlined text-[15px]">open_in_new</span>
+          {t('chat.guguQuota.action')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function buildRenderModel(messages: UIMessage[]): RenderModel {
   const items: RenderItem[] = []
   const toolResultMap = new Map<string, ToolResult>()
@@ -993,6 +1024,9 @@ export const MessageBlock = memo(function MessageBlock({
     case 'error': {
       if (isUnsupportedAttachmentInputError(message.message)) {
         return <AssistantMessage content={t('chat.unsupportedAttachmentInput')} />
+      }
+      if (isGuguQuotaError(message)) {
+        return <GuguQuotaCard message={message.message} />
       }
       const errorKey = message.code ? `error.${message.code}` as TranslationKey : null
       const errorText = errorKey ? t(errorKey) : null
