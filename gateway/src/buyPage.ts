@@ -159,7 +159,7 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
       <section class="checkout-head">
         <p class="eyebrow">订单结算</p>
         <h1>${escapeHtml(selected.name)} 订阅</h1>
-        <p>填写联系方式后选择支付方式。微信支付完成后，页面会自动展示激活码。</p>
+        <p>填写联系方式后选择支付方式。支付完成后，页面会自动展示激活码。</p>
       </section>
 
       <div class="checkout-layout">
@@ -181,7 +181,7 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
           </label>
 
           <div class="payment-methods" aria-label="支付方式">
-            <button id="wechatPayButton" class="payment-method selected" type="button" data-provider="wechat">
+            <button id="wechatPayButton" class="payment-method" type="button" data-provider="wechat">
               ${wechatIcon()}
               <span>
                 <strong>微信支付</strong>
@@ -223,7 +223,7 @@ export function createCheckoutPageHtml(options: CheckoutPageOptions = {}): strin
         let countdownTimer = null
         let currentOrderId = null
         let currentOrderToken = null
-        let activeProvider = 'wechat'
+        let activeProvider = null
         const paymentCache = {}
         const contact = document.getElementById('contact')
         const notice = document.getElementById('notice')

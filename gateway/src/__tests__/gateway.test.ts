@@ -91,6 +91,7 @@ describe('Gugu Gateway', () => {
     expect(html).toContain('currentOrderId')
     expect(html).toContain('selectPaymentMethod')
     expect(html).toContain('data-provider="alipay"')
+    expect(html).not.toContain('class="payment-method selected"')
     expect(html).not.toContain('推荐')
     expect(html).not.toContain('>可用<')
     expect(html).toContain('沪ICP备2026021385号-1')
