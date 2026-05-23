@@ -130,6 +130,26 @@ describe('Content-only pages render without errors', () => {
     expect(screen.getByText('Slash commands')).toBeInTheDocument()
   })
 
+  it('EmptySession accepts compressed uploads as attachments', async () => {
+    useUIStore.setState({ toasts: [] })
+    const { container } = render(<EmptySession />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement | null
+    expect(input).not.toBeNull()
+
+    fireEvent.change(input!, {
+      target: {
+        files: [new File(['zip'], 'project.zip', { type: 'application/zip' })],
+      },
+    })
+
+    expect(useUIStore.getState().toasts.some((toast) =>
+      toast.message.includes('Compressed archives'),
+    )).toBe(false)
+    await waitFor(() => {
+      expect(container.innerHTML).toContain('project.zip')
+    })
+  })
+
   it('ActiveSession renders with chat components', () => {
     const SESSION_ID = 'test-active-session'
     useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })

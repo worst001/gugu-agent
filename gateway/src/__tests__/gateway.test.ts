@@ -431,6 +431,93 @@ describe('Gugu Gateway', () => {
     expect(store.getEntitlement(registered.deviceToken).creditsRemaining).toBe(3)
   })
 
+  test('rejects oversized managed file-parser attachments before charging credits', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('oversized attachment should not reach GLM')
+    }) as typeof fetch
+
+    const { handler, store } = makeGateway({
+      freeCredits: 10,
+      glmApiKey: 'glm-key',
+      fileParseCreditCost: 3,
+    })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    const response = await handler(jsonRequest('/v1/attachments/parse', {
+      operation: 'file_parser',
+      name: 'large.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      dataBase64: Buffer.alloc((8 * 1024 * 1024) + 1).toString('base64'),
+    }, registered.deviceToken))
+    const body = await response.json() as { error: { code: string } }
+
+    expect(response.status).toBe(413)
+    expect(body.error.code).toBe('ATTACHMENT_TOO_LARGE')
+    expect(store.getEntitlement(registered.deviceToken).creditsRemaining).toBe(10)
+    expect(store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })).toHaveLength(0)
+  })
+
+  test('rejects compressed managed file-parser attachments before charging credits', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('archive attachment should not reach GLM')
+    }) as typeof fetch
+
+    const { handler, store } = makeGateway({
+      freeCredits: 10,
+      glmApiKey: 'glm-key',
+      fileParseCreditCost: 3,
+    })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    const response = await handler(jsonRequest('/v1/attachments/parse', {
+      operation: 'file_parser',
+      name: 'project.zip',
+      mimeType: 'application/zip',
+      dataBase64: Buffer.from('zip').toString('base64'),
+    }, registered.deviceToken))
+    const body = await response.json() as { error: { code: string } }
+
+    expect(response.status).toBe(400)
+    expect(body.error.code).toBe('UNSUPPORTED_ATTACHMENT')
+    expect(store.getEntitlement(registered.deviceToken).creditsRemaining).toBe(10)
+    expect(store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })).toHaveLength(0)
+  })
+
+  test('rejects oversized attachment JSON bodies at the gateway edge', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('oversized request body should not reach GLM')
+    }) as typeof fetch
+
+    const { handler, store } = makeGateway({
+      freeCredits: 10,
+      glmApiKey: 'glm-key',
+      fileParseCreditCost: 3,
+    })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    const response = await handler(new Request('http://localhost/v1/attachments/parse', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${registered.deviceToken}`,
+        'Content-Length': String((14 * 1024 * 1024) + 1),
+      },
+      body: '{}',
+    }))
+    const body = await response.json() as { error: { code: string } }
+
+    expect(response.status).toBe(413)
+    expect(body.error.code).toBe('REQUEST_TOO_LARGE')
+    expect(store.getEntitlement(registered.deviceToken).creditsRemaining).toBe(10)
+    expect(store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })).toHaveLength(0)
+  })
+
   test('creates manual orders and fulfills them idempotently', async () => {
     const { handler, store } = makeGateway({ adminToken: 'secret' })
 

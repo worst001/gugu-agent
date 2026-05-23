@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
+import { ToolCallGroup } from './ToolCallGroup'
 import { ToolResultBlock } from './ToolResultBlock'
 import { PermissionDialog } from './PermissionDialog'
 import { useChatStore } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 
 describe('chat blocks', () => {
   beforeEach(() => {
@@ -90,6 +92,80 @@ describe('chat blocks', () => {
     )
 
     expect(container.textContent).toBe('')
+  })
+
+  it('renders active WebSearch as a localized web-search status', () => {
+    useSettingsStore.setState({ locale: 'zh' })
+
+    const { container } = render(
+      <ToolCallGroup
+        toolCalls={[{
+          id: 'tool-search',
+          type: 'tool_use',
+          toolName: 'WebSearch',
+          toolUseId: 'search-1',
+          input: { query: '美国总统是谁' },
+          timestamp: 1,
+        }]}
+        resultMap={new Map()}
+        childToolCallsByParent={new Map()}
+        agentTaskNotifications={{}}
+        isStreaming
+      />,
+    )
+
+    expect(container.textContent).toContain('网页搜索中')
+    expect(container.textContent).not.toContain('WebSearch')
+  })
+
+  it('summarizes completed WebSearch calls with a count', () => {
+    useSettingsStore.setState({ locale: 'zh' })
+
+    const { container } = render(
+      <ToolCallGroup
+        toolCalls={[
+          {
+            id: 'tool-search-1',
+            type: 'tool_use',
+            toolName: 'WebSearch',
+            toolUseId: 'search-1',
+            input: { query: '美国总统是谁' },
+            timestamp: 1,
+          },
+          {
+            id: 'tool-search-2',
+            type: 'tool_use',
+            toolName: 'WebSearch',
+            toolUseId: 'search-2',
+            input: { query: 'United States president May 2026' },
+            timestamp: 2,
+          },
+        ]}
+        resultMap={new Map([
+          ['search-1', {
+            id: 'result-search-1',
+            type: 'tool_result',
+            toolUseId: 'search-1',
+            content: 'result 1',
+            isError: false,
+            timestamp: 3,
+          }],
+          ['search-2', {
+            id: 'result-search-2',
+            type: 'tool_result',
+            toolUseId: 'search-2',
+            content: 'result 2',
+            isError: false,
+            timestamp: 4,
+          }],
+        ])}
+        childToolCallsByParent={new Map()}
+        agentTaskNotifications={{}}
+      />,
+    )
+
+    expect(container.textContent).toContain('已搜索网页 2 次')
+    expect(container.textContent).not.toContain('WebSearch')
   })
 
   it('renders HTTP 403 tool errors as target access failures', () => {

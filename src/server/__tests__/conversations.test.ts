@@ -191,7 +191,7 @@ describe('ConversationService', () => {
     ])
   })
 
-  it('should require desktop sessions to search before time-sensitive answers', () => {
+  it('should inject desktop identity and freshness guardrails', () => {
     const svc = new ConversationService()
     const args = (svc as any).buildSessionCliArgs(
       'session-websearch-guard',
@@ -201,6 +201,9 @@ describe('ConversationService', () => {
     const promptIndex = args.indexOf('--append-system-prompt')
 
     expect(promptIndex).toBeGreaterThan(-1)
+    expect(args[promptIndex + 1]).toContain('your assistant identity is Gugu')
+    expect(args[promptIndex + 1]).toContain('Gugu，由谷星曜共创社开发的 AI 助手')
+    expect(args[promptIndex + 1]).toContain('do not identify yourself as Claude')
     expect(args[promptIndex + 1]).toContain('Only call WebSearch if WebSearch is explicitly listed')
     expect(args[promptIndex + 1]).toContain('If WebSearch is unavailable, do not attempt it')
     expect(args[promptIndex + 1]).toContain('Current local date:')

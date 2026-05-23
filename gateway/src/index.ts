@@ -34,6 +34,10 @@ const HTML_HEADERS = {
   'Content-Type': 'text/html; charset=utf-8',
   'Cache-Control': 'no-store',
 }
+const MAX_MANAGED_ATTACHMENT_BYTES = 8 * 1024 * 1024
+const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
+const MAX_ATTACHMENT_JSON_BODY_BYTES = 14 * 1024 * 1024
+const ARCHIVE_ATTACHMENT_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'rar', 'tar', 'tgz', 'xz', 'zip'])
 
 export function createGatewayHandler(config: GatewayConfig, store = new GatewayStore(config)) {
   return async function handleGatewayRequest(req: Request): Promise<Response> {
@@ -379,7 +383,7 @@ async function forwardMessage(
   }
 
   const deviceToken = readDeviceToken(req)
-  const body = await readJson(req)
+  const body = await readJson(req, MAX_ATTACHMENT_JSON_BODY_BYTES)
   const entitlement = store.getEntitlement(deviceToken)
   const upstreamModel = resolveDeepSeekModel(config, asString(body.model), entitlement.plan)
   const creditCost = config.messageCreditCost
@@ -461,7 +465,7 @@ async function forwardAttachment(
   }
 
   const deviceToken = readDeviceToken(req)
-  const body = await readJson(req)
+  const body = await readJson(req, MAX_ATTACHMENT_JSON_BODY_BYTES)
   const operation = asString(body.operation)
 
   let consumedCredits = 0
@@ -499,6 +503,14 @@ async function forwardAttachment(
       const mimeType = asString(body.mimeType) || 'application/octet-stream'
       const dataBase64 = asString(body.dataBase64)
       if (!dataBase64) return errorJson(400, 'BAD_REQUEST', 'dataBase64 is required')
+      if (isArchiveAttachmentName(name)) {
+        return errorJson(400, 'UNSUPPORTED_ATTACHMENT', 'Compressed archives are not parsed directly. Unzip the archive and upload the key files instead.')
+      }
+      const encoded = stripDataUrlPrefix(dataBase64)
+      const estimatedBytes = estimateBase64Bytes(encoded)
+      if (estimatedBytes > MAX_MANAGED_ATTACHMENT_BYTES) {
+        return errorJson(413, 'ATTACHMENT_TOO_LARGE', `Attachment is over the ${formatBytes(MAX_MANAGED_ATTACHMENT_BYTES)} Gugu Managed limit.`)
+      }
 
       const usage = resolveAttachmentUsage(config, operation, body.body)
       const reservation = store.consumeUsage(deviceToken, usage.kind, usage.model, usage.credits, {
@@ -509,9 +521,15 @@ async function forwardAttachment(
       })
       consumedCredits = usage.credits
       usageEventId = reservation.usageEventId
+      const fileBuffer = Buffer.from(encoded, 'base64')
+      if (fileBuffer.length > MAX_MANAGED_ATTACHMENT_BYTES) {
+        store.refundCredit(deviceToken, usage.credits)
+        consumedCredits = 0
+        return errorJson(413, 'ATTACHMENT_TOO_LARGE', `Attachment is over the ${formatBytes(MAX_MANAGED_ATTACHMENT_BYTES)} Gugu Managed limit.`)
+      }
       const form = new FormData()
       form.append('tool_type', 'prime-sync')
-      form.append('file', new Blob([Buffer.from(dataBase64, 'base64')], { type: mimeType }), name)
+      form.append('file', new Blob([fileBuffer], { type: mimeType }), name)
       const upstream = await fetch(`${config.glmBaseUrl.replace(/\/+$/, '')}/files/parser/sync`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${config.glmApiKey}` },
@@ -656,13 +674,66 @@ function resolveDeepSeekModel(config: GatewayConfig, requested: string | undefin
   return requested?.trim() || config.deepseekMainModel
 }
 
-async function readJson(req: Request): Promise<JsonRecord> {
+async function readJson(req: Request, maxBytes = MAX_JSON_BODY_BYTES): Promise<JsonRecord> {
+  const contentLength = readContentLength(req)
+  if (contentLength !== null && contentLength > maxBytes) {
+    throw new GatewayBodyTooLargeError(`Request body is over the ${formatBytes(maxBytes)} limit`)
+  }
+
   try {
-    const body = await req.json()
+    const raw = await readRequestText(req, maxBytes)
+    const body = raw.trim() ? JSON.parse(raw) : {}
     return body && typeof body === 'object' ? body as JsonRecord : {}
-  } catch {
+  } catch (error) {
+    if (error instanceof GatewayBodyTooLargeError) throw error
     throw new Error('Invalid JSON body')
   }
+}
+
+class GatewayBodyTooLargeError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GatewayBodyTooLargeError'
+  }
+}
+
+function readContentLength(req: Request): number | null {
+  const raw = req.headers.get('content-length')
+  if (!raw) return null
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+async function readRequestText(req: Request, maxBytes: number): Promise<string> {
+  if (!req.body) return ''
+
+  const reader = req.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      totalBytes += value.byteLength
+      if (totalBytes > maxBytes) {
+        throw new GatewayBodyTooLargeError(`Request body is over the ${formatBytes(maxBytes)} limit`)
+      }
+      chunks.push(value)
+    }
+  } catch (error) {
+    throw error
+  } finally {
+    reader.releaseLock()
+  }
+
+  const buffer = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(buffer)
 }
 
 function readDeviceToken(req: Request): string {
@@ -696,6 +767,9 @@ function handleGatewayError(error: unknown): Response {
   }
   if (error instanceof GatewayAuthError) {
     return errorJson(401, 'UNAUTHORIZED', error.message)
+  }
+  if (error instanceof GatewayBodyTooLargeError) {
+    return errorJson(413, 'REQUEST_TOO_LARGE', error.message)
   }
   if (error instanceof Error && error.message === 'Invalid JSON body') {
     return errorJson(400, 'BAD_REQUEST', error.message)
@@ -969,6 +1043,34 @@ function alipayCheckoutMessageHtml(title: string, message: string): string {
   </main>
 </body>
 </html>`
+}
+
+function isArchiveAttachmentName(name: string): boolean {
+  const lower = name.toLowerCase()
+  const ext = lower.split('.').pop() ?? ''
+  if (ARCHIVE_ATTACHMENT_EXTENSIONS.has(ext)) return true
+  return lower.endsWith('.tar.gz') || lower.endsWith('.tar.bz2') || lower.endsWith('.tar.xz')
+}
+
+function stripDataUrlPrefix(data: string): string {
+  const commaIndex = data.indexOf(',')
+  return commaIndex >= 0 && data.slice(0, commaIndex).includes(';base64')
+    ? data.slice(commaIndex + 1)
+    : data
+}
+
+function estimateBase64Bytes(data: string): number {
+  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((data.length * 3) / 4) - padding)
+}
+
+function formatBytes(bytes: number): string {
+  const mb = bytes / (1024 * 1024)
+  if (mb >= 1) {
+    const value = mb >= 10 ? Math.round(mb) : Math.round(mb * 10) / 10
+    return `${value} MB`
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
 function html(body: string, init?: ResponseInit): Response {

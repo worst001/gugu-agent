@@ -152,7 +152,62 @@ export function buildRenderModel(messages: UIMessage[]): RenderModel {
   }
 
   flushGroup()
-  return { renderItems: items, toolResultMap, childToolCallsByParent }
+  return { renderItems: coalesceWebSearchGroups(items), toolResultMap, childToolCallsByParent }
+}
+
+function isWebSearchGroup(item: RenderItem): item is Extract<RenderItem, { kind: 'tool_group' }> {
+  return item.kind === 'tool_group' &&
+    item.toolCalls.length > 0 &&
+    item.toolCalls.every((toolCall) => toolCall.toolName === 'WebSearch')
+}
+
+function canBridgeWebSearchGroup(item: RenderItem): boolean {
+  return item.kind === 'message' && item.message.type === 'thinking'
+}
+
+function coalesceWebSearchGroups(items: RenderItem[]): RenderItem[] {
+  const merged: RenderItem[] = []
+  let activeWebSearchGroupIndex = -1
+  let bridgedThinkingItems: RenderItem[] = []
+
+  for (const item of items) {
+    if (isWebSearchGroup(item)) {
+      if (activeWebSearchGroupIndex >= 0) {
+        const active = merged[activeWebSearchGroupIndex]
+        if (active?.kind === 'tool_group') {
+          active.toolCalls.push(...item.toolCalls)
+        }
+      } else {
+        merged.push({
+          ...item,
+          toolCalls: [...item.toolCalls],
+        })
+        activeWebSearchGroupIndex = merged.length - 1
+      }
+      bridgedThinkingItems = []
+      continue
+    }
+
+    if (activeWebSearchGroupIndex >= 0 && canBridgeWebSearchGroup(item)) {
+      bridgedThinkingItems.push(item)
+      continue
+    }
+
+    if (bridgedThinkingItems.length > 0) {
+      if (!(item.kind === 'message' && item.message.type === 'assistant_text')) {
+        merged.push(...bridgedThinkingItems)
+      }
+      bridgedThinkingItems = []
+    }
+
+    merged.push(item)
+
+    if (!canBridgeWebSearchGroup(item)) {
+      activeWebSearchGroupIndex = -1
+    }
+  }
+
+  return merged
 }
 
 type MessageListProps = {
@@ -217,6 +272,8 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const messages = sessionState?.messages ?? []
   const chatState = sessionState?.chatState ?? 'idle'
   const streamingText = sessionState?.streamingText ?? ''
+  const historyLoading = sessionState?.historyLoading ?? false
+  const historyLoadError = sessionState?.historyLoadError ?? null
   const activeThinkingId = sessionState?.activeThinkingId ?? null
   const isWaitingForFirstResponseToken =
     chatState === 'streaming' && streamingText.trim().length === 0
@@ -591,6 +648,40 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
             />
           )
         })}
+
+        {renderItems.length === 0 && !streamingText && historyLoadError && (
+          <div className="mx-auto mt-10 max-w-[520px] rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 px-4 py-4 text-sm text-[var(--color-text-secondary)]">
+            <div className="mb-1 flex items-center gap-2 font-semibold text-[var(--color-text-primary)]">
+              <span className="material-symbols-outlined text-[18px] text-[var(--color-warning)]">history</span>
+              {t('chat.historyLoadFailedTitle')}
+            </div>
+            <p className="leading-relaxed">
+              {t('chat.historyLoadFailedBody')}
+            </p>
+            <p className="mt-2 break-all text-xs text-[var(--color-text-tertiary)]">
+              {historyLoadError}
+            </p>
+            {resolvedSessionId && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-3"
+                onClick={() => {
+                  void reloadHistory(resolvedSessionId)
+                }}
+              >
+                <span className="material-symbols-outlined text-[15px]">refresh</span>
+                {t('chat.historyLoadRetry')}
+              </Button>
+            )}
+          </div>
+        )}
+
+        {renderItems.length === 0 && !streamingText && !historyLoadError && historyLoading && (
+          <div className="mt-10 text-center text-sm text-[var(--color-text-tertiary)]">
+            {t('chat.historyLoading')}
+          </div>
+        )}
 
         {streamingText && (
           <AssistantMessage content={streamingText} isStreaming={chatState === 'streaming'} />

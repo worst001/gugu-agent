@@ -95,6 +95,20 @@ describe('updateStore', () => {
     expect(useUpdateStore.getState().shouldPrompt).toBe(true)
   })
 
+  it('treats missing release metadata as up-to-date instead of a user-facing failure', async () => {
+    check.mockRejectedValue(new Error('Could not fetch a valid release JSON from the remote'))
+
+    vi.resetModules()
+    const { useUpdateStore } = await import('./updateStore')
+
+    const result = await useUpdateStore.getState().checkForUpdates()
+
+    expect(result).toBeNull()
+    expect(useUpdateStore.getState().status).toBe('up-to-date')
+    expect(useUpdateStore.getState().error).toBeNull()
+    expect(useUpdateStore.getState().shouldPrompt).toBe(false)
+  })
+
   it('downloads, stops sidecars, installs, and relaunches', async () => {
     const download = vi.fn(async (onEvent?: (event: unknown) => void) => {
       onEvent?.({ event: 'Started', data: { contentLength: 200 } })

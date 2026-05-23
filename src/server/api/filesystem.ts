@@ -44,6 +44,27 @@ type RevealCommand = {
   args: string[]
 }
 
+const DOCUMENT_MIME_TYPES: Record<string, string> = {
+  '.csv': 'text/csv',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.json': 'application/json',
+  '.jsonl': 'application/x-ndjson',
+  '.md': 'text/markdown',
+  '.pdf': 'application/pdf',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.rar': 'application/vnd.rar',
+  '.txt': 'text/plain',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xml': 'application/xml',
+  '.yaml': 'application/yaml',
+  '.yml': 'application/yaml',
+  '.zip': 'application/zip',
+  '.7z': 'application/x-7z-compressed',
+}
+
 export function buildRevealPathCommand(
   targetPath: string,
   isDirectory: boolean,
@@ -85,7 +106,63 @@ export async function handleFilesystemRoute(req: Request, pathname: string, url:
     return handleReveal(req)
   }
 
+  if (pathname === '/api/filesystem/metadata') {
+    return handleMetadata(req)
+  }
+
   return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
+}
+
+async function handleMetadata(req: Request): Promise<Response> {
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405)
+  }
+
+  let body: { paths?: unknown }
+  try {
+    body = (await req.json()) as { paths?: unknown }
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  if (!Array.isArray(body.paths)) {
+    return json({ error: 'Missing paths' }, 400)
+  }
+
+  const files = body.paths
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .slice(0, 50)
+    .map((item) => readFileMetadata(item))
+    .filter((item): item is NonNullable<ReturnType<typeof readFileMetadata>> => item !== null)
+
+  return json({ files })
+}
+
+function readFileMetadata(targetPath: string): {
+  name: string
+  path: string
+  isDirectory: boolean
+  size: number
+  mimeType?: string
+} | null {
+  const hasUnsupportedScheme =
+    /^[a-z][a-z0-9+.-]*:/i.test(targetPath) && !/^[a-z]:[\\/]/i.test(targetPath)
+  if (targetPath.includes('\0') || hasUnsupportedScheme) return null
+
+  const resolvedPath = path.resolve(targetPath)
+  try {
+    const stat = fs.statSync(resolvedPath)
+    const ext = path.extname(resolvedPath).toLowerCase()
+    return {
+      name: path.basename(resolvedPath),
+      path: resolvedPath,
+      isDirectory: stat.isDirectory(),
+      size: stat.isDirectory() ? 0 : stat.size,
+      mimeType: IMAGE_MIME_TYPES[ext] ?? DOCUMENT_MIME_TYPES[ext],
+    }
+  } catch {
+    return null
+  }
 }
 
 async function handleReveal(req: Request): Promise<Response> {

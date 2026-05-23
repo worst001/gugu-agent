@@ -6,6 +6,7 @@ export type AttachmentPreview = {
   id?: string
   type: 'image' | 'file'
   name: string
+  path?: string
   data?: string
   previewUrl?: string
   mimeType?: string

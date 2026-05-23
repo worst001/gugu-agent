@@ -695,10 +695,14 @@ async function handleUserMessage(
   if (message.attachments?.length) {
     try {
       sendMessage(ws, { type: 'status', state: 'thinking', verb: '正在解析附件' })
+      const workDir = conversationService.hasSession(sessionId)
+        ? conversationService.getSessionWorkDir(sessionId)
+        : await resolveSessionWorkDir(sessionId)
       const prepared = await attachmentParserService.prepareMessageContent(
         message.content,
         sessionId,
         message.attachments,
+        workDir,
       )
       if (prepared.usedParser) {
         cliContent = prepared.content

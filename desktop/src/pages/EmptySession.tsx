@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { settingsApi } from '../api/settings'
 import { skillsApi } from '../api/skills'
+import { filesystemApi } from '../api/filesystem'
 import { useTranslation } from '../i18n'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
@@ -25,6 +26,11 @@ import {
   resolveSlashUiAction,
 } from '../components/chat/composerUtils'
 import type { SlashCommandOption } from '../components/chat/composerUtils'
+import {
+  validateAttachmentFile,
+  type AttachmentLimitIssue,
+} from '../utils/attachmentLimits'
+import { listenForTauriFileDrop } from '../utils/tauriFileDrop'
 
 type Attachment = {
   id: string
@@ -33,6 +39,8 @@ type Attachment = {
   mimeType?: string
   previewUrl?: string
   data?: string
+  path?: string
+  size?: number
 }
 
 export function EmptySession() {
@@ -51,6 +59,7 @@ export function EmptySession() {
   const [slashFilter, setSlashFilter] = useState('')
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashCommands, setSlashCommands] = useState<SlashCommandOption[]>([])
+  const [isDragActive, setIsDragActive] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plusMenuRef = useRef<HTMLDivElement>(null)
@@ -62,6 +71,7 @@ export function EmptySession() {
   const connectToSession = useChatStore((state) => state.connectToSession)
   const setActiveView = useUIStore((state) => state.setActiveView)
   const addToast = useUIStore((state) => state.addToast)
+  const canAcceptAttachments = !isSubmitting
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -286,6 +296,7 @@ export function EmptySession() {
       const attachmentPayload = attachments.map((attachment) => ({
         type: attachment.type,
         name: attachment.name,
+        path: attachment.path,
         data: attachment.data,
         mimeType: attachment.mimeType,
       }))
@@ -413,45 +424,26 @@ export function EmptySession() {
     }
   }
 
-  const handlePaste = (event: React.ClipboardEvent) => {
-    const items = event.clipboardData?.items
-    if (!items) return
+  const showAttachmentLimitIssue = useCallback((issue: AttachmentLimitIssue) => {
+    addToast({
+      type: 'warning',
+      message: t(issue.key, issue.params),
+      duration: 6500,
+    })
+  }, [addToast, t])
 
-    let hasImage = false
-    for (let i = 0; i < items.length; i += 1) {
-      const item = items[i]
-      if (!item || !item.type.startsWith('image/')) continue
+  const addBrowserFiles = useCallback((files: FileList | File[]) => {
+    if (!canAcceptAttachments) return
 
-      hasImage = true
-      event.preventDefault()
-      const file = item.getAsFile()
-      if (!file) continue
-      const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const reader = new FileReader()
-      reader.onload = () => {
-        setAttachments((prev) => [
-          ...prev,
-          {
-            id,
-            name: `pasted-image-${Date.now()}.png`,
-            type: 'image',
-            mimeType: file.type || undefined,
-            previewUrl: reader.result as string,
-            data: reader.result as string,
-          },
-        ])
-      }
-      reader.readAsDataURL(file)
-    }
-
-    if (!hasImage) return
-  }
-
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files) return
-
+    let acceptedBytes = 0
     Array.from(files).forEach((file) => {
+      const issue = validateAttachmentFile(file, attachments, acceptedBytes)
+      if (issue) {
+        showAttachmentLimitIssue(issue)
+        return
+      }
+      acceptedBytes += file.size
+
       const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
       const isImage = file.type.startsWith('image/')
       const reader = new FileReader()
@@ -465,23 +457,167 @@ export function EmptySession() {
             mimeType: file.type || undefined,
             previewUrl: isImage ? (reader.result as string) : undefined,
             data: reader.result as string,
+            size: file.size,
           },
         ])
       }
       reader.readAsDataURL(file)
     })
+  }, [attachments, canAcceptAttachments, showAttachmentLimitIssue])
 
+  const addPathFiles = useCallback(async (paths: string[]) => {
+    if (!canAcceptAttachments || paths.length === 0) return
+
+    try {
+      const { files } = await filesystemApi.metadata(paths)
+      if (files.length === 0) {
+        addToast({ type: 'warning', message: t('chat.fileDropFailed') })
+        return
+      }
+
+      let acceptedBytes = 0
+      const nextAttachments: Attachment[] = []
+      for (const file of files) {
+        if (file.isDirectory) {
+          addToast({
+            type: 'warning',
+            message: t('chat.attachmentRejectedDirectory', { name: file.name }),
+            duration: 6500,
+          })
+          continue
+        }
+
+        const issue = validateAttachmentFile({
+          name: file.name,
+          size: file.size,
+          type: file.mimeType,
+        }, [...attachments, ...nextAttachments], acceptedBytes, { allowLargeLocalArchive: true })
+        if (issue) {
+          showAttachmentLimitIssue(issue)
+          continue
+        }
+        acceptedBytes += file.size
+
+        nextAttachments.push({
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: file.name,
+          type: (file.mimeType ?? '').startsWith('image/') ? 'image' : 'file',
+          mimeType: file.mimeType,
+          path: file.path,
+          size: file.size,
+        })
+      }
+
+      if (nextAttachments.length > 0) {
+        setAttachments((prev) => [...prev, ...nextAttachments])
+      }
+    } catch {
+      addToast({ type: 'warning', message: t('chat.fileDropFailed') })
+    }
+  }, [addToast, attachments, canAcceptAttachments, showAttachmentLimitIssue, t])
+
+  const handlePaste = (event: React.ClipboardEvent) => {
+    if (!canAcceptAttachments) return
+    const items = event.clipboardData?.items
+    if (!items) return
+
+    let hasImage = false
+    let acceptedBytes = 0
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i]
+      if (!item || !item.type.startsWith('image/')) continue
+
+      hasImage = true
+      event.preventDefault()
+      const file = item.getAsFile()
+      if (!file) continue
+      const name = `pasted-image-${Date.now()}.png`
+      const issue = validateAttachmentFile({ name, size: file.size, type: file.type }, attachments, acceptedBytes)
+      if (issue) {
+        showAttachmentLimitIssue(issue)
+        continue
+      }
+      acceptedBytes += file.size
+      const id = `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const reader = new FileReader()
+      reader.onload = () => {
+        setAttachments((prev) => [
+          ...prev,
+          {
+            id,
+            name,
+            type: 'image',
+            mimeType: file.type || undefined,
+            previewUrl: reader.result as string,
+            data: reader.result as string,
+            size: file.size,
+          },
+        ])
+      }
+      reader.readAsDataURL(file)
+    }
+
+    if (!hasImage) return
+  }
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files
+    if (files) addBrowserFiles(files)
     event.target.value = ''
   }
 
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()
+    event.stopPropagation()
+    setIsDragActive(false)
+    if (!canAcceptAttachments) return
     const files = event.dataTransfer.files
-    if (files.length > 0) {
-      const fakeEvent = { target: { files } } as React.ChangeEvent<HTMLInputElement>
-      handleFileSelect(fakeEvent)
-    }
+    if (files.length > 0) addBrowserFiles(files)
   }
+
+  const handleDragEnter = (event: React.DragEvent) => {
+    if (!canAcceptAttachments || !hasDraggedFiles(event)) return
+    event.preventDefault()
+    setIsDragActive(true)
+  }
+
+  const handleDragOver = (event: React.DragEvent) => {
+    if (!canAcceptAttachments || !hasDraggedFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setIsDragActive(true)
+  }
+
+  const handleDragLeave = (event: React.DragEvent) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    setIsDragActive(false)
+  }
+
+  useEffect(() => {
+    if (!canAcceptAttachments) {
+      setIsDragActive(false)
+      return
+    }
+
+    let cancelled = false
+    let unlisten: (() => void) | null = null
+    void listenForTauriFileDrop({
+      onHover: () => setIsDragActive(true),
+      onLeave: () => setIsDragActive(false),
+      onDrop: (paths) => void addPathFiles(paths),
+    }).then((cleanup) => {
+      if (cancelled) {
+        cleanup?.()
+        return
+      }
+      unlisten = cleanup
+    })
+
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [addPathFiles, canAcceptAttachments])
 
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((attachment) => attachment.id !== id))
@@ -533,9 +669,20 @@ export function EmptySession() {
         <div className="flex w-full max-w-3xl flex-col gap-2">
           <div
             className="glass-panel relative flex flex-col gap-3 rounded-xl p-4"
-            onDragOver={(event) => event.preventDefault()}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
+            {isDragActive && (
+              <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center rounded-xl border-2 border-dashed border-[var(--color-border-focus)] bg-[var(--color-surface-container-high)]/85 text-center shadow-[var(--shadow-focus-ring)]">
+                <div className="rounded-xl bg-[var(--color-surface)]/90 px-4 py-3">
+                  <div className="text-sm font-semibold text-[var(--color-text-primary)]">{t('chat.dropFilesTitle')}</div>
+                  <div className="mt-1 text-xs text-[var(--color-text-tertiary)]">{t('chat.dropFilesSubtitle')}</div>
+                </div>
+              </div>
+            )}
+
             {fileSearchOpen && (
               <FileSearchMenu
                 ref={fileSearchRef}
@@ -696,4 +843,8 @@ export function EmptySession() {
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
     </div>
   )
+}
+
+function hasDraggedFiles(event: React.DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files')
 }

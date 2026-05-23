@@ -95,4 +95,35 @@ describe('filesystem API', () => {
       args: [path.dirname(path.resolve('/home/me/project/file.ts'))],
     })
   })
+
+  it('returns metadata for explicitly provided local file paths', async () => {
+    const fixtureDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'claude-filesystem-metadata-'))
+    cleanupDirs.add(fixtureDir)
+    const filePath = path.join(fixtureDir, 'photo.png')
+    await fsp.writeFile(filePath, Buffer.from('image'))
+
+    const res = await handleFilesystemRoute(
+      new Request('http://localhost/api/filesystem/metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: [filePath, fixtureDir] }),
+      }),
+      '/api/filesystem/metadata',
+      makeUrl('/api/filesystem/metadata', {}),
+    )
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as {
+      files: Array<{ name: string; path: string; isDirectory: boolean; size: number; mimeType?: string }>
+    }
+    expect(body.files).toHaveLength(2)
+    expect(body.files[0]).toMatchObject({
+      name: 'photo.png',
+      path: filePath,
+      isDirectory: false,
+      size: 5,
+      mimeType: 'image/png',
+    })
+    expect(body.files[1]?.isDirectory).toBe(true)
+  })
 })

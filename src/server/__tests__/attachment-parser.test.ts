@@ -207,6 +207,77 @@ describe('AttachmentParserService', () => {
     expect(calls[0]!.body).toBeInstanceOf(FormData)
   })
 
+  test('keeps compressed archives as local metadata instead of sending them to GLM', async () => {
+    const service = new AttachmentParserService(async () => {
+      throw new Error('archive attachment should not reach GLM')
+    })
+
+    const result = await service.prepareMessageContent('read this zip', 'session-1', [{
+      type: 'file',
+      name: 'ESP32-project.zip',
+      data: Buffer.from('zip').toString('base64'),
+      mimeType: 'application/zip',
+    }])
+
+    expect(result.usedParser).toBe(true)
+    expect(result.content).toContain('Compressed archive attached: ESP32-project.zip')
+    expect(result.content).toContain('was not uploaded to Gugu Managed or GLM')
+  })
+
+  test('extracts supported zip archives into the current workspace for local analysis', async () => {
+    const service = new AttachmentParserService(async () => {
+      throw new Error('zip archive should not reach GLM')
+    })
+    const workDir = path.join(tmpDir, 'workspace')
+    await fs.mkdir(workDir)
+    const archivePath = path.join(tmpDir, 'demo.zip')
+    await fs.writeFile(archivePath, createStoredZip({
+      'README.md': '# Demo\n',
+      'src/main.ts': 'console.log("hello")\n',
+    }))
+
+    const result = await service.prepareMessageContent('看看这个压缩包', 'session-1', [{
+      type: 'file',
+      name: 'demo.zip',
+      path: archivePath,
+      mimeType: 'application/zip',
+    }], workDir)
+
+    expect(result.usedParser).toBe(true)
+    expect(result.content).toContain('Compressed archive extracted locally: demo.zip')
+    expect(result.content).toContain('Analyze the extracted directory with local filesystem tools')
+
+    const extractedDir = result.content.match(/Extracted directory: (.+)/)?.[1]?.trim()
+    expect(extractedDir).toBeTruthy()
+    expect(extractedDir!.startsWith(path.join(workDir, '.gugu', 'archive-extracts'))).toBe(true)
+    expect(await fs.readFile(path.join(extractedDir!, 'README.md'), 'utf-8')).toBe('# Demo\n')
+    expect(await fs.readFile(path.join(extractedDir!, 'src', 'main.ts'), 'utf-8')).toContain('hello')
+  })
+
+  test('rejects oversized file paths before reading them into memory', async () => {
+    const service = new AttachmentParserService(mockFetchText('unused'))
+    const filePath = path.join(tmpDir, 'large.pdf')
+    await fs.writeFile(filePath, Buffer.alloc((25 * 1024 * 1024) + 1))
+
+    await expect(service.prepareMessageContent('read this file', 'session-1', [{
+      type: 'file',
+      name: 'large.pdf',
+      path: filePath,
+      mimeType: 'application/pdf',
+    }])).rejects.toThrow('per-file limit')
+  })
+
+  test('keeps managed binary parsing on a small-file path so gateway does not carry large uploads', async () => {
+    const service = new AttachmentParserService(mockFetchText('unused'))
+
+    await expect(service.prepareMessageContent('read this file', 'session-1', [{
+      type: 'file',
+      name: 'large.pdf',
+      data: Buffer.alloc((8 * 1024 * 1024) + 1).toString('base64'),
+      mimeType: 'application/pdf',
+    }])).rejects.toThrow('Gugu Managed only parses small')
+  })
+
   test('summarizes very long parsed results with glm-5.1', async () => {
     const calls: Array<{ url: string; body: unknown }> = []
     const service = new AttachmentParserService(async (url, init) => {
@@ -258,4 +329,52 @@ function jsonResponse(body: unknown): Response {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+function createStoredZip(files: Record<string, string>): Buffer {
+  const localParts: Buffer[] = []
+  const centralParts: Buffer[] = []
+  let offset = 0
+
+  for (const [name, content] of Object.entries(files)) {
+    const nameBytes = Buffer.from(name)
+    const data = Buffer.from(content)
+    const localHeader = Buffer.alloc(30)
+    localHeader.writeUInt32LE(0x04034b50, 0)
+    localHeader.writeUInt16LE(20, 4)
+    localHeader.writeUInt16LE(0x0800, 6)
+    localHeader.writeUInt16LE(0, 8)
+    localHeader.writeUInt32LE(0, 10)
+    localHeader.writeUInt32LE(0, 14)
+    localHeader.writeUInt32LE(data.length, 18)
+    localHeader.writeUInt32LE(data.length, 22)
+    localHeader.writeUInt16LE(nameBytes.length, 26)
+    localParts.push(localHeader, nameBytes, data)
+
+    const centralHeader = Buffer.alloc(46)
+    centralHeader.writeUInt32LE(0x02014b50, 0)
+    centralHeader.writeUInt16LE(20, 4)
+    centralHeader.writeUInt16LE(20, 6)
+    centralHeader.writeUInt16LE(0x0800, 8)
+    centralHeader.writeUInt16LE(0, 10)
+    centralHeader.writeUInt32LE(0, 12)
+    centralHeader.writeUInt32LE(0, 16)
+    centralHeader.writeUInt32LE(data.length, 20)
+    centralHeader.writeUInt32LE(data.length, 24)
+    centralHeader.writeUInt16LE(nameBytes.length, 28)
+    centralHeader.writeUInt32LE(offset, 42)
+    centralParts.push(centralHeader, nameBytes)
+
+    offset += localHeader.length + nameBytes.length + data.length
+  }
+
+  const centralDirectory = Buffer.concat(centralParts)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(Object.keys(files).length, 8)
+  end.writeUInt16LE(Object.keys(files).length, 10)
+  end.writeUInt32LE(centralDirectory.length, 12)
+  end.writeUInt32LE(offset, 16)
+
+  return Buffer.concat([...localParts, centralDirectory, end])
 }

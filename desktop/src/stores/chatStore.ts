@@ -54,6 +54,8 @@ export type PerSessionState = {
   slashCommands: Array<{ name: string; description: string }>
   agentTaskNotifications: Record<string, AgentTaskNotification>
   elapsedTimer: ReturnType<typeof setInterval> | null
+  historyLoading?: boolean
+  historyLoadError?: string | null
   composerPrefill?: {
     text: string
     attachments?: UIAttachment[]
@@ -78,6 +80,8 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   slashCommands: [],
   agentTaskNotifications: {},
   elapsedTimer: null,
+  historyLoading: false,
+  historyLoadError: null,
   composerPrefill: null,
 }
 
@@ -723,6 +727,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           })),
         }))
       }
+      void get().loadHistory(sessionId)
       return
     }
 
@@ -974,6 +979,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   loadHistory: async (sessionId) => {
+    set((state) => ({
+      sessions: updateSessionIn(state.sessions, sessionId, () => ({
+        historyLoading: true,
+        historyLoadError: null,
+      })),
+    }))
+
     try {
       const {
         uiMessages,
@@ -990,13 +1002,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           Boolean(session.streamingToolInput.trim()) ||
           Boolean(session.pendingPermission) ||
           Boolean(session.pendingComputerUsePermission)
-        if (hasLiveTurn) return state
+        if (hasLiveTurn) {
+          return { sessions: updateSessionIn(state.sessions, sessionId, () => ({
+            historyLoading: false,
+            historyLoadError: null,
+          })) }
+        }
         if (shouldKeepCurrentHistory(session.messages, mergedMessages)) {
-          return state
+          return { sessions: updateSessionIn(state.sessions, sessionId, () => ({
+            historyLoading: false,
+            historyLoadError: null,
+          })) }
         }
         return { sessions: updateSessionIn(state.sessions, sessionId, (s) => ({
           messages: mergedMessages,
           agentTaskNotifications: { ...s.agentTaskNotifications, ...restoredNotifications },
+          historyLoading: false,
+          historyLoadError: null,
         })) }
       })
       if (lastTodos && lastTodos.length > 0) {
@@ -1008,12 +1030,26 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (hasMessagesAfterTaskCompletion) {
         useCLITaskStore.getState().markCompletedAndDismissed()
       }
-    } catch {
-      // Session may not have messages yet
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const isEmptyNewSession = /Session not found/i.test(message)
+      set((state) => ({
+        sessions: updateSessionIn(state.sessions, sessionId, () => ({
+          historyLoading: false,
+          historyLoadError: isEmptyNewSession ? null : message || t('chat.historyLoadFailedBody'),
+        })),
+      }))
     }
   },
 
   reloadHistory: async (sessionId) => {
+    set((state) => ({
+      sessions: updateSessionIn(state.sessions, sessionId, () => ({
+        historyLoading: true,
+        historyLoadError: null,
+      })),
+    }))
+
     try {
       const {
         uiMessages,
@@ -1040,6 +1076,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             pendingComputerUsePermission: null,
             elapsedTimer: null,
             statusVerb: '',
+            historyLoading: false,
+            historyLoadError: null,
           })),
         }
       })
@@ -1052,8 +1090,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (hasMessagesAfterTaskCompletion) {
         useCLITaskStore.getState().markCompletedAndDismissed()
       }
-    } catch {
-      // Session may not have messages yet
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const isEmptyNewSession = /Session not found/i.test(message)
+      set((state) => ({
+        sessions: updateSessionIn(state.sessions, sessionId, () => ({
+          historyLoading: false,
+          historyLoadError: isEmptyNewSession ? null : message || t('chat.historyLoadFailedBody'),
+        })),
+      }))
     }
   },
 

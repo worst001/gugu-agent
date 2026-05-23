@@ -27,7 +27,7 @@ const TOOL_VERBS: Record<string, (count: number, t: (key: TranslationKey, params
   Glob: (_n, t) => t('toolGroup.foundFiles'),
   Grep: (n, t) => n === 1 ? t('toolGroup.searchedOne') : t('toolGroup.searchedMany', { count: n }),
   Agent: (n, t) => n === 1 ? t('toolGroup.agentOne') : t('toolGroup.agentMany', { count: n }),
-  WebSearch: (_n, t) => t('toolGroup.searchedWeb'),
+  WebSearch: (n, t) => n === 1 ? t('toolGroup.searchedWeb') : t('toolGroup.searchedWebMany', { count: n }),
   WebFetch: (n, t) => n === 1 ? t('toolGroup.fetchedOne') : t('toolGroup.fetchedMany', { count: n }),
 }
 
@@ -60,11 +60,24 @@ export function ToolCallGroup({
   agentTaskNotifications,
   isStreaming,
 }: Props) {
-  const allAgents = toolCalls.every((toolCall) => toolCall.toolName === 'Agent')
+  const allAgents = toolCalls.length > 0 && toolCalls.every((toolCall) => toolCall.toolName === 'Agent')
+  const allWebSearch = toolCalls.length > 0 && toolCalls.every((toolCall) => toolCall.toolName === 'WebSearch')
 
   if (allAgents) {
     return (
       <AgentToolGroup
+        toolCalls={toolCalls}
+        resultMap={resultMap}
+        childToolCallsByParent={childToolCallsByParent}
+        agentTaskNotifications={agentTaskNotifications}
+        isStreaming={isStreaming}
+      />
+    )
+  }
+
+  if (allWebSearch) {
+    return (
+      <WebSearchToolGroup
         toolCalls={toolCalls}
         resultMap={resultMap}
         childToolCallsByParent={childToolCallsByParent}
@@ -94,6 +107,71 @@ export function ToolCallGroup({
       agentTaskNotifications={agentTaskNotifications}
       isStreaming={isStreaming}
     />
+  )
+}
+
+function WebSearchToolGroup({
+  toolCalls,
+  resultMap,
+  childToolCallsByParent,
+  isStreaming,
+}: Props) {
+  const [expanded, setExpanded] = useState(false)
+  const t = useTranslation()
+  const allComplete = toolCalls.every((toolCall) => resultMap.has(toolCall.toolUseId))
+  const errorPresent = groupHasErrors(toolCalls, resultMap)
+  const isRunning = Boolean(isStreaming || !allComplete)
+  const summary = isRunning
+    ? t('toolGroup.searchingWeb')
+    : toolCalls.length === 1
+      ? t('toolGroup.searchedWeb')
+      : t('toolGroup.searchedWebMany', { count: toolCalls.length })
+
+  useEffect(() => {
+    if (isRunning) {
+      setExpanded(false)
+    }
+  }, [isRunning])
+
+  return (
+    <div className="mb-2">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-2 rounded-lg border border-[var(--color-border)]/40 bg-[var(--color-surface-container-low)] px-3 py-1.5 text-left transition-colors hover:bg-[var(--color-surface-container-high)]"
+      >
+        <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">travel_explore</span>
+        <span className="flex-1 truncate text-[12px] text-[var(--color-text-secondary)]">
+          {summary}
+        </span>
+        {isRunning && (
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)] animate-pulse-dot" />
+        )}
+        {!isRunning && errorPresent && (
+          <span className="material-symbols-outlined text-[14px] text-[var(--color-warning)]">warning_amber</span>
+        )}
+        {!isRunning && !errorPresent && (
+          <span className="material-symbols-outlined text-[14px] text-[var(--color-success)]">check_circle</span>
+        )}
+        <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">
+          {expanded ? 'expand_less' : 'expand_more'}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-1.5 space-y-1">
+          {toolCalls.map((toolCall) => (
+            <ToolCallTree
+              key={toolCall.id}
+              toolCall={toolCall}
+              resultMap={resultMap}
+              childToolCallsByParent={childToolCallsByParent}
+              compact
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

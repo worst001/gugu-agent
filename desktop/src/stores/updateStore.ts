@@ -77,6 +77,15 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
+function isReleaseMetadataUnavailable(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase()
+  return (
+    message.includes('valid release json') ||
+    message.includes('release json') ||
+    message.includes('latest.json')
+  )
+}
+
 export const useUpdateStore = create<UpdateStore>((set, get) => ({
   status: 'idle',
   availableVersion: null,
@@ -152,6 +161,24 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       }))
       return update
     } catch (error) {
+      if (isReleaseMetadataUnavailable(error)) {
+        await setPendingUpdate(null)
+        writeDismissedUpdateVersion(null)
+        set((state) => ({
+          ...state,
+          status: 'up-to-date',
+          availableVersion: null,
+          releaseNotes: null,
+          progressPercent: 0,
+          downloadedBytes: 0,
+          totalBytes: null,
+          checkedAt: Date.now(),
+          error: null,
+          shouldPrompt: false,
+        }))
+        return null
+      }
+
       if (!silent) {
         set((state) => ({
           ...state,

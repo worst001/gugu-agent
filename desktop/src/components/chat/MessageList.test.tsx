@@ -286,6 +286,108 @@ describe('MessageList nested tool calls', () => {
     ])
   })
 
+  it('coalesces WebSearch groups and hides bridged thinking noise', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'user-current-fact',
+        type: 'user_text',
+        content: 'who is the current US president',
+        timestamp: 1,
+      },
+      {
+        id: 'thinking-1',
+        type: 'thinking',
+        content: 'checking the first source',
+        timestamp: 2,
+      },
+      {
+        id: 'tool-search-1',
+        type: 'tool_use',
+        toolName: 'WebSearch',
+        toolUseId: 'search-1',
+        input: { query: 'current US president May 2026' },
+        timestamp: 3,
+      },
+      {
+        id: 'result-search-1',
+        type: 'tool_result',
+        toolUseId: 'search-1',
+        content: 'result 1',
+        isError: false,
+        timestamp: 4,
+      },
+      {
+        id: 'thinking-2',
+        type: 'thinking',
+        content: 'checking another source',
+        timestamp: 5,
+      },
+      {
+        id: 'tool-search-2',
+        type: 'tool_use',
+        toolName: 'WebSearch',
+        toolUseId: 'search-2',
+        input: { query: 'United States president 2026 official' },
+        timestamp: 6,
+      },
+      {
+        id: 'result-search-2',
+        type: 'tool_result',
+        toolUseId: 'search-2',
+        content: 'result 2',
+        isError: false,
+        timestamp: 7,
+      },
+      {
+        id: 'thinking-3',
+        type: 'thinking',
+        content: 'confirming final source',
+        timestamp: 8,
+      },
+      {
+        id: 'tool-search-3',
+        type: 'tool_use',
+        toolName: 'WebSearch',
+        toolUseId: 'search-3',
+        input: { query: 'White House president 2026' },
+        timestamp: 9,
+      },
+      {
+        id: 'result-search-3',
+        type: 'tool_result',
+        toolUseId: 'search-3',
+        content: 'result 3',
+        isError: false,
+        timestamp: 10,
+      },
+      {
+        id: 'assistant-answer',
+        type: 'assistant_text',
+        content: 'Donald Trump is the 47th president.',
+        timestamp: 11,
+      },
+    ]
+
+    const { renderItems } = buildRenderModel(messages)
+    const toolGroups = renderItems.filter((item) => item.kind === 'tool_group')
+    const webSearchGroup = toolGroups[0]
+
+    expect(toolGroups).toHaveLength(1)
+    expect(webSearchGroup?.toolCalls.map((toolCall) => toolCall.toolUseId)).toEqual([
+      'search-1',
+      'search-2',
+      'search-3',
+    ])
+    expect(
+      renderItems
+        .flatMap((item) =>
+          item.kind === 'message' && item.message.type === 'thinking'
+            ? [item.message.id]
+            : [],
+        ),
+    ).toEqual(['thinking-1'])
+  })
+
   it('shows failed agent status and compact unavailable summary for Explore launch errors', () => {
     useChatStore.setState({
       sessions: {

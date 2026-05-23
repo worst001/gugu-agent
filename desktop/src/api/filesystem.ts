@@ -19,6 +19,18 @@ type RevealResult = {
   isDirectory: boolean
 }
 
+export type FileMetadata = {
+  name: string
+  path: string
+  isDirectory: boolean
+  size: number
+  mimeType?: string
+}
+
+type FileMetadataResponse = {
+  files: FileMetadata[]
+}
+
 type NativeRevealResult = {
   path: string
   is_directory?: boolean
@@ -52,6 +64,10 @@ export const filesystemApi = {
     const q = new URLSearchParams({ search: query, maxResults: '200' })
     if (cwd) q.set('path', cwd)
     return api.get<BrowseResult>(`/api/filesystem/browse?${q}`)
+  },
+
+  metadata(paths: string[]) {
+    return api.post<FileMetadataResponse>('/api/filesystem/metadata', { paths })
   },
 
   async reveal(path: string): Promise<RevealResult> {

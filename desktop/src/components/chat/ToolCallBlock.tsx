@@ -46,6 +46,7 @@ export function ToolCallBlock({ toolUseId, toolName, input, result, compact = fa
   const filePath = getToolFilePath(obj)
   const canRevealFilePath = Boolean(filePath && isRevealableLocalPath(filePath))
   const summary = getToolSummary(toolName, obj, t)
+  const displayName = getToolDisplayName(toolName, Boolean(result), t)
   const outputSummary = getToolResultSummary(
     toolName,
     result?.content,
@@ -79,7 +80,7 @@ export function ToolCallBlock({ toolUseId, toolName, input, result, compact = fa
         >
           <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">{icon}</span>
           <span className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
-            {toolName}
+            {displayName}
           </span>
           {filePath ? (
             <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[11px] text-[var(--color-text-tertiary)]">
@@ -261,6 +262,7 @@ function getToolResultSummary(
   }
 
   if (toolName === 'Bash') return ''
+  if (toolName === 'WebSearch') return ''
 
   const lineCount = text.split('\n').length
   if (lineCount > 1) {
@@ -309,9 +311,24 @@ function getToolSummary(toolName: string, obj: Record<string, unknown>, t?: (key
       return typeof obj.pattern === 'string' ? obj.pattern : ''
     case 'Agent':
       return typeof obj.description === 'string' ? obj.description : ''
+    case 'WebSearch':
+      return typeof obj.query === 'string' ? obj.query : ''
     default:
       return ''
   }
+}
+
+function getToolDisplayName(
+  toolName: string,
+  hasResult: boolean,
+  t?: (key: TranslationKey, params?: Record<string, string | number>) => string,
+): string {
+  if (toolName === 'WebSearch') {
+    return hasResult
+      ? t?.('tool.webSearch') ?? 'Web search'
+      : t?.('tool.webSearching') ?? 'Searching the web'
+  }
+  return toolName
 }
 
 function changedLineSummary(oldString: string, newString: string, t?: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
