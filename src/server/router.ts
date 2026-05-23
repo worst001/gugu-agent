@@ -108,7 +108,7 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
       return handleBillingApi(req, url, segments)
 
     case 'filesystem':
-      return handleFilesystemRoute(url.pathname, url)
+      return handleFilesystemRoute(req, url.pathname, url)
 
     default:
       return Response.json(

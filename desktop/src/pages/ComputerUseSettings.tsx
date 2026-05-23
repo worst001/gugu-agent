@@ -31,6 +31,24 @@ function StatusRow({ label, ok, detail }: { label: string; ok: boolean | null; d
   )
 }
 
+function GuideStep({ index, title, detail, ok }: { index: number; title: string; detail: string; ok?: boolean }) {
+  return (
+    <div className="flex gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3">
+      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+        ok ? 'bg-green-500/15 text-green-600' : 'bg-[var(--color-brand)]/10 text-[var(--color-text-accent)]'
+      }`}>
+        {ok ? (
+          <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>check</span>
+        ) : index}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-[var(--color-text-primary)]">{title}</div>
+        <div className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">{detail}</div>
+      </div>
+    </div>
+  )
+}
+
 async function openSystemSettings(pane: 'Privacy_ScreenCapture' | 'Privacy_Accessibility') {
   await computerUseApi.openSettings(pane)
 }
@@ -49,6 +67,7 @@ export function ComputerUseSettings() {
   const [status, setStatus] = useState<ComputerUseStatus | null>(null)
   const [checkState, setCheckState] = useState<CheckState>('loading')
   const [setupRunning, setSetupRunning] = useState(false)
+  const [pythonInstallRunning, setPythonInstallRunning] = useState(false)
   const [setupResult, setSetupResult] = useState<SetupResult | null>(null)
 
   // App authorization state
@@ -116,6 +135,49 @@ export function ComputerUseSettings() {
     }
   }
 
+  const handleInstallPython = async () => {
+    setPythonInstallRunning(true)
+    setSetupResult(null)
+    try {
+      const installResult = await computerUseApi.installPython()
+      setSetupResult(installResult)
+      const latest = await computerUseApi.getStatus()
+      setStatus(latest)
+      setCheckState('ready')
+
+      if (installResult.success && !latest.python.installed) {
+        setSetupResult({
+          success: false,
+          steps: [
+            ...installResult.steps,
+            { name: 'python-detect', ok: false, message: t('settings.computerUse.installPythonNeedsRestart') },
+          ],
+        })
+        return
+      }
+
+      if (installResult.success && latest.python.installed) {
+        setSetupRunning(true)
+        const setup = await computerUseApi.runSetup()
+        setSetupResult({
+          success: setup.success,
+          steps: [...installResult.steps, ...setup.steps],
+        })
+        const nextStatus = await computerUseApi.getStatus()
+        setStatus(nextStatus)
+        if (setup.success) await fetchApps()
+      }
+    } catch {
+      setSetupResult({
+        success: false,
+        steps: [{ name: 'install-python', ok: false, message: t('settings.computerUse.installPythonFailed') }],
+      })
+    } finally {
+      setPythonInstallRunning(false)
+      setSetupRunning(false)
+    }
+  }
+
   const toggleApp = (app: InstalledApp) => {
     const newSet = new Set(authorizedBundleIds)
     let newAuthorized = [...authorizedApps]
@@ -166,6 +228,13 @@ export function ComputerUseSettings() {
   const accessibilityNeedsAttention = status?.permissions.accessibility === false
   const screenRecordingNeedsAttention = status?.permissions.screenRecording === false
   const screenRecordingReady = status ? status.permissions.screenRecording !== false : null
+  const accessibilityReady = status?.permissions.accessibility === true
+  const showMacGuide = status?.platform === 'darwin' && (
+    !status.python.installed ||
+    !envReady ||
+    !accessibilityReady ||
+    screenRecordingNeedsAttention
+  )
   const pythonDownloadUrl = status
     ? PYTHON_DOWNLOAD_URLS[status.platform] ?? 'https://www.python.org/downloads/'
     : 'https://www.python.org/downloads/'
@@ -241,6 +310,63 @@ export function ComputerUseSettings() {
             />
           </div>
 
+          {showMacGuide && (
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] p-4">
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined mt-0.5 text-[19px] text-[var(--color-text-accent)]">route</span>
+                <div className="min-w-0 flex-1 space-y-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--color-text-primary)]">
+                      {t('settings.computerUse.macGuideTitle')}
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">
+                      {t('settings.computerUse.macGuideDescription')}
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <GuideStep
+                      index={1}
+                      ok={status.python.installed}
+                      title={t('settings.computerUse.macGuidePythonTitle')}
+                      detail={t('settings.computerUse.macGuidePythonDesc')}
+                    />
+                    <GuideStep
+                      index={2}
+                      ok={Boolean(envReady)}
+                      title={t('settings.computerUse.macGuideEnvTitle')}
+                      detail={t('settings.computerUse.macGuideEnvDesc')}
+                    />
+                    <GuideStep
+                      index={3}
+                      ok={Boolean(accessibilityReady && screenRecordingReady)}
+                      title={t('settings.computerUse.macGuidePermissionTitle')}
+                      detail={t('settings.computerUse.macGuidePermissionDesc')}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => openSystemSettings('Privacy_Accessibility')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--color-text-accent)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-surface-hover)]"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                      {t('settings.computerUse.openAccessibility')}
+                    </button>
+                    <button
+                      onClick={() => openSystemSettings('Privacy_ScreenCapture')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--color-text-accent)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-surface-hover)]"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                      {t('settings.computerUse.openScreenRecording')}
+                    </button>
+                    <span className="self-center text-xs text-[var(--color-text-tertiary)]">
+                      {t('settings.computerUse.permRestartHint')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* macOS Permissions — only shown on macOS (darwin) */}
           {envReady && status.platform === 'darwin' && (
             <>
@@ -262,7 +388,7 @@ export function ComputerUseSettings() {
                       : t('settings.computerUse.permScreenRecordingUnknownSoft')
                 }
               />
-              {(accessibilityNeedsAttention || screenRecordingNeedsAttention) && (
+              {(accessibilityNeedsAttention || screenRecordingNeedsAttention) && !showMacGuide && (
                 <div className="flex flex-col gap-2 px-4 py-3 rounded-lg bg-yellow-500/5 border border-yellow-500/20">
                   <p className="text-xs text-[var(--color-text-tertiary)]">{t('settings.computerUse.permRestartHint')}</p>
                   <div className="flex gap-2">
@@ -297,6 +423,26 @@ export function ComputerUseSettings() {
             </div>
           )}
 
+          {!status.python.installed && (
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] p-4">
+              <div className="flex items-start gap-3">
+                <span className="material-symbols-outlined mt-0.5 text-[18px] text-[var(--color-text-accent)]">tips_and_updates</span>
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold text-[var(--color-text-primary)]">
+                    {t('settings.computerUse.pythonGuideTitle')}
+                  </div>
+                  <p className="text-sm leading-6 text-[var(--color-text-secondary)]">
+                    {status.platform === 'win32'
+                      ? t('settings.computerUse.pythonGuideWindows')
+                      : status.platform === 'darwin'
+                        ? t('settings.computerUse.pythonGuideMac')
+                      : t('settings.computerUse.pythonGuideManual')}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {setupResult && (
             <div className={`rounded-lg border p-4 space-y-2 ${setupResult.success ? 'bg-green-500/5 border-green-500/30' : 'bg-red-500/5 border-red-500/30'}`}>
               <div className={`text-sm font-medium ${setupResult.success ? 'text-green-600' : 'text-red-400'}`}>
@@ -312,15 +458,31 @@ export function ComputerUseSettings() {
           )}
 
           {/* Action buttons */}
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             {!status.python.installed && (
-              <button
-                onClick={() => openExternalUrl(pythonDownloadUrl)}
-                className="flex items-center gap-2 px-5 py-2.5 bg-[var(--color-brand)] text-white text-sm font-semibold rounded-lg hover:opacity-90 transition-opacity"
-              >
-                <span className="material-symbols-outlined text-[18px]">open_in_new</span>
-                {t('settings.computerUse.downloadPython')}
-              </button>
+              <>
+                {(status.platform === 'win32' || status.platform === 'darwin') && (
+                  <button
+                    onClick={handleInstallPython}
+                    disabled={pythonInstallRunning || setupRunning}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-[var(--color-brand)] text-white text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">{pythonInstallRunning ? 'hourglass_empty' : 'download'}</span>
+                    {pythonInstallRunning ? t('settings.computerUse.installPythonRunning') : t('settings.computerUse.installPythonBtn')}
+                  </button>
+                )}
+                <button
+                  onClick={() => openExternalUrl(pythonDownloadUrl)}
+                  className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-lg transition-colors ${
+                    status.platform === 'win32' || status.platform === 'darwin'
+                      ? 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]'
+                      : 'bg-[var(--color-brand)] text-white hover:opacity-90'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[18px]">open_in_new</span>
+                  {t('settings.computerUse.downloadPython')}
+                </button>
+              </>
             )}
             {!envReady && status.python.installed && (
               <button

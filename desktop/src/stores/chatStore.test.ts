@@ -336,6 +336,85 @@ describe('chatStore history mapping', () => {
     ).toBe(true)
   })
 
+  it('replaces optimistic local-only messages when richer transcript history arrives', async () => {
+    seedSession({
+      messages: [{
+        id: 'local-user-1',
+        type: 'user_text',
+        content: 'write a txt file',
+        timestamp: 1,
+      }],
+    })
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'history-user-1',
+          type: 'user',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: 'write a txt file',
+        },
+        {
+          id: 'history-assistant-1',
+          type: 'assistant',
+          timestamp: '2026-04-06T00:00:01.000Z',
+          content: [{ type: 'text', text: '已创建 `D:\\Claude Code\\MyWindows\\test.txt`。' }],
+        },
+      ],
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages?.some((message) =>
+      message.type === 'assistant_text' &&
+      message.content.includes('test.txt')
+    )).toBe(true)
+  })
+
+  it('replaces equal-length stale local messages when transcript content differs', async () => {
+    seedSession({
+      messages: [
+        {
+          id: 'local-user-1',
+          type: 'user_text',
+          content: 'bilibili.com/video/BV1rpeezNEnW/',
+          timestamp: 1,
+        },
+        {
+          id: 'local-user-2',
+          type: 'user_text',
+          content: 'help identify the product in this video',
+          timestamp: 2,
+        },
+      ],
+    })
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'history-user-1',
+          type: 'user',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: 'bilibili.com/video/BV1rpeezNEnW/ help identify the product in this video',
+        },
+        {
+          id: 'history-assistant-1',
+          type: 'assistant',
+          timestamp: '2026-04-06T00:00:01.000Z',
+          content: 'I will inspect the video and identify the product.',
+        },
+      ],
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toHaveLength(2)
+    expect(messages?.some((message) =>
+      message.type === 'assistant_text' &&
+      message.content.includes('identify the product')
+    )).toBe(true)
+  })
+
   it('does not resurrect a forgotten local echo after rewind history reloads', async () => {
     seedSession()
 

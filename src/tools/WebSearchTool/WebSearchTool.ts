@@ -86,6 +86,149 @@ function makeToolSchema(input: Input): BetaWebSearchTool20250305 {
   }
 }
 
+function supportsNativeWebSearch(): boolean {
+  const provider = getAPIProvider()
+  const model = getMainLoopModel()
+
+  if (provider === 'firstParty') {
+    return isFirstPartyAnthropicBaseUrl()
+  }
+
+  if (provider === 'vertex') {
+    return (
+      model.includes('claude-opus-4') ||
+      model.includes('claude-sonnet-4') ||
+      model.includes('claude-haiku-4')
+    )
+  }
+
+  return provider === 'foundry'
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function readXmlTag(item: string, tagName: string): string {
+  const match = item.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'i'))
+  return match ? decodeXmlText(match[1] ?? '') : ''
+}
+
+function matchesDomainFilters(
+  url: string,
+  allowedDomains?: string[],
+  blockedDomains?: string[],
+): boolean {
+  let hostname = ''
+  try {
+    hostname = new URL(url).hostname.toLowerCase()
+  } catch {
+    return false
+  }
+
+  const matches = (domain: string) => {
+    const normalized = domain.toLowerCase().replace(/^https?:\/\//, '').split('/')[0] ?? ''
+    return hostname === normalized || hostname.endsWith(`.${normalized}`)
+  }
+
+  if (blockedDomains?.some(matches)) return false
+  if (allowedDomains?.length) return allowedDomains.some(matches)
+  return true
+}
+
+function parseBingRssSearchResults(
+  xml: string,
+  allowedDomains?: string[],
+  blockedDomains?: string[],
+): Array<SearchResult['content'][number] & { description: string }> {
+  const items = xml.match(/<item\b[\s\S]*?<\/item>/gi) ?? []
+  const results: Array<SearchResult['content'][number] & { description: string }> = []
+  const seen = new Set<string>()
+
+  for (const item of items) {
+    const title = readXmlTag(item, 'title')
+    const url = readXmlTag(item, 'link')
+    const description = readXmlTag(item, 'description')
+    if (!title || !url || seen.has(url)) continue
+    if (!matchesDomainFilters(url, allowedDomains, blockedDomains)) continue
+    seen.add(url)
+    results.push({ title, url, description })
+    if (results.length >= 8) break
+  }
+
+  return results
+}
+
+async function callFallbackWebSearch(
+  input: Input,
+  signal: AbortSignal,
+  onProgress?: (progress: { toolUseID: string; data: WebSearchProgress }) => void,
+): Promise<Output> {
+  const startTime = performance.now()
+  const query = input.query
+  const url = new URL('https://www.bing.com/search')
+  url.searchParams.set('format', 'rss')
+  url.searchParams.set('q', query)
+
+  onProgress?.({
+    toolUseID: 'gugu-web-search-query',
+    data: { type: 'query_update', query },
+  })
+
+  const response = await fetch(url, {
+    signal,
+    headers: {
+      accept: 'application/rss+xml, application/xml;q=0.9, text/xml;q=0.8',
+      'user-agent': 'GuguAgent/1.0',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`Fallback web search failed: ${response.status} ${response.statusText}`)
+  }
+
+  const xml = await response.text()
+  const rawHits = parseBingRssSearchResults(
+    xml,
+    input.allowed_domains,
+    input.blocked_domains,
+  )
+  const hits = rawHits.map(({ title, url }) => ({ title, url }))
+  const snippets = rawHits
+    .filter(hit => hit.description)
+    .map((hit, index) => `${index + 1}. [${hit.title}](${hit.url}): ${hit.description}`)
+    .join('\n')
+
+  onProgress?.({
+    toolUseID: 'gugu-web-search-results',
+    data: {
+      type: 'search_results_received',
+      query,
+      resultCount: hits.length,
+    },
+  })
+
+  return {
+    query,
+    results: [
+      {
+        tool_use_id: `gugu-web-search-${Date.now()}`,
+        content: hits,
+      },
+      ...(snippets ? [`Search result snippets:\n${snippets}`] : []),
+    ],
+    durationSeconds: (performance.now() - startTime) / 1000,
+  }
+}
+
 function makeOutputFromSearchResponse(
   result: BetaContentBlock[],
   query: string,
@@ -169,31 +312,7 @@ export const WebSearchTool = buildTool({
     return summary ? `Searching for ${summary}` : 'Searching the web'
   },
   isEnabled() {
-    const provider = getAPIProvider()
-    const model = getMainLoopModel()
-
-    // Anthropic-compatible third-party endpoints do not provide the server-side
-    // web_search_20250305 tool that this wrapper delegates to.
-    if (provider === 'firstParty') {
-      return isFirstPartyAnthropicBaseUrl()
-    }
-
-    // Enable for Vertex AI with supported models (Claude 4.0+)
-    if (provider === 'vertex') {
-      const supportsWebSearch =
-        model.includes('claude-opus-4') ||
-        model.includes('claude-sonnet-4') ||
-        model.includes('claude-haiku-4')
-
-      return supportsWebSearch
-    }
-
-    // Foundry only ships models that already support Web Search
-    if (provider === 'foundry') {
-      return true
-    }
-
-    return false
+    return true
   },
   get inputSchema(): InputSchema {
     return inputSchema()
@@ -210,18 +329,14 @@ export const WebSearchTool = buildTool({
   toAutoClassifierInput(input) {
     return input.query
   },
-  async checkPermissions(_input): Promise<PermissionResult> {
+  async checkPermissions(input): Promise<PermissionResult> {
     return {
-      behavior: 'passthrough',
-      message: 'WebSearchTool requires permission.',
-      suggestions: [
-        {
-          type: 'addRules',
-          rules: [{ toolName: WEB_SEARCH_TOOL_NAME }],
-          behavior: 'allow',
-          destination: 'localSettings',
-        },
-      ],
+      behavior: 'allow',
+      updatedInput: input,
+      decisionReason: {
+        type: 'other',
+        reason: 'WebSearch is read-only public web search',
+      },
     }
   },
   async prompt() {
@@ -258,6 +373,17 @@ export const WebSearchTool = buildTool({
   async call(input, context, _canUseTool, _parentMessage, onProgress) {
     const startTime = performance.now()
     const { query } = input
+
+    if (!supportsNativeWebSearch()) {
+      return {
+        data: await callFallbackWebSearch(
+          input,
+          context.abortController.signal,
+          onProgress,
+        ),
+      }
+    }
+
     const userMessage = createUserMessage({
       content: 'Perform a web search for the query: ' + query,
     })

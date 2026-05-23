@@ -1,5 +1,6 @@
 import type { PluginScope } from '../../utils/plugins/schemas.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
+import { ensureBundledAgentPackBootstrapped } from '../services/bundledAgentPackService.js'
 import { PluginService } from '../services/pluginService.js'
 
 const pluginService = new PluginService()
@@ -15,10 +16,12 @@ export async function handlePluginsApi(
     const cwd = url.searchParams.get('cwd') || undefined
 
     if (method === 'GET' && !sub) {
+      await ensureBundledAgentPackBootstrapped()
       return Response.json(await pluginService.listPlugins(cwd))
     }
 
     if (method === 'GET' && sub === 'detail') {
+      await ensureBundledAgentPackBootstrapped()
       const pluginId = url.searchParams.get('id')
       if (!pluginId) {
         throw ApiError.badRequest('Missing required "id" query parameter')

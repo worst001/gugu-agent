@@ -146,7 +146,7 @@ function AgentToolGroup({
           </span>
         )}
         {!isAnyRunning && errorPresent && (
-          <span className="material-symbols-outlined text-[14px] text-[var(--color-error)]">error</span>
+          <span className="material-symbols-outlined text-[14px] text-[var(--color-warning)]">warning_amber</span>
         )}
         {!isAnyRunning && !errorPresent && allComplete && (
           <span className="material-symbols-outlined text-[14px] text-[var(--color-success)]">check_circle</span>
@@ -217,7 +217,7 @@ function ToolCallGroupMulti({ toolCalls, resultMap, childToolCallsByParent, isSt
           <span className="material-symbols-outlined text-[14px] text-[var(--color-success)]">check_circle</span>
         )}
         {!isStreaming && errorPresent && (
-          <span className="material-symbols-outlined text-[14px] text-[var(--color-error)]">error</span>
+          <span className="material-symbols-outlined text-[14px] text-[var(--color-warning)]">warning_amber</span>
         )}
         {!isStreaming && !allComplete && !errorPresent && (
           <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">pending</span>
@@ -325,7 +325,7 @@ function AgentCallCard({
             </div>
           )}
           {!expanded && !outputSummary && !recentToolCalls.length && errorText && (
-            <div className="mt-1 truncate text-[11px] text-[var(--color-error)]">
+            <div className="mt-1 truncate text-[11px] text-[var(--color-text-tertiary)]">
               {errorText}
             </div>
           )}
@@ -360,7 +360,7 @@ function AgentCallCard({
       {expanded && (
         <div className="border-t border-[var(--color-border)]/60 px-3 py-3">
           {errorText && (
-            <div className="mb-3 rounded-lg border border-[var(--color-error)]/20 bg-[var(--color-error-container)]/60 px-3 py-2 text-[11px] text-[var(--color-error)]">
+            <div className="mb-3 rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/6 px-3 py-2 text-[11px] text-[var(--color-text-secondary)]">
               {errorText}
             </div>
           )}
@@ -492,7 +492,7 @@ function getAgentStatusLabel(
 function getAgentStatusClassName(status: AgentStatus): string {
   switch (status) {
     case 'failed':
-      return 'bg-[var(--color-error)]/10 text-[var(--color-error)]'
+      return 'bg-[var(--color-warning)]/12 text-[var(--color-text-secondary)]'
     case 'stopped':
       return 'bg-[var(--color-surface-container-high)] text-[var(--color-text-secondary)]'
     case 'done':

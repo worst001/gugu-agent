@@ -650,8 +650,7 @@ function handleAdminApi(
   }
 }
 
-function resolveDeepSeekModel(config: GatewayConfig, requested: string | undefined, plan: GatewayPlan): string {
-  if (plan === 'free') return config.deepseekFastModel
+function resolveDeepSeekModel(config: GatewayConfig, requested: string | undefined, _plan: GatewayPlan): string {
   if (requested === 'gugu-managed-fast') return config.deepseekFastModel
   if (requested === 'gugu-managed-main' || requested === 'gugu-managed-strong') return config.deepseekMainModel
   return requested?.trim() || config.deepseekMainModel

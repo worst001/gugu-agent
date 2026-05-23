@@ -62,8 +62,23 @@ type SessionStartOptions = {
 }
 
 const DEFAULT_DESKTOP_MAX_TURNS = 20
-const DESKTOP_TOOL_AVAILABILITY_PROMPT =
-  'Tool availability: Only call WebSearch if WebSearch is explicitly listed in the current available tools. If WebSearch is unavailable, do not attempt it; continue without web search or use WebFetch only for explicit URLs the user provided.'
+
+function getLocalDateString(): string {
+  const now = new Date()
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+function getDesktopToolAvailabilityPrompt(): string {
+  return [
+    'Tool availability: Only call WebSearch if WebSearch is explicitly listed in the current available tools. If WebSearch is unavailable, do not attempt it; continue without web search or use WebFetch only for explicit URLs the user provided.',
+    `Current local date: ${getLocalDateString()}.`,
+    'Freshness rule: If WebSearch is available and the user asks for current, latest, recent, today, now, prices, schedules, releases, news, laws, office holders, company leaders, sports results, or any other time-sensitive public fact, you MUST call WebSearch before answering. Do not answer these from memory.',
+  ].join('\n')
+}
 
 export class ConversationStartupError extends Error {
   constructor(
@@ -108,7 +123,7 @@ export class ConversationService {
       ...(shouldResume ? ['--resume', sessionId] : ['--session-id', sessionId]),
       '--replay-user-messages',
       '--append-system-prompt',
-      DESKTOP_TOOL_AVAILABILITY_PROMPT,
+      getDesktopToolAvailabilityPrompt(),
       ...this.getMaxTurnsArgs(),
       ...this.getRuntimeArgs(options),
       ...this.getPermissionArgs(options?.permissionMode, dangerousMode),
@@ -766,6 +781,8 @@ export class ConversationService {
         ? {
             CC_HAHA_DESKTOP_AWAIT_MCP: '1',
             CC_HAHA_DESKTOP_AWAIT_MCP_TIMEOUT_MS: '5000',
+            CC_HAHA_SDK_WS_KEEPALIVE_INTERVAL_MS:
+              process.env.CC_HAHA_SDK_WS_KEEPALIVE_INTERVAL_MS ?? '30000',
           }
         : {}),
       // Tell the CLI entrypoint to skip project .env loading. Provider env

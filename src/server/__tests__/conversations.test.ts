@@ -191,7 +191,7 @@ describe('ConversationService', () => {
     ])
   })
 
-  it('should tell desktop sessions not to call unavailable WebSearch tools', () => {
+  it('should require desktop sessions to search before time-sensitive answers', () => {
     const svc = new ConversationService()
     const args = (svc as any).buildSessionCliArgs(
       'session-websearch-guard',
@@ -203,6 +203,9 @@ describe('ConversationService', () => {
     expect(promptIndex).toBeGreaterThan(-1)
     expect(args[promptIndex + 1]).toContain('Only call WebSearch if WebSearch is explicitly listed')
     expect(args[promptIndex + 1]).toContain('If WebSearch is unavailable, do not attempt it')
+    expect(args[promptIndex + 1]).toContain('Current local date:')
+    expect(args[promptIndex + 1]).toContain('you MUST call WebSearch before answering')
+    expect(args[promptIndex + 1]).toContain('office holders')
   })
 
   it('should return false when sending interrupt to non-existent session', () => {

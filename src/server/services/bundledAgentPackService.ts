@@ -55,6 +55,48 @@ type BundledMarketplace = {
 const MANIFEST_FILE = 'bundled-agent-pack.json'
 const BUNDLED_MARKETPLACE = 'gugu-bundled'
 const SKILL_MD = 'SKILL.md'
+const BOOTSTRAP_STALE_MS = 30_000
+
+let bootstrapPromise: Promise<void> | null = null
+let bootstrapPromiseKey: string | null = null
+let lastBootstrapAt = 0
+let lastBootstrapKey: string | null = null
+
+export function ensureBundledAgentPackBootstrapped(): Promise<void> {
+  const now = Date.now()
+  const bootstrapKey = getBootstrapCacheKey()
+  if (
+    lastBootstrapAt > 0 &&
+    lastBootstrapKey === bootstrapKey &&
+    now - lastBootstrapAt < BOOTSTRAP_STALE_MS
+  ) {
+    return Promise.resolve()
+  }
+
+  if (bootstrapPromise) {
+    return bootstrapPromise
+  }
+
+  bootstrapPromiseKey = bootstrapKey
+  bootstrapPromise = bootstrapBundledAgentPack()
+    .then(() => {
+      lastBootstrapAt = Date.now()
+      lastBootstrapKey = bootstrapKey
+    })
+    .finally(() => {
+      bootstrapPromise = null
+      bootstrapPromiseKey = null
+    })
+
+  return bootstrapPromise
+}
+
+function getBootstrapCacheKey(): string {
+  return [
+    process.env.CLAUDE_CONFIG_DIR ?? '',
+    process.env.GUGU_AGENT_PACK_DIR ?? '',
+  ].join('|')
+}
 
 export async function bootstrapBundledAgentPack(): Promise<void> {
   const sourceRoot = await resolveBundledAgentPackRoot()
@@ -294,14 +336,16 @@ async function readPluginVersion(pluginDir: string): Promise<string> {
 }
 
 async function resolveBundledAgentPackRoot(): Promise<string | null> {
-  const candidates = [
-    process.env.GUGU_AGENT_PACK_DIR,
-    path.resolve(process.cwd(), '.agents', 'skills'),
-    path.resolve(import.meta.dir, '..', '..', '..', '.agents', 'skills'),
-    process.env.CLAUDE_APP_ROOT
-      ? path.resolve(process.env.CLAUDE_APP_ROOT, 'gugu-agent-pack')
-      : undefined,
-  ].filter((item): item is string => Boolean(item && item.trim()))
+  const explicitPackDir = process.env.GUGU_AGENT_PACK_DIR?.trim()
+  const candidates = explicitPackDir
+    ? [explicitPackDir]
+    : [
+        path.resolve(process.cwd(), '.agents', 'skills'),
+        path.resolve(import.meta.dir, '..', '..', '..', '.agents', 'skills'),
+        process.env.CLAUDE_APP_ROOT
+          ? path.resolve(process.env.CLAUDE_APP_ROOT, 'gugu-agent-pack')
+          : undefined,
+      ].filter((item): item is string => Boolean(item && item.trim()))
 
   for (const candidate of candidates) {
     if (await pathExists(path.join(candidate, 'api-and-interface-design', SKILL_MD))) {

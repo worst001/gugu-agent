@@ -26,24 +26,36 @@ export function isHiddenToolErrorContent(content: unknown): boolean {
 
 export function formatToolErrorText(content: unknown): string {
   const cleaned = cleanToolResultText(extractToolResultText(content))
-  const missingTool = getMissingToolName(cleaned)
+  const compact = cleaned.replace(/\s+/g, ' ').trim()
+  const missingTool = getMissingToolName(compact)
   if (missingTool) {
-    return `${missingTool} 工具当前不可用。`
+    return `${missingTool} is unavailable in this runtime.`
   }
 
-  const statusCode = cleaned.match(/status code\s+(\d{3})/i)
+  if (/ripgrep is not available|ensure rg --version works/i.test(compact)) {
+    return 'ripgrep is not available. Install ripgrep and retry.'
+  }
+
+  if (
+    /python venv creation failed|NO PYTHON|python .*not (found|recognized)|python3 .*not (found|recognized)|venv/i
+      .test(compact)
+  ) {
+    return 'Python environment is not ready. Open Computer Use settings to finish setup.'
+  }
+
+  const statusCode = compact.match(/status code\s+(\d{3})/i)
   if (statusCode?.[1] === '403') {
-    return '目标网站拒绝访问。'
+    return 'Target access was blocked.'
   }
   if (statusCode?.[1]) {
-    return `请求失败，HTTP ${statusCode[1]}。`
+    return `Request failed with HTTP ${statusCode[1]}.`
   }
 
   const firstLine = cleaned
     .split('\n')
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .find(Boolean)
-  return firstLine || '工具调用失败。'
+  return firstLine || 'Tool call failed.'
 }
 
 function getMissingToolName(text: string): string | null {

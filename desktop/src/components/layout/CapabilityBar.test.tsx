@@ -84,7 +84,27 @@ describe('CapabilityBar', () => {
     expect(screen.getByText('1 need attention')).toBeInTheDocument()
     expect(screen.getByText('Terminal')).toBeInTheDocument()
     expect(screen.getByText('Host shell')).toBeInTheDocument()
-    expect(refreshCapabilities).toHaveBeenCalledWith('D:/repo')
+    expect(refreshCapabilities).toHaveBeenCalledWith('D:/repo', { force: true })
+  })
+
+  it('shows a scanning state instead of zero counts before the first capability snapshot', () => {
+    useCapabilityStore.setState({
+      summary: {
+        ...summary,
+        mcp: { total: 0, connected: 0, attention: 0 },
+        skills: { total: 0, invocable: 0 },
+        plugins: { total: 0, enabled: 0, errors: 0 },
+        updatedAt: null,
+      },
+      isLoading: false,
+      refreshCapabilities,
+    })
+
+    render(<CapabilityBar />)
+
+    expect(screen.getAllByText('Scanning')).toHaveLength(3)
+    expect(screen.queryByText('0 total')).not.toBeInTheDocument()
+    expect(screen.queryByText('0/0 on')).not.toBeInTheDocument()
   })
 
   it('routes capability chips to the matching settings tab', () => {

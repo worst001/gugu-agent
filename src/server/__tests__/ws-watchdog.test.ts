@@ -6,12 +6,14 @@ const SESSION_ID = 'watchdog-session'
 let originalReconnectGrace: string | undefined
 let originalSdkLivenessTimeout: string | undefined
 let originalSdkReconnectGrace: string | undefined
+let originalSdkRestoredIdleTimeout: string | undefined
 
 describe('desktop WebSocket watchdog', () => {
   beforeEach(() => {
     originalReconnectGrace = process.env.CC_HAHA_ACTIVE_SESSION_RECONNECT_GRACE_MS
     originalSdkLivenessTimeout = process.env.CC_HAHA_SDK_LIVENESS_TIMEOUT_MS
     originalSdkReconnectGrace = process.env.CC_HAHA_SDK_RECONNECT_GRACE_MS
+    originalSdkRestoredIdleTimeout = process.env.CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS
     __testing.clearTurnMonitor(SESSION_ID)
     __testing.clearSessionCleanupTimer(SESSION_ID)
   })
@@ -33,6 +35,11 @@ describe('desktop WebSocket watchdog', () => {
       delete process.env.CC_HAHA_SDK_RECONNECT_GRACE_MS
     } else {
       process.env.CC_HAHA_SDK_RECONNECT_GRACE_MS = originalSdkReconnectGrace
+    }
+    if (originalSdkRestoredIdleTimeout === undefined) {
+      delete process.env.CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS
+    } else {
+      process.env.CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS = originalSdkRestoredIdleTimeout
     }
   })
 
@@ -155,5 +162,32 @@ describe('desktop WebSocket watchdog', () => {
       3_300,
       false,
     )).toBe(true)
+  })
+
+  test('keep_alive after SDK restore does not hide a turn with no real progress', () => {
+    process.env.CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS = '1000'
+    __testing.setTurnMonitor(SESSION_ID, {
+      lastProgressAt: 1_000,
+      lastKeepAliveAt: 1_000,
+      sdkRestoredAt: 2_000,
+      sdkReconnectCount: 1,
+    })
+
+    __testing.noteTurnActivity(SESSION_ID, { type: 'keep_alive' })
+    const afterKeepAlive = __testing.getTurnMonitorSnapshot(SESSION_ID)
+
+    expect(afterKeepAlive?.sdkRestoredAt).toBe(2_000)
+    expect(__testing.shouldRecoverForRestoredAgentIdle(
+      SESSION_ID,
+      2_500,
+    )).toBe(false)
+    expect(__testing.shouldRecoverForRestoredAgentIdle(
+      SESSION_ID,
+      3_200,
+    )).toBe(true)
+
+    __testing.noteTurnActivity(SESSION_ID, { type: 'assistant' })
+
+    expect(__testing.getTurnMonitorSnapshot(SESSION_ID)?.sdkRestoredAt).toBeNull()
   })
 })

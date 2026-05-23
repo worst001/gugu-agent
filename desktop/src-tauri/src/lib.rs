@@ -100,6 +100,12 @@ struct TerminalExitPayload {
     signal: Option<String>,
 }
 
+#[derive(Serialize, Clone)]
+struct RevealPathResult {
+    path: String,
+    is_directory: bool,
+}
+
 #[tauri::command]
 fn get_server_url(state: State<'_, ServerState>) -> Result<String, String> {
     let guard = state
@@ -126,6 +132,65 @@ fn get_server_url(state: State<'_, ServerState>) -> Result<String, String> {
 ///      并重新建立 WebSocket 连接到飞书 / Telegram
 ///
 /// 凭据缺失时 sidecar 自己会 warn + skip + 退出，所以这里不需要前置检查。
+#[tauri::command]
+fn reveal_path(path: String) -> Result<RevealPathResult, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("invalid local path".to_string());
+    }
+
+    let resolved = PathBuf::from(trimmed)
+        .canonicalize()
+        .map_err(|err| format!("path not found: {err}"))?;
+    let metadata = fs::metadata(&resolved).map_err(|err| format!("read path metadata: {err}"))?;
+    let is_directory = metadata.is_dir();
+
+    let mut command = build_reveal_path_command(&resolved, is_directory);
+    command
+        .spawn()
+        .map_err(|err| format!("open file browser: {err}"))?;
+
+    Ok(RevealPathResult {
+        path: resolved.to_string_lossy().to_string(),
+        is_directory,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
+    let mut command = StdCommand::new("explorer.exe");
+    if is_directory {
+        command.arg(path);
+    } else {
+        command.arg("/select,").arg(path);
+    }
+    command
+}
+
+#[cfg(target_os = "macos")]
+fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
+    let mut command = StdCommand::new("open");
+    if is_directory {
+        command.arg(path);
+    } else {
+        command.arg("-R").arg(path);
+    }
+    command
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
+    let mut command = StdCommand::new("xdg-open");
+    if is_directory {
+        command.arg(path);
+    } else if let Some(parent) = path.parent() {
+        command.arg(parent);
+    } else {
+        command.arg(path);
+    }
+    command
+}
+
 #[tauri::command]
 fn restart_adapters_sidecar(app: AppHandle) -> Result<(), String> {
     stop_adapters_sidecar(&app);
@@ -1272,6 +1337,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_server_url,
+            reveal_path,
             restart_adapters_sidecar,
             prepare_for_update_install,
             terminal_spawn,

@@ -39,7 +39,40 @@ function isAllowedFilesystemPath(targetPath: string): boolean {
   return false
 }
 
-export async function handleFilesystemRoute(pathname: string, url: URL): Promise<Response> {
+type RevealCommand = {
+  command: string
+  args: string[]
+}
+
+export function buildRevealPathCommand(
+  targetPath: string,
+  isDirectory: boolean,
+  platform: NodeJS.Platform = process.platform,
+): RevealCommand {
+  if (platform === 'win32') {
+    const resolvedPath = path.win32.resolve(targetPath)
+    return {
+      command: 'explorer.exe',
+      args: isDirectory ? [resolvedPath] : ['/select,', resolvedPath],
+    }
+  }
+
+  const resolvedPath = path.resolve(targetPath)
+
+  if (platform === 'darwin') {
+    return {
+      command: 'open',
+      args: isDirectory ? [resolvedPath] : ['-R', resolvedPath],
+    }
+  }
+
+  return {
+    command: 'xdg-open',
+    args: [isDirectory ? resolvedPath : path.dirname(resolvedPath)],
+  }
+}
+
+export async function handleFilesystemRoute(req: Request, pathname: string, url: URL): Promise<Response> {
   if (pathname === '/api/filesystem/browse') {
     return handleBrowse(url)
   }
@@ -48,7 +81,67 @@ export async function handleFilesystemRoute(pathname: string, url: URL): Promise
     return handleServeFile(url)
   }
 
+  if (pathname === '/api/filesystem/reveal') {
+    return handleReveal(req)
+  }
+
   return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
+}
+
+async function handleReveal(req: Request): Promise<Response> {
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405)
+  }
+
+  let body: { path?: unknown }
+  try {
+    body = (await req.json()) as { path?: unknown }
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  if (typeof body.path !== 'string' || body.path.trim().length === 0) {
+    return json({ error: 'Missing path' }, 400)
+  }
+
+  const targetPath = body.path.trim()
+  const hasUnsupportedScheme =
+    /^[a-z][a-z0-9+.-]*:/i.test(targetPath) && !/^[a-z]:[\\/]/i.test(targetPath)
+  if (targetPath.includes('\0') || hasUnsupportedScheme) {
+    return json({ error: 'Invalid local path' }, 400)
+  }
+
+  const resolvedPath = path.resolve(targetPath)
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(resolvedPath)
+  } catch {
+    return json({ error: 'Path not found', path: resolvedPath }, 404)
+  }
+
+  const isDirectory = stat.isDirectory()
+  const revealCommand = buildRevealPathCommand(resolvedPath, isDirectory)
+  const result = runRevealCommand(revealCommand)
+  if (!result.ok) {
+    return json({ error: 'Failed to open file browser', message: result.stderr }, 500)
+  }
+
+  return json({ ok: true, path: resolvedPath, isDirectory })
+}
+
+function runRevealCommand({ command, args }: RevealCommand): { ok: boolean; stderr: string } {
+  try {
+    Bun.spawn([command, ...args], {
+      stdout: 'ignore',
+      stderr: 'ignore',
+    })
+    return { ok: true, stderr: '' }
+  } catch (error) {
+    return {
+      ok: false,
+      stderr: error instanceof Error ? error.message : String(error),
+    }
+  }
 }
 
 async function handleServeFile(url: URL): Promise<Response> {

@@ -28,6 +28,23 @@ export type PythonRuntimeResolution = {
   source: 'system' | 'venv' | null
 }
 
+function getWindowsPythonExecutableCandidates(): PythonCandidate[] {
+  const roots = [
+    process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Programs\\Python` : '',
+    process.env.ProgramFiles ? `${process.env.ProgramFiles}\\Python` : '',
+    process.env['ProgramFiles(x86)'] ? `${process.env['ProgramFiles(x86)']}\\Python` : '',
+  ].filter(Boolean)
+
+  const versions = ['Python313', 'Python312', 'Python311', 'Python310']
+  return roots.flatMap((root) =>
+    versions.map((version) => ({
+      command: `${root}\\${version}\\python.exe`,
+      prefixArgs: [],
+      locator: null,
+    })),
+  )
+}
+
 function getPythonCandidates(platform: NodeJS.Platform): PythonCandidate[] {
   if (platform === 'win32') {
     return [
@@ -51,6 +68,7 @@ function getPythonCandidates(platform: NodeJS.Platform): PythonCandidate[] {
         prefixArgs: [],
         locator: { command: 'where', args: ['py'] },
       },
+      ...getWindowsPythonExecutableCandidates(),
     ]
   }
 

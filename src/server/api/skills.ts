@@ -15,6 +15,7 @@ import { getCwd } from '../../utils/cwd.js'
 import { loadAllPluginsCacheOnly } from '../../utils/plugins/pluginLoader.js'
 import type { LoadedPlugin } from '../../types/plugin.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
+import { ensureBundledAgentPackBootstrapped } from '../services/bundledAgentPackService.js'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -385,6 +386,8 @@ export async function handleSkillsApi(
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 async function listSkills(url: URL): Promise<Response> {
+  await ensureBundledAgentPackBootstrapped()
+
   const cwd = getRequestedCwd(url)
   const [userSkills, projectSkills, pluginSkills] = await Promise.all([
     collectSkillsFromRoots([getUserSkillsDir()], 'user'),
@@ -398,6 +401,8 @@ async function listSkills(url: URL): Promise<Response> {
 }
 
 async function getSkillDetail(url: URL): Promise<Response> {
+  await ensureBundledAgentPackBootstrapped()
+
   const source = url.searchParams.get('source')
   const name = url.searchParams.get('name')
 

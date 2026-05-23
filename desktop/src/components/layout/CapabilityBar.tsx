@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { AlertTriangle, Cpu, FileScan, Gauge, Plug, Puzzle, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useCapabilityStore, type AttachmentParserCapabilityStatus } from '../../stores/capabilityStore'
@@ -14,6 +14,8 @@ export function CapabilityBar() {
   const summary = useCapabilityStore((state) => state.summary)
   const isLoading = useCapabilityStore((state) => state.isLoading)
   const refreshCapabilities = useCapabilityStore((state) => state.refreshCapabilities)
+  const initialRefreshKeyRef = useRef<string | null>(null)
+  const bundledProbeKeyRef = useRef<string | null>(null)
 
   const activeWorkDir = useMemo(() => {
     const session = activeTabId ? sessions.find((item) => item.id === activeTabId) : null
@@ -22,12 +24,49 @@ export function CapabilityBar() {
 
   useEffect(() => {
     if (!sidebarOpen) return
-    void refreshCapabilities(activeWorkDir)
+    const refreshKey = activeWorkDir ?? '__global__'
+    const force = initialRefreshKeyRef.current !== refreshKey
+    initialRefreshKeyRef.current = refreshKey
+    void refreshCapabilities(activeWorkDir, { force })
   }, [activeWorkDir, refreshCapabilities, sidebarOpen])
+
+  useEffect(() => {
+    const errorCount = Object.keys(summary.errors).length
+    const shouldProbeBundledPack =
+      sidebarOpen &&
+      !isLoading &&
+      summary.updatedAt !== null &&
+      summary.skills.total === 0 &&
+      summary.plugins.total === 0 &&
+      errorCount === 0
+
+    if (!shouldProbeBundledPack) return
+
+    const probeKey = `${activeWorkDir ?? '__global__'}:${summary.updatedAt}`
+    if (bundledProbeKeyRef.current === probeKey) return
+    bundledProbeKeyRef.current = probeKey
+
+    const timeout = window.setTimeout(() => {
+      void refreshCapabilities(activeWorkDir, { force: true })
+    }, 1500)
+
+    return () => window.clearTimeout(timeout)
+  }, [
+    activeWorkDir,
+    isLoading,
+    refreshCapabilities,
+    sidebarOpen,
+    summary.errors,
+    summary.plugins.total,
+    summary.skills.total,
+    summary.updatedAt,
+  ])
 
   const modelLabel = summary.model?.name || summary.model?.id || t('capabilities.noModel')
   const providerLabel = summary.providerName || t('capabilities.noProvider')
   const parserTone = getParserTone(summary.attachmentParser.status)
+  const hasCapabilitySnapshot = summary.updatedAt !== null
+  const scanningLabel = t('capabilities.scanning')
   const hasAttention =
     summary.attachmentParser.status === 'needs_config' ||
     summary.attachmentParser.status === 'error' ||
@@ -99,9 +138,11 @@ export function CapabilityBar() {
           />
           <CapabilityChip
             label="MCP"
-            detail={summary.mcp.attention > 0
-              ? t('capabilities.mcpAttention', { count: summary.mcp.attention })
-              : t('capabilities.count', { count: summary.mcp.total })}
+            detail={!hasCapabilitySnapshot
+              ? scanningLabel
+              : summary.mcp.attention > 0
+                ? t('capabilities.mcpAttention', { count: summary.mcp.attention })
+                : t('capabilities.count', { count: summary.mcp.total })}
             icon={<Plug className="h-3.5 w-3.5" />}
             onClick={() => openSettings('mcp')}
             title={t('settings.tab.mcp')}
@@ -109,16 +150,20 @@ export function CapabilityBar() {
           />
           <CapabilityChip
             label={t('settings.tab.skills')}
-            detail={t('capabilities.count', { count: summary.skills.invocable || summary.skills.total })}
+            detail={hasCapabilitySnapshot
+              ? t('capabilities.count', { count: summary.skills.invocable || summary.skills.total })
+              : scanningLabel}
             icon={<Sparkles className="h-3.5 w-3.5" />}
             onClick={() => openSettings('skills')}
             title={t('settings.tab.skills')}
           />
           <CapabilityChip
             label={t('settings.tab.plugins')}
-            detail={summary.plugins.errors > 0
-              ? t('capabilities.pluginErrors', { count: summary.plugins.errors })
-              : t('capabilities.enabledOfTotal', { enabled: summary.plugins.enabled, total: summary.plugins.total })}
+            detail={!hasCapabilitySnapshot
+              ? scanningLabel
+              : summary.plugins.errors > 0
+                ? t('capabilities.pluginErrors', { count: summary.plugins.errors })
+                : t('capabilities.enabledOfTotal', { enabled: summary.plugins.enabled, total: summary.plugins.total })}
             icon={<Puzzle className="h-3.5 w-3.5" />}
             onClick={() => openSettings('plugins')}
             title={t('settings.tab.plugins')}

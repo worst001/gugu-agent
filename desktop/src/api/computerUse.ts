@@ -61,6 +61,9 @@ export const computerUseApi = {
   runSetup() {
     return api.post<SetupResult>('/api/computer-use/setup', undefined, { timeout: 300_000 })
   },
+  installPython() {
+    return api.post<SetupResult>('/api/computer-use/install-python', undefined, { timeout: 600_000 })
+  },
   getInstalledApps() {
     return api.get<{ apps: InstalledApp[] }>('/api/computer-use/apps')
   },

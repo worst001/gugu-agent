@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify'
 import { marked, type Tokens } from 'marked'
 import { CodeViewer } from '../chat/CodeViewer'
 import { MermaidRenderer } from '../chat/MermaidRenderer'
+import { filesystemApi } from '../../api/filesystem'
 
 type Props = {
   content: string
@@ -94,7 +95,37 @@ function enhanceMarkdownHtml(html: string): string {
     link.setAttribute('rel', 'noreferrer noopener')
   })
 
+  container.querySelectorAll('code').forEach((code) => {
+    const text = code.textContent?.trim()
+    if (!text || !looksLikeLocalPath(text)) return
+
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'local-path-chip'
+    button.setAttribute('data-open-local-path', text)
+    button.setAttribute('title', text)
+    button.textContent = text
+    code.replaceWith(button)
+  })
+
   return container.innerHTML
+}
+
+function looksLikeLocalPath(value: string): boolean {
+  const text = value.trim()
+  if (text.length < 3 || text.length > 500 || /[\r\n\0]/.test(text)) {
+    return false
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/i.test(text) && !/^[a-z]:[\\/]/i.test(text)) {
+    return false
+  }
+
+  const isWindowsAbsolute = /^[a-z]:[\\/][^<>:"|?*]+$/i.test(text)
+  const isUncPath = /^\\\\[^\\/:*?"<>|\r\n]+\\[^\\/:*?"<>|\r\n]+/.test(text)
+  const isPosixAbsolute = /^\/(?:[^/\0]+\/)+[^/\0]*$/.test(text)
+
+  return isWindowsAbsolute || isUncPath || isPosixAbsolute
 }
 
 function parseMarkdown(content: string): { html: string; codeBlocks: CodeBlock[] } {
@@ -118,6 +149,7 @@ const BASE_PROSE_CLASSES = `markdown-prose prose prose-sm max-w-none text-[var(-
   prose-table:my-0 prose-table:w-full prose-table:table-auto prose-table:text-sm
   prose-th:bg-[var(--color-surface-info)] prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:whitespace-normal prose-th:break-words prose-th:align-top prose-th:border-b prose-th:border-[var(--color-border)]
   prose-td:px-3 prose-td:py-2 prose-td:border-b prose-td:border-[var(--color-border)] prose-td:whitespace-normal prose-td:break-words prose-td:align-top prose-td:bg-[var(--color-surface)]
+  [&_.local-path-chip]:inline [&_.local-path-chip]:rounded-md [&_.local-path-chip]:border [&_.local-path-chip]:border-[var(--color-border)] [&_.local-path-chip]:bg-[var(--color-code-bg)] [&_.local-path-chip]:px-1.5 [&_.local-path-chip]:py-0.5 [&_.local-path-chip]:font-[var(--font-mono)] [&_.local-path-chip]:text-[13px] [&_.local-path-chip]:text-[var(--color-text-accent)] [&_.local-path-chip]:break-all [&_.local-path-chip]:hover:underline [&_.local-path-chip]:focus-visible:outline-none [&_.local-path-chip]:focus-visible:ring-2 [&_.local-path-chip]:focus-visible:ring-[var(--color-border-focus)]
   [&_.md-table-wrap]:my-5 [&_.md-table-wrap]:overflow-x-auto [&_.md-table-wrap]:rounded-xl [&_.md-table-wrap]:border [&_.md-table-wrap]:border-[var(--color-border)] [&_.md-table-wrap]:bg-[var(--color-surface-container-lowest)]`
 
 const DOCUMENT_PROSE_CLASSES = `
@@ -179,6 +211,22 @@ export function MarkdownRenderer({ content, variant = 'default', className }: Pr
 
   const handleClick = useCallback(async (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null
+    const pathButton = target?.closest<HTMLButtonElement>('[data-open-local-path]')
+    if (pathButton) {
+      event.preventDefault()
+      const localPath = pathButton.getAttribute('data-open-local-path')
+      if (!localPath) return
+      try {
+        await filesystemApi.reveal(localPath)
+      } catch {
+        pathButton.setAttribute('data-open-error', 'true')
+        window.setTimeout(() => {
+          pathButton.removeAttribute('data-open-error')
+        }, 1500)
+      }
+      return
+    }
+
     const button = target?.closest<HTMLButtonElement>('[data-copy-code]')
     if (!button) return
 

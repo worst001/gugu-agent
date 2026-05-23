@@ -27,6 +27,13 @@ const DEFAULT_RECONNECT_GIVE_UP_MS = 600_000
 const DEFAULT_PING_INTERVAL = 10000
 const DEFAULT_KEEPALIVE_INTERVAL = 300_000 // 5 minutes
 
+function getEnvMs(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
 /**
  * Threshold for detecting system sleep/wake. If the gap between consecutive
  * reconnection attempts exceeds this, the machine likely slept. We reset
@@ -772,6 +779,12 @@ export class WebSocketTransport implements Transport {
       return
     }
 
+    const keepAliveIntervalMs = getEnvMs(
+      'CC_HAHA_SDK_WS_KEEPALIVE_INTERVAL_MS',
+      DEFAULT_KEEPALIVE_INTERVAL,
+    )
+    if (keepAliveIntervalMs <= 0) return
+
     this.keepAliveInterval = setInterval(() => {
       if (this.state === 'connected' && this.ws) {
         try {
@@ -788,7 +801,7 @@ export class WebSocketTransport implements Transport {
           logForDiagnosticsNoPII('error', 'cli_websocket_keepalive_failed')
         }
       }
-    }, DEFAULT_KEEPALIVE_INTERVAL)
+    }, keepAliveIntervalMs)
   }
 
   private stopKeepaliveInterval(): void {

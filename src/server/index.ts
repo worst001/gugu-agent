@@ -15,7 +15,7 @@ import { handleProxyRequest } from './proxy/handler.js'
 import { ProviderService } from './services/providerService.js'
 import { handleHahaOAuthCallback } from './api/haha-oauth.js'
 import { ensureDesktopCliLauncherInstalled } from './services/desktopCliLauncherService.js'
-import { bootstrapBundledAgentPack } from './services/bundledAgentPackService.js'
+import { ensureBundledAgentPackBootstrapped } from './services/bundledAgentPackService.js'
 
 function readArgValue(flag: string): string | undefined {
   const args = process.argv.slice(2)
@@ -234,7 +234,7 @@ export function startServer(port = PORT, host = HOST) {
     )
   })
 
-  void bootstrapBundledAgentPack().catch((error) => {
+  void ensureBundledAgentPackBootstrapped().catch((error) => {
     console.error(
       '[bundled-agent-pack] failed to install bundled skills/plugins:',
       error instanceof Error ? error.message : error,

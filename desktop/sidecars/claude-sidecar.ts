@@ -18,6 +18,7 @@
  */
 
 import { parseLauncherArgs, resolveSidecarInvocation } from './launcherRouting'
+import { BUNDLED_ADAPTERS, startBundledAdapter } from './.generated/bundledAdapters.generated.ts'
 
 const rawArgs = process.argv.slice(2)
 const invocation = resolveSidecarInvocation(rawArgs)
@@ -113,43 +114,56 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
   const config = loadConfig()
 
   let started = 0
+  let attemptedStart = 0
 
   if (enableFeishu) {
-    if (!config.feishu.appId || !config.feishu.appSecret) {
+    if (!BUNDLED_ADAPTERS.feishu) {
+      console.warn('[claude-sidecar] --feishu requested but Feishu SDK is not bundled in this build — skipping')
+    } else if (!config.feishu.appId || !config.feishu.appSecret) {
       console.warn(
         '[claude-sidecar] --feishu requested but FEISHU_APP_ID / FEISHU_APP_SECRET missing in env or ~/.claude/adapters.json — skipping',
       )
     } else {
       console.log('[claude-sidecar] starting Feishu adapter')
       // 副作用 import：feishu/index.ts 顶层会自动 new WSClient + start()
-      await import('../../adapters/feishu/index.ts')
-      started += 1
+      attemptedStart += 1
+      if (await startBundledAdapter('feishu')) {
+        started += 1
+      }
     }
   }
 
   if (enableTelegram) {
-    if (!config.telegram.botToken) {
+    if (!BUNDLED_ADAPTERS.telegram) {
+      console.warn('[claude-sidecar] --telegram requested but Telegram SDK is not bundled in this build — skipping')
+    } else if (!config.telegram.botToken) {
       console.warn(
         '[claude-sidecar] --telegram requested but TELEGRAM_BOT_TOKEN missing in env or ~/.claude/adapters.json — skipping',
       )
     } else {
       console.log('[claude-sidecar] starting Telegram adapter')
       // 副作用 import：telegram/index.ts 顶层会自动 bot.start()
-      await import('../../adapters/telegram/index.ts')
-      started += 1
+      attemptedStart += 1
+      if (await startBundledAdapter('telegram')) {
+        started += 1
+      }
     }
   }
 
   if (enableDingtalk) {
     const hasAppCredentials = Boolean(config.dingtalk.clientId && config.dingtalk.clientSecret)
-    if (!hasAppCredentials) {
+    if (!BUNDLED_ADAPTERS.dingtalk) {
+      console.warn('[claude-sidecar] --dingtalk requested but DingTalk SDK is not bundled in this build — skipping')
+    } else if (!hasAppCredentials) {
       console.warn(
         '[claude-sidecar] --dingtalk requested but DINGTALK_CLIENT_ID / DINGTALK_CLIENT_SECRET missing in env or ~/.claude/adapters.json — skipping',
       )
     } else {
       console.log('[claude-sidecar] starting DingTalk adapter')
-      await import('../../adapters/dingtalk/index.ts')
-      started += 1
+      attemptedStart += 1
+      if (await startBundledAdapter('dingtalk')) {
+        started += 1
+      }
     }
   }
 
@@ -167,6 +181,7 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
       )
     } else {
       console.log('[claude-sidecar] starting WeCom adapter')
+      attemptedStart += 1
       try {
         await import('../../adapters/wecom/index.ts')
         started += 1
@@ -182,22 +197,30 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
   if (enableQq) {
     const hasOfficialBot = Boolean(config.qq.appId && (config.qq.appSecret || config.qq.token))
     const hasOneBotBridge = Boolean(config.qq.oneBotUrl)
-    if (!hasOfficialBot && !hasOneBotBridge) {
+    if (!BUNDLED_ADAPTERS.qq) {
+      console.warn('[claude-sidecar] --qq requested but QQ SDK is not bundled in this build — skipping')
+    } else if (!hasOfficialBot && !hasOneBotBridge) {
       console.warn(
         '[claude-sidecar] --qq requested but QQ_APP_ID / QQ_APP_SECRET or QQ_ONEBOT_URL missing in env or ~/.claude/adapters.json — skipping',
       )
     } else {
       console.log('[claude-sidecar] starting QQ adapter')
-      await import('../../adapters/qq/index.ts')
-      started += 1
+      attemptedStart += 1
+      if (await startBundledAdapter('qq')) {
+        started += 1
+      }
     }
   }
 
   if (started === 0) {
-    console.error(
-      '[claude-sidecar] no adapter could be started — check credentials in env or ~/.claude/adapters.json',
-    )
-    process.exit(1)
+    const message =
+      '[claude-sidecar] no adapter could be started - check credentials in env or ~/.claude/adapters.json'
+    if (attemptedStart > 0) {
+      console.error(message)
+      process.exit(1)
+    }
+    console.warn(message)
+    process.exit(0)
   }
 
   // 让进程保持存活：两个 adapter 都通过 long-lived WebSocket（Lark WSClient

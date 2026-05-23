@@ -6,6 +6,7 @@ import { CopyButton } from '../shared/CopyButton'
 import { useTranslation } from '../../i18n'
 import type { TranslationKey } from '../../i18n'
 import { InlineImageGallery } from './InlineImageGallery'
+import { filesystemApi } from '../../api/filesystem'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore, type WorkbenchTab } from '../../stores/workbenchStore'
 import type { AgentTaskNotification } from '../../types/chat'
@@ -36,12 +37,14 @@ const TOOL_ICONS: Record<string, string> = {
 
 export function ToolCallBlock({ toolUseId, toolName, input, result, compact = false }: Props) {
   const [expanded, setExpanded] = useState(false)
+  const [revealFailed, setRevealFailed] = useState(false)
   const t = useTranslation()
   const activeTabId = useTabStore((s) => s.activeTabId)
   const openWorkbench = useWorkbenchStore((s) => s.openWorkbench)
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
   const icon = TOOL_ICONS[toolName] || 'build'
   const filePath = getToolFilePath(obj)
+  const canRevealFilePath = Boolean(filePath && isRevealableLocalPath(filePath))
   const summary = getToolSummary(toolName, obj, t)
   const outputSummary = getToolResultSummary(
     toolName,
@@ -93,7 +96,7 @@ export function ToolCallBlock({ toolUseId, toolName, input, result, compact = fa
             <span
               className={`shrink-0 text-[10px] ${
                 result.isError
-                  ? 'text-[var(--color-error)]'
+                  ? 'text-[var(--color-text-tertiary)]'
                   : 'text-[var(--color-outline)]'
               }`}
             >
@@ -101,7 +104,7 @@ export function ToolCallBlock({ toolUseId, toolName, input, result, compact = fa
             </span>
           )}
           {result?.isError && (
-            <span className="material-symbols-outlined shrink-0 text-[14px] text-[var(--color-error)]">error</span>
+            <span className="material-symbols-outlined shrink-0 text-[14px] text-[var(--color-warning)]">warning_amber</span>
           )}
           {expandable && (
             <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)]">
@@ -125,6 +128,27 @@ export function ToolCallBlock({ toolUseId, toolName, input, result, compact = fa
             title={t('workbench.openTool')}
           >
             <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+          </button>
+        )}
+        {filePath && canRevealFilePath && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                setRevealFailed(false)
+                await filesystemApi.reveal(filePath)
+              } catch {
+                setRevealFailed(true)
+                window.setTimeout(() => setRevealFailed(false), 1500)
+              }
+            }}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-surface-container-high)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
+              revealFailed ? 'text-[var(--color-error)]' : 'text-[var(--color-text-tertiary)]'
+            }`}
+            aria-label={t('filesystem.reveal')}
+            title={`${t('filesystem.reveal')}: ${filePath}`}
+          >
+            <span className="material-symbols-outlined text-[14px]">folder_open</span>
           </button>
         )}
       </div>
@@ -177,7 +201,7 @@ function renderPreview(
           <InlineImageGallery text={text} />
           <div className={`overflow-hidden rounded-lg border ${
             result.isError
-              ? 'border-[var(--color-error)]/20 bg-[var(--color-error-container)]/60'
+              ? 'border-[var(--color-warning)]/30 bg-[var(--color-warning)]/6'
               : 'border-[var(--color-border)] bg-[var(--color-surface)]'
           }`}>
             <div className="flex items-center justify-between border-b border-[var(--color-border)]/60 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-[var(--color-outline)]">
@@ -233,7 +257,7 @@ function getToolResultSummary(
   if (!text) return ''
 
   if (isError) {
-    return text.length <= 72 ? text : `${text.slice(0, 72)}…`
+    return text.length <= 72 ? text : `${text.slice(0, 72)}...`
   }
 
   if (toolName === 'Bash') return ''
@@ -246,7 +270,7 @@ function getToolResultSummary(
   const compact = text.replace(/\s+/g, ' ').trim()
   if (!compact) return ''
   if (compact.length <= 36) return compact
-  return `${compact.slice(0, 36)}…`
+  return `${compact.slice(0, 36)}...`
 }
 
 function getToolFilePath(input: Record<string, unknown>): string {
@@ -259,6 +283,10 @@ function getToolFilePath(input: Record<string, unknown>): string {
 
 function leafName(filePath: string): string {
   return filePath.split(/[\\/]/).filter(Boolean).pop() || filePath
+}
+
+function isRevealableLocalPath(filePath: string): boolean {
+  return /^[a-z]:[\\/]/i.test(filePath) || filePath.startsWith('/') || filePath.startsWith('\\\\')
 }
 
 function getToolSummary(toolName: string, obj: Record<string, unknown>, t?: (key: TranslationKey, params?: Record<string, string | number>) => string): string {

@@ -238,6 +238,88 @@ function mergeLocalUserEchoes(sessionId: string, messages: UIMessage[]): UIMessa
   return merged
 }
 
+function shouldKeepCurrentHistory(currentMessages: UIMessage[], incomingMessages: UIMessage[]): boolean {
+  if (currentMessages.length === 0) return false
+  if (incomingMessages.length === 0) return true
+  if (currentMessages.length < incomingMessages.length) return false
+  return incomingMessages.every((message, index) =>
+    areHistoryMessagesEquivalent(currentMessages[index], message)
+  )
+}
+
+function areHistoryMessagesEquivalent(a: UIMessage | undefined, b: UIMessage): boolean {
+  if (!a || a.type !== b.type) return false
+  return getHistoryComparablePayload(a) === getHistoryComparablePayload(b)
+}
+
+function getHistoryComparablePayload(message: UIMessage): string {
+  switch (message.type) {
+    case 'user_text':
+      return stableSerialize({
+        type: message.type,
+        content: message.content.trim(),
+        attachments: (message.attachments ?? []).map((attachment) => ({
+          type: attachment.type,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+        })),
+      })
+    case 'assistant_text':
+      return stableSerialize({ type: message.type, content: message.content.trim(), model: message.model })
+    case 'thinking':
+      return stableSerialize({ type: message.type, content: (message.rawContent ?? message.content).trim() })
+    case 'tool_use':
+      return stableSerialize({
+        type: message.type,
+        toolName: message.toolName,
+        toolUseId: message.toolUseId,
+        input: message.input,
+        parentToolUseId: message.parentToolUseId,
+      })
+    case 'tool_result':
+      return stableSerialize({
+        type: message.type,
+        toolUseId: message.toolUseId,
+        content: message.content,
+        isError: message.isError,
+        parentToolUseId: message.parentToolUseId,
+      })
+    case 'system':
+      return stableSerialize({ type: message.type, content: message.content.trim() })
+    case 'permission_request':
+      return stableSerialize({
+        type: message.type,
+        requestId: message.requestId,
+        toolName: message.toolName,
+        toolUseId: message.toolUseId,
+        input: message.input,
+        description: message.description,
+      })
+    case 'error':
+      return stableSerialize({ type: message.type, message: message.message, code: message.code })
+    case 'task_summary':
+      return stableSerialize({ type: message.type, tasks: message.tasks })
+  }
+}
+
+function stableSerialize(value: unknown): string {
+  try {
+    return JSON.stringify(sortSerializableValue(value)) ?? ''
+  } catch {
+    return String(value ?? '')
+  }
+}
+
+function sortSerializableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortSerializableValue)
+  if (!value || typeof value !== 'object') return value
+  const sorted: Record<string, unknown> = {}
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    sorted[key] = sortSerializableValue((value as Record<string, unknown>)[key])
+  }
+  return sorted
+}
+
 type ChatStore = {
   sessions: Record<string, PerSessionState>
 
@@ -901,9 +983,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       } = await fetchAndMapSessionHistory(sessionId)
       set((state) => {
         const session = state.sessions[sessionId]
-        if (!session || session.messages.length > 0) return state
+        if (!session) return state
+        const mergedMessages = mergeLocalUserEchoes(sessionId, uiMessages)
+        const hasLiveTurn = session.chatState !== 'idle' ||
+          Boolean(session.streamingText.trim()) ||
+          Boolean(session.streamingToolInput.trim()) ||
+          Boolean(session.pendingPermission) ||
+          Boolean(session.pendingComputerUsePermission)
+        if (hasLiveTurn) return state
+        if (shouldKeepCurrentHistory(session.messages, mergedMessages)) {
+          return state
+        }
         return { sessions: updateSessionIn(state.sessions, sessionId, (s) => ({
-          messages: mergeLocalUserEchoes(sessionId, uiMessages),
+          messages: mergedMessages,
           agentTaskNotifications: { ...s.agentTaskNotifications, ...restoredNotifications },
         })) }
       })

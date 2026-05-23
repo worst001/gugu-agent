@@ -350,6 +350,7 @@ describe('ConversationService', () => {
 
     expect(env.CC_HAHA_DESKTOP_AWAIT_MCP).toBe('1')
     expect(env.CC_HAHA_DESKTOP_AWAIT_MCP_TIMEOUT_MS).toBe('5000')
+    expect(env.CC_HAHA_SDK_WS_KEEPALIVE_INTERVAL_MS).toBe('30000')
   })
 
   test('buildSessionCliArgs forwards the selected runtime model and effort to the CLI process', () => {

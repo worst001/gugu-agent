@@ -42,7 +42,7 @@ describe('chat blocks', () => {
     expect(container.textContent).toContain('Read')
     expect(container.textContent).not.toContain('const answer = 42')
 
-    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(screen.getByRole('button', { name: /Read/i }))
 
     expect(container.textContent).toMatch(/Tool Input|工具输入/)
     expect(container.textContent).not.toContain('const answer = 42')
@@ -77,6 +77,8 @@ describe('chat blocks', () => {
 
     expect(container.textContent).toContain('Bash')
     expect(container.textContent).toContain('fatal: unrecognized argument: --no-stat')
+    expect(container.textContent).toContain('warning_amber')
+    expect(container.textContent).not.toContain('error_outline')
   })
 
   it('hides standalone unavailable WebSearch tool errors', () => {
@@ -98,8 +100,25 @@ describe('chat blocks', () => {
       />,
     )
 
-    expect(container.textContent).toContain('目标网站拒绝访问')
+    expect(container.textContent).toContain('Target access was blocked.')
     expect(container.textContent).not.toContain('Request failed with status code 403')
+  })
+
+  it('renders setup tool failures as soft actionable summaries', () => {
+    const { container } = render(
+      <ToolCallBlock
+        toolName="mcp__computer-use__screenshot"
+        input={{}}
+        result={{
+          content: "python venv creation failed with code 1: 'python' is not recognized as an internal or external command",
+          isError: true,
+        }}
+      />,
+    )
+
+    expect(container.textContent).toContain('Python environment is not ready')
+    expect(container.textContent).toContain('warning_amber')
+    expect(container.textContent).not.toContain('python venv creation failed')
   })
 
   it('opens a tool call in the right-side workbench', () => {

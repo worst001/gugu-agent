@@ -31,6 +31,7 @@ desktop/build-artifacts/
 desktop/src-tauri/binaries/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+desktop/sidecars/.generated/
 desktop/package-lock.json
 
 # Desktop brand asset candidates (keep only selected ones in public/)
@@ -51,6 +52,7 @@ docs/superpowers/
 
 # Temp server/web logs
 .tmp-*.log
+desktop/gugu-dev.*.log
 
 # Debug / temp screenshots (root dir only)
 /*.png

@@ -26,6 +26,7 @@ import {
   type AgentDefinition as SharedAgentDefinition,
 } from '../../tools/AgentTool/loadAgentsDir.js'
 import { getCwd } from '../../utils/cwd.js'
+import { ensureBundledAgentPackBootstrapped } from '../services/bundledAgentPackService.js'
 
 const agentService = new AgentService()
 
@@ -59,6 +60,7 @@ async function handleAgents(
 
   // ── GET /api/agents ──────────────────────────────────────────────────
   if (method === 'GET' && !agentName) {
+    await ensureBundledAgentPackBootstrapped()
     const cwd = url.searchParams.get('cwd') || getCwd()
     const { activeAgents, allAgents } = await getAgentDefinitionsWithOverrides(cwd)
     const resolvedAgents = resolveAgentOverrides(allAgents, activeAgents)

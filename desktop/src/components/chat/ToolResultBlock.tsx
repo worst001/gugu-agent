@@ -38,7 +38,7 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
   return (
     <div className={`mb-2 overflow-hidden rounded-lg border ${
       isError
-        ? 'border-[var(--color-error)]/25 bg-[var(--color-error-container)]/15'
+        ? 'border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5'
         : 'border-[var(--color-outline-variant)]/20'
     }`}>
       {/* Status header */}
@@ -47,13 +47,13 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
         onClick={() => setExpanded((value) => !value)}
         className={`flex w-full items-center justify-between px-3 py-2 text-left text-[11px] font-semibold ${
         isError
-          ? 'bg-[var(--color-error-container)]/55 text-[var(--color-error)]'
+          ? 'bg-[var(--color-warning)]/10 text-[var(--color-text-secondary)]'
           : 'bg-[var(--color-surface-container-high)] text-[var(--color-outline)]'
       }`}
       >
         <span className="flex items-center gap-1.5">
           <span className="material-symbols-outlined text-[16px]">
-            {isError ? 'error_outline' : 'check_circle'}
+            {isError ? 'warning_amber' : 'check_circle'}
           </span>
           {isError
             ? t('tool.callFailed')
@@ -63,7 +63,7 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
         </span>
         <span className={`rounded-full px-2 py-0.5 text-[10px] ${
           isError
-            ? 'bg-[var(--color-error)]/10'
+            ? 'bg-[var(--color-warning)]/12 text-[var(--color-text-secondary)]'
             : 'bg-[var(--color-diff-added-bg)] text-[var(--color-diff-added-text)]'
         }`}>
           {isError ? t('tool.error') : t('tool.success')}
@@ -76,7 +76,7 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
       {/* Content */}
       {expanded ? (
         isError ? (
-          <div className="px-3 py-2.5 text-[12px] leading-[1.55] whitespace-pre-wrap break-words text-[var(--color-error)]">
+          <div className="px-3 py-2.5 text-[12px] leading-[1.55] whitespace-pre-wrap break-words text-[var(--color-text-secondary)]">
             {detailsText}
           </div>
         ) : (
@@ -93,7 +93,7 @@ export function ToolResultBlock({ content, isError, toolName, standalone = true 
             : 'bg-[var(--color-surface-container-lowest)] font-[var(--font-mono)] text-[10px] text-[var(--color-text-tertiary)]'
         }`}>
           {preview}
-          {hasMore ? '…' : ''}
+          {hasMore ? '...' : ''}
         </div>
       )}
 

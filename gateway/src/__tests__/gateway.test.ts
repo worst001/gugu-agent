@@ -179,7 +179,7 @@ describe('Gugu Gateway', () => {
     expect(upstreamCalls).toBe(1)
   })
 
-  test('forces free plan message requests onto the fast DeepSeek model', async () => {
+  test('keeps free plan main requests on the managed DeepSeek main model', async () => {
     let forwardedModel = ''
     globalThis.fetch = (async (_input, init) => {
       forwardedModel = JSON.parse(String(init?.body ?? '{}')).model
@@ -193,6 +193,30 @@ describe('Gugu Gateway', () => {
 
     const response = await handler(jsonRequest('/v1/messages', {
       model: 'gugu-managed-main',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'hi' }],
+    }, registered.deviceToken))
+    const events = store.listUsageEvents({ deviceToken: registered.deviceToken, limit: 10 })
+
+    expect(response.status).toBe(200)
+    expect(forwardedModel).toBe('deepseek-v4-pro')
+    expect(events[0].model).toBe('deepseek-v4-pro')
+  })
+
+  test('routes explicit fast managed requests to the fast DeepSeek model', async () => {
+    let forwardedModel = ''
+    globalThis.fetch = (async (_input, init) => {
+      forwardedModel = JSON.parse(String(init?.body ?? '{}')).model
+      return jsonResponse({ id: 'msg_1', type: 'message', content: [] })
+    }) as typeof fetch
+
+    const { handler, store } = makeGateway({ freeCredits: 2, deepseekApiKey: 'deepseek-key' })
+    const registered = await (await handler(jsonRequest('/v1/devices', { deviceId: 'device-1' }))).json() as {
+      deviceToken: string
+    }
+
+    const response = await handler(jsonRequest('/v1/messages', {
+      model: 'gugu-managed-fast',
       max_tokens: 16,
       messages: [{ role: 'user', content: 'hi' }],
     }, registered.deviceToken))
@@ -284,7 +308,7 @@ describe('Gugu Gateway', () => {
     expect(summary?.entitlement.creditsRemaining).toBe(1)
     expect(events).toHaveLength(1)
     expect(events[0].kind).toBe('message')
-    expect(events[0].model).toBe('deepseek-v4-flash')
+    expect(events[0].model).toBe('deepseek-v4-pro')
     expect(adjusted.creditsRemaining).toBe(5)
     expect(adjusted.creditsTotal).toBe(10)
   })

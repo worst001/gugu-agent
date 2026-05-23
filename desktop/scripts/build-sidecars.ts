@@ -1,9 +1,41 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 
 const desktopRoot = path.resolve(import.meta.dir, '..')
 const repoRoot = path.resolve(desktopRoot, '..')
+const adaptersRoot = path.join(repoRoot, 'adapters')
 const binariesDir = path.join(desktopRoot, 'src-tauri', 'binaries')
+const generatedAdaptersModule = path.join(
+  desktopRoot,
+  'sidecars',
+  '.generated',
+  'bundledAdapters.generated.ts',
+)
+const optionalAdapterPackages = {
+  feishu: '@larksuiteoapi/node-sdk',
+  telegram: 'grammy',
+  dingtalk: 'dingtalk-stream',
+  qq: 'qq-official-bot',
+} as const
+const optionalAdapterImports = {
+  feishu: {
+    label: 'Feishu',
+    importPath: '../../../adapters/feishu/index.ts',
+  },
+  telegram: {
+    label: 'Telegram',
+    importPath: '../../../adapters/telegram/index.ts',
+  },
+  dingtalk: {
+    label: 'DingTalk',
+    importPath: '../../../adapters/dingtalk/index.ts',
+  },
+  qq: {
+    label: 'QQ',
+    importPath: '../../../adapters/qq/index.ts',
+  },
+} satisfies Record<keyof typeof optionalAdapterPackages, { label: string; importPath: string }>
 
 const targetTriple =
   process.env.TAURI_ENV_TARGET_TRIPLE ||
@@ -99,6 +131,17 @@ async function compileExecutable({
   productName: string
   bunTarget: string
 }) {
+  const adapterAvailability = getOptionalAdapterAvailability()
+  const missingAdapterPackages = Object.entries(adapterAvailability)
+    .filter(([, available]) => !available)
+    .map(([adapter]) => adapter)
+  if (missingAdapterPackages.length > 0) {
+    console.warn(
+      `[build-sidecars] optional adapter SDKs not installed; disabling adapters in this build: ${missingAdapterPackages.join(', ')}`,
+    )
+  }
+  await writeBundledAdaptersModule(adapterAvailability)
+
   const result = await Bun.build({
     entrypoints: [entrypoint],
     // minify whitespace + identifiers + dead-code 大概能省 5-15% 的二进制大小，
@@ -164,6 +207,78 @@ async function compileExecutable({
   if (process.platform === 'darwin') {
     await adHocSignMacBinary(outputPath)
   }
+}
+
+function getOptionalAdapterAvailability(): Record<keyof typeof optionalAdapterPackages, boolean> {
+  const availability = {} as Record<keyof typeof optionalAdapterPackages, boolean>
+  for (const [adapter, packageName] of Object.entries(optionalAdapterPackages)) {
+    availability[adapter as keyof typeof optionalAdapterPackages] = canResolvePackage(packageName)
+  }
+  return availability
+}
+
+async function writeBundledAdaptersModule(
+  availability: Record<keyof typeof optionalAdapterPackages, boolean>,
+): Promise<void> {
+  await mkdir(path.dirname(generatedAdaptersModule), { recursive: true })
+
+  const adapterCases = Object.entries(optionalAdapterImports)
+    .map(([adapter, spec]) => {
+      if (!availability[adapter as keyof typeof optionalAdapterPackages]) {
+        return `    case '${adapter}':
+      console.warn('[claude-sidecar] --${adapter} requested but ${spec.label} SDK is not bundled in this build - skipping')
+      return false`
+      }
+
+      return `    case '${adapter}':
+      return startAdapter('${spec.label}', () => import('${spec.importPath}'))`
+    })
+    .join('\n')
+
+  const source = `export type BundledAdapterId = 'feishu' | 'telegram' | 'dingtalk' | 'qq'
+
+export const BUNDLED_ADAPTERS = ${JSON.stringify(availability, null, 2)} as const
+
+export async function startBundledAdapter(adapter: BundledAdapterId): Promise<boolean> {
+  switch (adapter) {
+${adapterCases}
+    default:
+      return false
+  }
+}
+
+async function startAdapter(label: string, importer: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await importer()
+    return true
+  } catch (err) {
+    console.error(
+      \`[claude-sidecar] failed to start \${label} adapter:\`,
+      err instanceof Error ? err.message : err,
+    )
+    return false
+  }
+}
+`
+
+  await writeFile(generatedAdaptersModule, source, 'utf8')
+}
+
+function canResolvePackage(packageName: string): boolean {
+  const repoRequire = createRequire(path.join(repoRoot, 'package.json'))
+  const adaptersRequire = createRequire(path.join(adaptersRoot, 'package.json'))
+
+  try {
+    repoRequire.resolve(packageName)
+    return true
+  } catch {}
+
+  try {
+    adaptersRequire.resolve(packageName)
+    return true
+  } catch {}
+
+  return false
 }
 
 async function adHocSignMacBinary(outputPath: string) {

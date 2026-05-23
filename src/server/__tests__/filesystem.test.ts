@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import * as fs from 'fs'
 import * as fsp from 'fs/promises'
+import * as os from 'os'
 import * as path from 'path'
-import { handleFilesystemRoute } from '../api/filesystem.js'
+import { buildRevealPathCommand, handleFilesystemRoute } from '../api/filesystem.js'
 
 const cleanupDirs = new Set<string>()
 
@@ -23,11 +24,12 @@ afterEach(async () => {
 
 describe('filesystem API', () => {
   it('allows browsing a directory under the user home directory', async () => {
-    const homeFixtureDir = await fsp.mkdtemp(path.join(process.env.HOME || path.sep, 'claude-filesystem-test-'))
+    const homeFixtureDir = await fsp.mkdtemp(path.join(os.homedir(), 'claude-filesystem-test-'))
     cleanupDirs.add(homeFixtureDir)
     await fsp.writeFile(path.join(homeFixtureDir, 'note.txt'), 'hello')
 
     const res = await handleFilesystemRoute(
+      new Request('http://localhost/api/filesystem/browse'),
       '/api/filesystem/browse',
       makeUrl('/api/filesystem/browse', {
         path: homeFixtureDir,
@@ -53,6 +55,7 @@ describe('filesystem API', () => {
     )
 
     const browseRes = await handleFilesystemRoute(
+      new Request('http://localhost/api/filesystem/browse'),
       '/api/filesystem/browse',
       makeUrl('/api/filesystem/browse', {
         path: canonicalTmpDir,
@@ -64,6 +67,7 @@ describe('filesystem API', () => {
     expect(browseBody.entries.some((entry) => entry.name === 'preview.png')).toBe(true)
 
     const fileRes = await handleFilesystemRoute(
+      new Request('http://localhost/api/filesystem/file'),
       '/api/filesystem/file',
       makeUrl('/api/filesystem/file', {
         path: imagePath,
@@ -71,5 +75,24 @@ describe('filesystem API', () => {
     )
     expect(fileRes.status).toBe(200)
     expect(fileRes.headers.get('Content-Type')).toBe('image/png')
+  })
+
+  it('builds native file browser commands for files and directories', () => {
+    expect(buildRevealPathCommand('C:\\work with spaces\\note.txt', false, 'win32')).toEqual({
+      command: 'explorer.exe',
+      args: ['/select,', 'C:\\work with spaces\\note.txt'],
+    })
+    expect(buildRevealPathCommand('/Users/me/project', true, 'darwin')).toEqual({
+      command: 'open',
+      args: [path.resolve('/Users/me/project')],
+    })
+    expect(buildRevealPathCommand('/Users/me/My Project/note.txt', false, 'darwin')).toEqual({
+      command: 'open',
+      args: ['-R', path.resolve('/Users/me/My Project/note.txt')],
+    })
+    expect(buildRevealPathCommand('/home/me/project/file.ts', false, 'linux')).toEqual({
+      command: 'xdg-open',
+      args: [path.dirname(path.resolve('/home/me/project/file.ts'))],
+    })
   })
 })

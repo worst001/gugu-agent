@@ -103,6 +103,8 @@ const DEFAULT_TURN_PROGRESS_REMINDER_MS = 60_000
 const DEFAULT_MODEL_STALL_NOTICE_MS = 5 * 60_000
 const DEFAULT_SDK_LIVENESS_TIMEOUT_MS = 2 * 60_000
 const DEFAULT_SDK_RECONNECT_GRACE_MS = 10 * 60_000
+const DEFAULT_SDK_RESTORED_PROGRESS_NOTICE_MS = 90_000
+const DEFAULT_SDK_RESTORED_IDLE_TIMEOUT_MS = 6 * 60_000
 const DEFAULT_TOOL_STALL_NOTICE_MS = 5 * 60_000
 const DEFAULT_TOOL_IDLE_TIMEOUT_MS = 30 * 60_000
 
@@ -117,6 +119,9 @@ type TurnMonitor = {
   lastStopReason: string | null
   currentMessageHasToolUse: boolean
   sdkDisconnectedAt: number | null
+  sdkReconnectCount: number
+  sdkRestoredAt: number | null
+  sdkRestoredProgressNoticeSent: boolean
   nextNoticeAt: number
   modelStallNoticeSent: boolean
   sdkDisconnectNoticeSent: boolean
@@ -218,6 +223,9 @@ function startTurnMonitor(sessionId: string): void {
     lastStopReason: null,
     currentMessageHasToolUse: false,
     sdkDisconnectedAt: conversationService.hasSdkConnection(sessionId) ? null : now,
+    sdkReconnectCount: 0,
+    sdkRestoredAt: null,
+    sdkRestoredProgressNoticeSent: false,
     nextNoticeAt: now + getEnvMs('CC_HAHA_TURN_PROGRESS_NOTICE_MS', DEFAULT_TURN_PROGRESS_NOTICE_MS),
     modelStallNoticeSent: false,
     sdkDisconnectNoticeSent: false,
@@ -266,6 +274,8 @@ function noteTurnActivity(sessionId: string, cliMsg: any): void {
 
   monitor.sdkDisconnectedAt = null
   monitor.sdkDisconnectNoticeSent = false
+  monitor.sdkRestoredAt = null
+  monitor.sdkRestoredProgressNoticeSent = false
   monitor.lastProgressAt = now
   monitor.nextNoticeAt = now + getEnvMs('CC_HAHA_TURN_PROGRESS_NOTICE_MS', DEFAULT_TURN_PROGRESS_NOTICE_MS)
 
@@ -336,6 +346,11 @@ function tickTurnMonitor(sessionId: string): void {
     return
   }
 
+  if (shouldRecoverForRestoredAgentIdle(monitor, now)) {
+    recoverStalledTurn(sessionId, 'Agent 连接恢复后仍长时间没有新进展，已中止本轮以恢复会话。')
+    return
+  }
+
   if (now >= monitor.nextNoticeAt) {
     broadcastToSession(sessionId, {
       type: 'status',
@@ -352,6 +367,26 @@ function tickTurnMonitor(sessionId: string): void {
       subtype: 'agent_recovery',
       message: 'Agent 连接暂时中断，正在等待自动重连。你可以继续等待，或手动停止后重试。',
       data: { reason: 'agent_connection_lost' },
+    })
+  }
+
+  if (
+    monitor.sdkRestoredAt !== null &&
+    !monitor.sdkRestoredProgressNoticeSent &&
+    now - monitor.sdkRestoredAt >= getEnvMs(
+      'CC_HAHA_SDK_RESTORED_PROGRESS_NOTICE_MS',
+      DEFAULT_SDK_RESTORED_PROGRESS_NOTICE_MS,
+    )
+  ) {
+    monitor.sdkRestoredProgressNoticeSent = true
+    broadcastToSession(sessionId, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: 'Agent 连接已恢复，但本轮还没有新的输出；Gugu 会继续等待，并在超时后自动恢复会话。',
+      data: {
+        reason: 'agent_restored_without_progress',
+        reconnects: monitor.sdkReconnectCount,
+      },
     })
   }
 
@@ -403,6 +438,19 @@ function shouldRecoverForMissingAgentHeartbeat(
   return noLivenessMs >= getEnvMs('CC_HAHA_SDK_LIVENESS_TIMEOUT_MS', DEFAULT_SDK_LIVENESS_TIMEOUT_MS)
 }
 
+function shouldRecoverForRestoredAgentIdle(
+  monitor: TurnMonitor,
+  now: number,
+): boolean {
+  if (monitor.sdkRestoredAt === null) return false
+  if (monitor.phase === 'permission_pending') return false
+  const timeoutMs = getEnvMs(
+    'CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS',
+    DEFAULT_SDK_RESTORED_IDLE_TIMEOUT_MS,
+  )
+  return timeoutMs > 0 && now - monitor.sdkRestoredAt >= timeoutMs
+}
+
 function noteSdkConnected(sessionId: string): void {
   const monitor = sessionTurnMonitors.get(sessionId)
   if (!monitor) return
@@ -410,6 +458,9 @@ function noteSdkConnected(sessionId: string): void {
 
   monitor.sdkDisconnectedAt = null
   monitor.sdkDisconnectNoticeSent = false
+  monitor.sdkReconnectCount += 1
+  monitor.sdkRestoredAt = Date.now()
+  monitor.sdkRestoredProgressNoticeSent = false
   broadcastToSession(sessionId, {
     type: 'system_notification',
     subtype: 'agent_recovery',
@@ -427,6 +478,8 @@ function noteSdkDisconnected(sessionId: string): void {
   const monitor = sessionTurnMonitors.get(sessionId)
   if (!monitor || monitor.sdkDisconnectedAt !== null) return
   monitor.sdkDisconnectedAt = Date.now()
+  monitor.sdkRestoredAt = null
+  monitor.sdkRestoredProgressNoticeSent = false
 }
 
 function recoverStalledTurn(sessionId: string, message: string): void {
@@ -2141,11 +2194,20 @@ export const __testing = {
       lastProgressAt: monitor.lastProgressAt,
       lastKeepAliveAt: monitor.lastKeepAliveAt,
       sdkDisconnectedAt: monitor.sdkDisconnectedAt,
+      sdkReconnectCount: monitor.sdkReconnectCount,
+      sdkRestoredAt: monitor.sdkRestoredAt,
+      sdkRestoredProgressNoticeSent: monitor.sdkRestoredProgressNoticeSent,
       nextNoticeAt: monitor.nextNoticeAt,
     }
   },
   noteTurnActivity(sessionId: string, cliMsg: any) {
     noteTurnActivity(sessionId, cliMsg)
+  },
+  noteSdkConnected(sessionId: string) {
+    noteSdkConnected(sessionId)
+  },
+  noteSdkDisconnected(sessionId: string) {
+    noteSdkDisconnected(sessionId)
   },
   scheduleSessionCleanup(sessionId: string, delayMs: number) {
     scheduleSessionCleanup(sessionId, delayMs)
@@ -2163,6 +2225,10 @@ export const __testing = {
       ? shouldRecoverForMissingAgentHeartbeat(monitor, now, sdkConnected)
       : false
   },
+  shouldRecoverForRestoredAgentIdle(sessionId: string, now: number) {
+    const monitor = sessionTurnMonitors.get(sessionId)
+    return monitor ? shouldRecoverForRestoredAgentIdle(monitor, now) : false
+  },
   setTurnMonitor(
     sessionId: string,
     partial: Partial<Omit<TurnMonitor, 'sessionId' | 'callback' | 'timer'>> = {},
@@ -2178,6 +2244,9 @@ export const __testing = {
       lastStopReason: partial.lastStopReason ?? null,
       currentMessageHasToolUse: partial.currentMessageHasToolUse ?? false,
       sdkDisconnectedAt: partial.sdkDisconnectedAt ?? null,
+      sdkReconnectCount: partial.sdkReconnectCount ?? 0,
+      sdkRestoredAt: partial.sdkRestoredAt ?? null,
+      sdkRestoredProgressNoticeSent: partial.sdkRestoredProgressNoticeSent ?? false,
       nextNoticeAt: partial.nextNoticeAt ?? now + DEFAULT_TURN_PROGRESS_NOTICE_MS,
       modelStallNoticeSent: partial.modelStallNoticeSent ?? false,
       sdkDisconnectNoticeSent: partial.sdkDisconnectNoticeSent ?? false,

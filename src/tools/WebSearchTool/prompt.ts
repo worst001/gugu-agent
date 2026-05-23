@@ -25,7 +25,7 @@ CRITICAL REQUIREMENT - You MUST follow this:
 
 Usage notes:
   - Domain filtering is supported to include or block specific websites
-  - Web search is only available in the US
+  - Use web search when the answer may depend on recent news, current office holders, prices, schedules, releases, or other time-sensitive facts
 
 IMPORTANT - Use the correct year in search queries:
   - The current month is ${currentMonthYear}. You MUST use this year when searching for recent information, documentation, or current events.

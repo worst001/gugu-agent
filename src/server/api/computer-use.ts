@@ -35,6 +35,7 @@ const venvRoot = join(runtimeStateRoot, 'venv')
 const installStampPath = join(runtimeStateRoot, 'requirements.sha256')
 
 const isWindows = process.platform === 'win32'
+const isMac = process.platform === 'darwin'
 const REQUIREMENTS_CONTENT = isWindows ? REQUIREMENTS_WIN32 : REQUIREMENTS_DARWIN
 
 function getPythonCommandEnv(): Record<string, string> | undefined {
@@ -198,7 +199,13 @@ async function checkStatus(): Promise<EnvStatus> {
 
 type SetupResult = {
   success: boolean
-  steps: { name: string; ok: boolean; message: string }[]
+  steps: SetupStep[]
+}
+
+type SetupStep = {
+  name: string
+  ok: boolean
+  message: string
 }
 
 async function runSetup(): Promise<SetupResult> {
@@ -399,6 +406,104 @@ async function listInstalledApps(): Promise<{ bundleId: string; displayName: str
   }
 }
 
+async function findMacBrewCommand(): Promise<{
+  command: string
+  version: { ok: boolean; stdout: string; stderr: string; code: number }
+} | null> {
+  for (const command of ['brew', '/opt/homebrew/bin/brew', '/usr/local/bin/brew']) {
+    const version = await runCommand(command, ['--version'])
+    if (version.ok) return { command, version }
+  }
+  return null
+}
+
+async function installPython(): Promise<SetupResult> {
+  const steps: SetupStep[] = []
+
+  if (isMac) {
+    const brew = await findMacBrewCommand()
+    if (!brew) {
+      return {
+        success: false,
+        steps: [{
+          name: 'homebrew',
+          ok: false,
+          message: 'Homebrew not found. Install Homebrew or download Python 3 manually, then click Recheck Status.',
+        }],
+      }
+    }
+    steps.push({
+      name: 'homebrew',
+      ok: true,
+      message: (brew.version.stdout || brew.version.stderr || 'Homebrew found').split('\n')[0],
+    })
+
+    const installResult = await runCommand(brew.command, ['install', 'python@3.12'])
+    if (!installResult.ok) {
+      const output = installResult.stderr || installResult.stdout
+      steps.push({
+        name: 'python',
+        ok: false,
+        message: `Python install failed: ${output.slice(0, 500)}`,
+      })
+      return { success: false, steps }
+    }
+
+    steps.push({
+      name: 'python',
+      ok: true,
+      message: 'Python 3 install command finished. If Gugu still cannot detect it, restart Gugu or click Recheck Status.',
+    })
+    return { success: true, steps }
+  }
+
+  if (!isWindows) {
+    return {
+      success: false,
+      steps: [{ name: 'platform', ok: false, message: '一键安装 Python 仅支持 Windows。' }],
+    }
+  }
+
+  const wingetCheck = await runCommand('winget', ['--version'])
+  if (!wingetCheck.ok) {
+    return {
+      success: false,
+      steps: [{
+        name: 'winget',
+        ok: false,
+        message: '未找到 winget，请使用“下载 Python 3”手动安装。',
+      }],
+    }
+  }
+  steps.push({ name: 'winget', ok: true, message: `winget ${wingetCheck.stdout || wingetCheck.stderr}` })
+
+  const installResult = await runCommand('winget', [
+    'install',
+    '--id',
+    'Python.Python.3.12',
+    '-e',
+    '--silent',
+    '--accept-package-agreements',
+    '--accept-source-agreements',
+  ])
+
+  if (!installResult.ok) {
+    steps.push({
+      name: 'python',
+      ok: false,
+      message: `Python 安装失败: ${(installResult.stderr || installResult.stdout).slice(0, 500)}`,
+    })
+    return { success: false, steps }
+  }
+
+  steps.push({
+    name: 'python',
+    ok: true,
+    message: 'Python 3 安装命令已完成。若仍检测不到，请重启 Gugu 或手动重新检测。',
+  })
+  return { success: true, steps }
+}
+
 // ============================================================================
 // Route handler
 // ============================================================================
@@ -417,6 +522,11 @@ export async function handleComputerUseApi(
 
   if (action === 'setup' && req.method === 'POST') {
     const result = await runSetup()
+    return Response.json(result)
+  }
+
+  if (action === 'install-python' && req.method === 'POST') {
+    const result = await installPython()
     return Response.json(result)
   }
 

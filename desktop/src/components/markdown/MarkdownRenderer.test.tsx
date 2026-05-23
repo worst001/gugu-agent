@@ -1,6 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
+
+vi.mock('../../api/filesystem', () => ({
+  filesystemApi: {
+    reveal: vi.fn(),
+  },
+}))
 
 vi.mock('../chat/CodeViewer', () => ({
   CodeViewer: ({ code, language }: { code: string; language?: string }) => (
@@ -17,8 +23,14 @@ vi.mock('../chat/MermaidRenderer', () => ({
 }))
 
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { filesystemApi } from '../../api/filesystem'
 
 describe('MarkdownRenderer', () => {
+  beforeEach(() => {
+    vi.mocked(filesystemApi.reveal).mockReset()
+    vi.mocked(filesystemApi.reveal).mockResolvedValue({ ok: true, path: 'D:\\work\\example.ts', isDirectory: false })
+  })
+
   it('applies document prose classes and custom width classes', () => {
     const { container } = render(
       <MarkdownRenderer
@@ -109,5 +121,14 @@ describe('MarkdownRenderer', () => {
     const link = screen.getByRole('link', { name: 'OpenAI' })
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  })
+
+  it('turns inline local paths into file browser buttons', () => {
+    render(<MarkdownRenderer content={'Updated `D:\\work\\example.ts`.'} />)
+
+    const pathButton = screen.getByRole('button', { name: 'D:\\work\\example.ts' })
+    fireEvent.click(pathButton)
+
+    expect(filesystemApi.reveal).toHaveBeenCalledWith('D:\\work\\example.ts')
   })
 })

@@ -7,6 +7,8 @@ import { PluginService } from '../services/pluginService.js'
 import { clearMarketplacesCache } from '../../utils/plugins/marketplaceManager.js'
 import { clearPluginCache } from '../../utils/plugins/pluginLoader.js'
 import { clearInstalledPluginsCache } from '../../utils/plugins/installedPluginsManager.js'
+import { clearAgentDefinitionsCache } from '../../tools/AgentTool/loadAgentsDir.js'
+import { handleApiRequest } from '../router.js'
 
 describe('bundled agent pack bootstrap', () => {
   let tmpDir: string
@@ -31,6 +33,7 @@ describe('bundled agent pack bootstrap', () => {
     clearMarketplacesCache()
     clearInstalledPluginsCache()
     clearPluginCache('bundled agent pack test cleanup')
+    clearAgentDefinitionsCache()
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
@@ -84,6 +87,49 @@ describe('bundled agent pack bootstrap', () => {
     expect(bundledPlugins.every((plugin) => plugin.enabled)).toBe(true)
     expect(bundledPlugins.every((plugin) => plugin.errors.length === 0)).toBe(true)
     expect(pluginList.marketplaces.some((item) => item.name === 'gugu-bundled')).toBe(true)
+  })
+
+  test('first API reads expose bundled agents, plugins, and skills with an empty user config', async () => {
+    const agentsRes = await handleApiRequest(
+      new Request('http://localhost/api/agents'),
+      new URL('http://localhost/api/agents'),
+    )
+    expect(agentsRes.status).toBe(200)
+    const agentsBody = await agentsRes.json() as {
+      allAgents: Array<{ agentType: string; source: string }>
+    }
+    expect(agentsBody.allAgents).toContainEqual(
+      expect.objectContaining({
+        agentType: 'compound-engineering:reviewer',
+        source: 'plugin',
+      }),
+    )
+
+    const skillsRes = await handleApiRequest(
+      new Request('http://localhost/api/skills'),
+      new URL('http://localhost/api/skills'),
+    )
+    expect(skillsRes.status).toBe(200)
+    const skillsBody = await skillsRes.json() as {
+      skills: Array<{ name: string; source: string }>
+    }
+    expect(skillsBody.skills).toContainEqual(
+      expect.objectContaining({
+        name: 'api-and-interface-design',
+        source: 'user',
+      }),
+    )
+
+    const pluginsRes = await handleApiRequest(
+      new Request('http://localhost/api/plugins'),
+      new URL('http://localhost/api/plugins'),
+    )
+    expect(pluginsRes.status).toBe(200)
+    const pluginsBody = await pluginsRes.json() as {
+      summary: { total: number; enabled: number }
+    }
+    expect(pluginsBody.summary.total).toBeGreaterThan(0)
+    expect(pluginsBody.summary.enabled).toBeGreaterThan(0)
   })
 })
 
@@ -160,6 +206,19 @@ async function writePluginManifest(
   await fs.writeFile(
     path.join(pluginDir, 'skills', name, 'SKILL.md'),
     `# ${name}\n`,
+    'utf-8',
+  )
+  await fs.mkdir(path.join(pluginDir, 'agents'), { recursive: true })
+  await fs.writeFile(
+    path.join(pluginDir, 'agents', 'reviewer.md'),
+    [
+      '---',
+      'name: reviewer',
+      'description: Reviews code and project changes.',
+      '---',
+      'Review code and project changes.',
+      '',
+    ].join('\n'),
     'utf-8',
   )
 }

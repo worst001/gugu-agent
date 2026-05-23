@@ -6,6 +6,7 @@ import { handlePluginsApi } from '../api/plugins.js'
 
 let tmpDir: string
 let originalConfigDir: string | undefined
+let originalPackDir: string | undefined
 
 function makeRequest(
   method: string,
@@ -30,7 +31,9 @@ describe('Plugins API', () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-plugins-api-'))
     originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+    originalPackDir = process.env.GUGU_AGENT_PACK_DIR
     process.env.CLAUDE_CONFIG_DIR = tmpDir
+    process.env.GUGU_AGENT_PACK_DIR = path.join(tmpDir, 'missing-agent-pack')
   })
 
   afterEach(async () => {
@@ -38,6 +41,11 @@ describe('Plugins API', () => {
       delete process.env.CLAUDE_CONFIG_DIR
     } else {
       process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+    }
+    if (originalPackDir === undefined) {
+      delete process.env.GUGU_AGENT_PACK_DIR
+    } else {
+      process.env.GUGU_AGENT_PACK_DIR = originalPackDir
     }
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
