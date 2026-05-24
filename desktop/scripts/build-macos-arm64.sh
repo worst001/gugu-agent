@@ -23,6 +23,8 @@ Usage:
 Environment:
   SKIP_INSTALL=1   Skip `bun install` in the repo root and desktop app.
   SIGN_BUILD=1     Remove the default `--no-sign` flag and allow signed builds.
+                   Signed builds require TAURI_SIGNING_PRIVATE_KEY and emit
+                   updater artifacts used by hot update.
   OPEN_OUTPUT=1    Open the canonical artifact output directory in Finder after a successful build.
 
 Examples:
@@ -66,6 +68,11 @@ if [[ "${SKIP_INSTALL:-0}" != "1" ]]; then
 
   echo "[build-macos-arm64] Installing desktop dependencies..."
   (cd "${DESKTOP_DIR}" && bun install)
+
+  if [[ -f "${REPO_ROOT}/adapters/package.json" ]]; then
+    echo "[build-macos-arm64] Installing adapter dependencies..."
+    (cd "${REPO_ROOT}/adapters" && bun install)
+  fi
 fi
 
 # ── 清理 + 显式预热前端 / sidecar ────────────────────────────
@@ -112,6 +119,11 @@ TAURI_ARGS=(
 
 if [[ "${SIGN_BUILD:-0}" != "1" ]]; then
   TAURI_ARGS+=(--no-sign)
+else
+  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+    echo "[build-macos-arm64] SIGN_BUILD=1 requires TAURI_SIGNING_PRIVATE_KEY for updater artifacts." >&2
+    exit 1
+  fi
 fi
 
 if [[ "$#" -gt 0 ]]; then
@@ -130,6 +142,8 @@ FALLBACK_DMG_DIR="${TAURI_TARGET_DIR}/release/bundle/dmg"
 TARGETED_APP_DIR="${TAURI_TARGET_DIR}/${TARGET_TRIPLE}/release/bundle/macos"
 FALLBACK_APP_DIR="${TAURI_TARGET_DIR}/release/bundle/macos"
 LEGACY_BUNDLE_ROOT="${TAURI_TARGET_DIR}/release/bundle"
+TARGETED_UPDATER_DIR="${TAURI_TARGET_DIR}/${TARGET_TRIPLE}/release/bundle/macos"
+FALLBACK_UPDATER_DIR="${TAURI_TARGET_DIR}/release/bundle/macos"
 
 mkdir -p "${CANONICAL_OUTPUT_DIR}"
 find "${CANONICAL_OUTPUT_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -158,6 +172,21 @@ fi
 LATEST_APP="$(find_latest_dir "${TARGETED_APP_DIR}" '*.app')"
 if [[ -z "${LATEST_APP}" ]]; then
   LATEST_APP="$(find_latest_dir "${FALLBACK_APP_DIR}" '*.app')"
+fi
+
+LATEST_UPDATER_ARCHIVE="$(find_latest_file "${TARGETED_UPDATER_DIR}" '*.app.tar.gz')"
+if [[ -z "${LATEST_UPDATER_ARCHIVE}" ]]; then
+  LATEST_UPDATER_ARCHIVE="$(find_latest_file "${FALLBACK_UPDATER_DIR}" '*.app.tar.gz')"
+fi
+
+LATEST_UPDATER_SIGNATURE="$(find_latest_file "${TARGETED_UPDATER_DIR}" '*.app.tar.gz.sig')"
+if [[ -z "${LATEST_UPDATER_SIGNATURE}" ]]; then
+  LATEST_UPDATER_SIGNATURE="$(find_latest_file "${FALLBACK_UPDATER_DIR}" '*.app.tar.gz.sig')"
+fi
+
+LATEST_UPDATER_MANIFEST="$(find_latest_file "${TARGETED_UPDATER_DIR}" 'latest.json')"
+if [[ -z "${LATEST_UPDATER_MANIFEST}" ]]; then
+  LATEST_UPDATER_MANIFEST="$(find_latest_file "${FALLBACK_UPDATER_DIR}" 'latest.json')"
 fi
 
 build_canonical_dmg() {
@@ -284,11 +313,28 @@ if [[ -n "${LATEST_APP}" ]]; then
     "${CANONICAL_OUTPUT_DIR}/Gugu-Agent-${APP_VERSION}-aarch64.dmg"
 fi
 
+if [[ "${SIGN_BUILD:-0}" == "1" ]]; then
+  if [[ -z "${LATEST_UPDATER_ARCHIVE}" || -z "${LATEST_UPDATER_SIGNATURE}" || -z "${LATEST_UPDATER_MANIFEST}" ]]; then
+    echo "[build-macos-arm64] ERROR: signed updater artifacts are incomplete." >&2
+    echo "[build-macos-arm64] archive=${LATEST_UPDATER_ARCHIVE:-not found}" >&2
+    echo "[build-macos-arm64] signature=${LATEST_UPDATER_SIGNATURE:-not found}" >&2
+    echo "[build-macos-arm64] manifest=${LATEST_UPDATER_MANIFEST:-not found}" >&2
+    exit 1
+  fi
+
+  cp -f "${LATEST_UPDATER_ARCHIVE}" "${CANONICAL_OUTPUT_DIR}/Gugu-Agent-${APP_VERSION}-darwin-aarch64.app.tar.gz"
+  cp -f "${LATEST_UPDATER_SIGNATURE}" "${CANONICAL_OUTPUT_DIR}/Gugu-Agent-${APP_VERSION}-darwin-aarch64.app.tar.gz.sig"
+  cp -f "${LATEST_UPDATER_MANIFEST}" "${CANONICAL_OUTPUT_DIR}/latest.json"
+fi
+
 cat > "${CANONICAL_OUTPUT_DIR}/BUILD_INFO.txt" <<EOF
 Target triple: ${TARGET_TRIPLE}
 Canonical output: ${CANONICAL_OUTPUT_DIR}
 Source DMG: ${LATEST_DMG:-not found}
 Source app: ${LATEST_APP:-not found}
+Source updater archive: ${LATEST_UPDATER_ARCHIVE:-not found}
+Source updater signature: ${LATEST_UPDATER_SIGNATURE:-not found}
+Source updater manifest: ${LATEST_UPDATER_MANIFEST:-not found}
 Built at: $(date '+%Y-%m-%d %H:%M:%S %z')
 EOF
 

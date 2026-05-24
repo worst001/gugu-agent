@@ -24,6 +24,7 @@ RTK is available on this machine and should be used for high-volume shell output
 - Use `bun run scripts/release.ts <version>` to cut a desktop release. The script updates version files, refreshes `desktop/src-tauri/Cargo.lock`, requires the matching `release-notes/vX.Y.Z.md`, commits it, and creates the annotated tag.
 - The normal release push is `git push origin main --tags`. If the tag, app version, or release-notes filename do not match, the workflow is designed to fail fast instead of publishing the wrong release.
 - For local macOS test packaging, `desktop/scripts/build-macos-arm64.sh` is the canonical Apple Silicon build entrypoint, and outputs land under `desktop/build-artifacts/macos-arm64/`.
+- For any desktop packaging or release task, remember that app hot update requires more than DMG/MSI installers: signed updater archives, matching `.sig` files, and the merged `latest.json` must be produced and uploaded. Use `cd desktop && bun run release:updater-manifest` after signed Windows and macOS builds to generate the final updater manifest.
 
 ## Docs Workflow Notes
 - The docs workflow is `.github/workflows/deploy-docs.yml` and uses `npm ci`, not Bun. When root `package.json` dependencies change, keep `package-lock.json` in the same commit or the docs build will fail.
