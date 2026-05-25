@@ -97,7 +97,7 @@ jobs:
             fi
             export SIGN_BUILD=1
           fi
-          ./desktop/scripts/build-macos-arm64.sh
+          bash ./desktop/scripts/build-macos-arm64.sh
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
