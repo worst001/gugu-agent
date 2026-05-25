@@ -25,7 +25,16 @@ if (-not $token) {
   }
 
   Write-Host "GUGU_GITHUB_TOKEN is not set; using push-trigger mode for build-only CI."
-  git push $Remote "HEAD:refs/heads/$CiBranch" --force
+  $tree = git rev-parse "HEAD^{tree}"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to read HEAD tree."
+  }
+  $snapshot = git commit-tree $tree -m "ci: trigger desktop release"
+  if ($LASTEXITCODE -ne 0 -or -not $snapshot) {
+    throw "Failed to create CI snapshot commit."
+  }
+
+  git push $Remote "${snapshot}:refs/heads/$CiBranch" --force
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to push $CiBranch to remote $Remote."
   }

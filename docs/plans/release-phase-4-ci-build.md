@@ -40,7 +40,7 @@
 .\scripts\trigger-github-desktop-release.ps1
 ```
 
-如果没有设置 `GUGU_GITHUB_TOKEN`，脚本会自动改用 push-trigger 模式，将当前代码推到 GitHub 的 `ci/desktop-release` 分支。这条分支只触发构建，不运行发布 job。
+如果没有设置 `GUGU_GITHUB_TOKEN`，脚本会自动改用 push-trigger 模式，将当前代码树生成轻量快照并推到 GitHub 的 `ci/desktop-release` 分支。这条分支只触发构建，不运行发布 job，也不要求 GitHub 镜像保留完整 Gitee 历史。
 
 触发构建并发布 OSS / Gitee Release：
 
