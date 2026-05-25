@@ -14,6 +14,7 @@
     "release:desktop": "bun run scripts/release.ts",
     "release:desktop:json": "bun run scripts/generate-release-json.ts",
     "release:desktop:oss": "bun run scripts/upload-release-oss.ts",
+    "release:desktop:gitee": "bun run scripts/publish-gitee-release.ts",
     "gateway": "bun run gateway/src/index.ts",
     "gateway:admin": "bun run gateway/scripts/admin.ts",
     "docs:dev": "vitepress dev docs",
