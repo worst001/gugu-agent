@@ -96,7 +96,7 @@ describe('buildCeWorkflowMessage', () => {
     const { wire, modelPreference } = buildCeWorkflowMessage('ship', 'go')
     expect(wire).toContain('/ce-work')
     expect(wire).not.toContain('skill "ce-work"')
-    expect(modelPreference).toBe('fast')
+    expect(modelPreference).toBe('strong')
   })
 
   it('explicit CE slash commands can override the preset model preference', () => {

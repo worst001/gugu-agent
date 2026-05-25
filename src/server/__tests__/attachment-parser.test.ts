@@ -258,6 +258,28 @@ describe('AttachmentParserService', () => {
     expect(result.content).toContain('was not uploaded to Gugu Managed or GLM')
   })
 
+  test('does not send unsupported archive formats to Gugu Managed or GLM', async () => {
+    const service = new AttachmentParserService(async () => {
+      throw new Error('unsupported archive should not reach GLM')
+    })
+    const workDir = path.join(tmpDir, 'workspace-rar')
+    await fs.mkdir(workDir)
+    const archivePath = path.join(tmpDir, 'assets.rar')
+    await fs.writeFile(archivePath, Buffer.from('not-a-real-rar'))
+
+    const result = await service.prepareMessageContent('read this archive', 'session-1', [{
+      type: 'file',
+      name: 'assets.rar',
+      path: archivePath,
+      mimeType: 'application/vnd.rar',
+    }], workDir)
+
+    expect(result.usedParser).toBe(true)
+    expect(result.content).toContain('Compressed archive attached: assets.rar')
+    expect(result.content).toContain('was not uploaded to Gugu Managed or GLM')
+    expect(result.content).toContain('not supported for automatic local extraction')
+  })
+
   test('extracts supported zip archives into the current workspace for local analysis', async () => {
     const service = new AttachmentParserService(async () => {
       throw new Error('zip archive should not reach GLM')
@@ -291,7 +313,7 @@ describe('AttachmentParserService', () => {
   test('rejects oversized file paths before reading them into memory', async () => {
     const service = new AttachmentParserService(mockFetchText('unused'))
     const filePath = path.join(tmpDir, 'large.pdf')
-    await fs.writeFile(filePath, Buffer.alloc((25 * 1024 * 1024) + 1))
+    await fs.writeFile(filePath, Buffer.alloc((20 * 1024 * 1024) + 1))
 
     await expect(service.prepareMessageContent('read this file', 'session-1', [{
       type: 'file',
@@ -310,6 +332,30 @@ describe('AttachmentParserService', () => {
       data: Buffer.alloc((8 * 1024 * 1024) + 1).toString('base64'),
       mimeType: 'application/pdf',
     }])).rejects.toThrow('Gugu Managed only parses small')
+  })
+
+  test('keeps managed image parsing under the stricter GLM image limit', async () => {
+    const service = new AttachmentParserService(mockFetchText('unused'))
+
+    await expect(service.prepareMessageContent('read this image', 'session-1', [{
+      type: 'image',
+      name: 'large.png',
+      data: Buffer.alloc((5 * 1024 * 1024) + 1).toString('base64'),
+      mimeType: 'image/png',
+    }])).rejects.toThrow('managed image limit')
+  })
+
+  test('rejects unsupported managed image formats before they reach GLM', async () => {
+    const service = new AttachmentParserService(async () => {
+      throw new Error('unsupported image should not reach GLM')
+    })
+
+    await expect(service.prepareMessageContent('read this image', 'session-1', [{
+      type: 'image',
+      name: 'diagram.webp',
+      data: Buffer.from('webp').toString('base64'),
+      mimeType: 'image/webp',
+    }])).rejects.toThrow('not a supported managed image format')
   })
 
   test('summarizes very long parsed results with glm-5.1', async () => {

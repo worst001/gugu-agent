@@ -15,6 +15,7 @@ const {
   markCompletedAndDismissedMock,
   resetCompletedTasksMock,
   refreshTasksMock,
+  notifyChatTaskCompleteMock,
   cliTaskStoreSnapshot,
 } = vi.hoisted(() => ({
   sendMock: vi.fn(),
@@ -29,6 +30,7 @@ const {
   markCompletedAndDismissedMock: vi.fn(),
   resetCompletedTasksMock: vi.fn(async () => {}),
   refreshTasksMock: vi.fn(),
+  notifyChatTaskCompleteMock: vi.fn(),
   cliTaskStoreSnapshot: {
     tasks: [] as Array<{ id: string; subject: string; status: string; activeForm?: string }>,
     sessionId: null as string | null,
@@ -96,6 +98,10 @@ vi.mock('./cliTaskStore', () => ({
   },
 }))
 
+vi.mock('../utils/taskCompletionNotification', () => ({
+  notifyChatTaskComplete: notifyChatTaskCompleteMock,
+}))
+
 import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } from './chatStore'
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
 import { buildPlanModeMessage } from '../constants/agentRunModes'
@@ -143,6 +149,7 @@ describe('chatStore history mapping', () => {
     markCompletedAndDismissedMock.mockReset()
     resetCompletedTasksMock.mockReset()
     refreshTasksMock.mockReset()
+    notifyChatTaskCompleteMock.mockReset()
     cliTaskStoreSnapshot.tasks = []
     cliTaskStoreSnapshot.sessionId = null
     useSessionRuntimeStore.setState({ selections: {} })
@@ -520,6 +527,14 @@ describe('chatStore history mapping', () => {
     })
   })
 
+  it('does not send effort updates while a turn is running', () => {
+    seedSession({ chatState: 'tool_executing' })
+
+    useChatStore.getState().setSessionEffort(TEST_SESSION_ID, 'high')
+
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
   it('does not prewarm team member sessions', () => {
     getMemberBySessionIdMock.mockReturnValue({
       agentId: 'reviewer@test-team',
@@ -610,6 +625,102 @@ describe('chatStore history mapping', () => {
     })
   })
 
+  it('queues command permission requests behind an unanswered AskUserQuestion prompt', () => {
+    seedSession({
+      messages: [
+        {
+          id: 'ask-1',
+          type: 'tool_use',
+          toolName: 'AskUserQuestion',
+          toolUseId: 'tool-ask-1',
+          input: {
+            questions: [
+              {
+                question: 'Technical stack?',
+                options: [{ label: 'HTML' }, { label: 'React' }],
+              },
+            ],
+          },
+          timestamp: 1,
+        },
+        {
+          id: 'bash-1',
+          type: 'tool_use',
+          toolName: 'Bash',
+          toolUseId: 'tool-bash-1',
+          input: { command: 'ls -la "D:\\Claude Code\\Test"' },
+          timestamp: 2,
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'permission_request',
+      requestId: 'perm-ask-1',
+      toolName: 'AskUserQuestion',
+      toolUseId: 'tool-ask-1',
+      input: {
+        questions: [
+          {
+            question: 'Technical stack?',
+            options: [{ label: 'HTML' }, { label: 'React' }],
+          },
+        ],
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'permission_request',
+      requestId: 'perm-bash-1',
+      toolName: 'Bash',
+      toolUseId: 'tool-bash-1',
+      input: { command: 'ls -la "D:\\Claude Code\\Test"' },
+      description: 'List files in working directory',
+    })
+
+    let session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.pendingPermission).toMatchObject({
+      requestId: 'perm-ask-1',
+      toolName: 'AskUserQuestion',
+    })
+    expect(session?.pendingPermissionQueue).toHaveLength(1)
+    expect(session?.messages.some((message) => message.type === 'permission_request')).toBe(false)
+
+    useChatStore.getState().respondToPermission(TEST_SESSION_ID, 'perm-ask-1', true, {
+      updatedInput: {
+        answers: {
+          'Technical stack?': 'HTML',
+        },
+      },
+    })
+
+    session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'permission_response',
+      requestId: 'perm-ask-1',
+      allowed: true,
+      updatedInput: {
+        answers: {
+          'Technical stack?': 'HTML',
+        },
+      },
+    })
+    expect(session?.pendingPermission).toMatchObject({
+      requestId: 'perm-bash-1',
+      toolName: 'Bash',
+    })
+    expect(session?.pendingPermissionQueue).toEqual([])
+    expect(session?.chatState).toBe('permission_pending')
+    expect(session?.messages.filter((message) => message.type === 'permission_request')).toMatchObject([
+      {
+        type: 'permission_request',
+        requestId: 'perm-bash-1',
+        toolName: 'Bash',
+        toolUseId: 'tool-bash-1',
+      },
+    ])
+  })
+
   it('sends permission mode updates to the active session only', () => {
     useChatStore.getState().setSessionPermissionMode('nonexistent-session', 'acceptEdits')
     expect(sendMock).not.toHaveBeenCalled()
@@ -642,6 +753,14 @@ describe('chatStore history mapping', () => {
       type: 'set_permission_mode',
       mode: 'acceptEdits',
     })
+  })
+
+  it('does not send permission mode updates while a turn is running', () => {
+    seedSession({ chatState: 'permission_pending' })
+
+    useChatStore.getState().setSessionPermissionMode(TEST_SESSION_ID, 'bypassPermissions')
+
+    expect(sendMock).not.toHaveBeenCalled()
   })
 
   it('stores terminal task notifications for agent tool cards', () => {
@@ -1503,6 +1622,52 @@ describe('chatStore history mapping', () => {
     ).toBe('permission_pending')
   })
 
+  it('notifies when an active user turn completes', () => {
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: 'build a small page',
+          timestamp: 1,
+        },
+      ],
+      streamingText: 'Done.',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    })
+
+    expect(notifyChatTaskCompleteMock).toHaveBeenCalledWith({
+      sessionId: TEST_SESSION_ID,
+      sessionTitle: undefined,
+    })
+  })
+
+  it('does not notify for idle duplicate completion events', () => {
+    seedSession({
+      chatState: 'idle',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: 'build a small page',
+          timestamp: 1,
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    })
+
+    expect(notifyChatTaskCompleteMock).not.toHaveBeenCalled()
+  })
+
   it('keeps delayed text blocks from one streamed assistant turn in a single message', () => {
     vi.useFakeTimers()
 
@@ -1783,6 +1948,41 @@ describe('chatStore history mapping', () => {
       content: 'Check the latest regression',
       pending: true,
     })
+  })
+
+  it('preserves optimistic messages and active state when reconnecting a just-submitted session', async () => {
+    seedSession({
+      connectionState: 'disconnected',
+      chatState: 'thinking',
+      activeThinkingId: 'thinking-1',
+      messages: [
+        {
+          id: 'user-1',
+          type: 'user_text',
+          content: 'build a small website',
+          timestamp: 1,
+        },
+        {
+          id: 'thinking-1',
+          type: 'thinking',
+          content: 'Thinking',
+          rawContent: 'Thinking',
+          timestamp: 2,
+        },
+      ],
+    })
+
+    useChatStore.getState().connectToSession(TEST_SESSION_ID)
+    await Promise.resolve()
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.connectionState).toBe('connecting')
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.activeThinkingId).toBe('thinking-1')
+    expect(session?.messages).toMatchObject([
+      { type: 'user_text', content: 'build a small website' },
+      { type: 'thinking', id: 'thinking-1' },
+    ])
   })
 
   it('refreshes CLI tasks when switching to an already-connected session', () => {

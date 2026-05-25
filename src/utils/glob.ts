@@ -1,6 +1,8 @@
 import { basename, dirname, isAbsolute, join, sep } from 'path'
+import picomatch from 'picomatch'
 import type { ToolPermissionContext } from '../Tool.js'
 import { isEnvTruthy } from './envUtils.js'
+import { getFsImplementation } from './fsOperations.js'
 import {
   getFileReadIgnorePatterns,
   normalizePatternsToPath,
@@ -8,6 +10,172 @@ import {
 import { getPlatform } from './platform.js'
 import { getGlobExclusionsForPluginCache } from './plugins/orphanedPluginFilter.js'
 import { ripGrep } from './ripgrep.js'
+
+const NODE_FALLBACK_MAX_DIRS = 20_000
+
+type GlobMatch = {
+  path: string
+  modifiedMs: number
+}
+
+function normalizeGlobPath(path: string): string {
+  return path.replace(/\\/g, '/')
+}
+
+function stripNegativeGlobPrefix(pattern: string): string {
+  return pattern.startsWith('!') ? pattern.slice(1) : pattern
+}
+
+function stripRootGlobPrefix(pattern: string): string {
+  return pattern.startsWith('/') ? pattern.slice(1) : pattern
+}
+
+function createSearchMatcher(pattern: string): (
+  relativePath: string,
+  fileName: string,
+) => boolean {
+  const normalizedPattern = normalizeGlobPath(pattern)
+  const patternHasPathSegment = normalizedPattern.includes('/')
+  const matcher = picomatch(normalizedPattern, { dot: true })
+
+  return (relativePath, fileName) => {
+    if (patternHasPathSegment) {
+      return matcher(relativePath)
+    }
+    // Match basename for ripgrep-like "*.ts" behavior across subdirectories.
+    return matcher(fileName) || matcher(relativePath)
+  }
+}
+
+function createIgnoreMatcher(patterns: string[]): (relativePath: string) => boolean {
+  if (patterns.length === 0) {
+    return () => false
+  }
+
+  const normalizedPatterns = patterns
+    .map(stripNegativeGlobPrefix)
+    .map(stripRootGlobPrefix)
+    .map(normalizeGlobPath)
+    .filter(Boolean)
+
+  if (normalizedPatterns.length === 0) {
+    return () => false
+  }
+
+  const matcher = picomatch(normalizedPatterns, { dot: true })
+  return relativePath => matcher(relativePath) || matcher(`/${relativePath}`)
+}
+
+function isRipgrepUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const errno = (error as NodeJS.ErrnoException).code
+  return (
+    errno === 'ENOENT' ||
+    error.message.includes('ripgrep is not available')
+  )
+}
+
+export async function globWithNodeFallback(
+  searchPattern: string,
+  searchDir: string,
+  { limit, offset }: { limit: number; offset: number },
+  abortSignal: AbortSignal,
+  ignorePatterns: string[],
+  hidden: boolean,
+): Promise<{ files: string[]; truncated: boolean }> {
+  const fs = getFsImplementation()
+  const matches: GlobMatch[] = []
+  const shouldInclude = createSearchMatcher(searchPattern)
+  const shouldIgnore = createIgnoreMatcher(ignorePatterns)
+  const pendingDirs: Array<{ absolutePath: string; relativePath: string }> = [
+    { absolutePath: searchDir, relativePath: '' },
+  ]
+  const maxMatches = offset + limit + 1
+  let visitedDirs = 0
+  let truncated = false
+
+  while (pendingDirs.length > 0) {
+    if (abortSignal.aborted) {
+      throw abortSignal.reason ?? new Error('Glob search aborted')
+    }
+
+    const current = pendingDirs.shift()
+    if (!current) {
+      break
+    }
+
+    visitedDirs += 1
+    if (visitedDirs > NODE_FALLBACK_MAX_DIRS) {
+      truncated = true
+      break
+    }
+
+    let entries
+    try {
+      entries = await fs.readdir(current.absolutePath)
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      if (!hidden && entry.name.startsWith('.')) {
+        continue
+      }
+
+      const absolutePath = join(current.absolutePath, entry.name)
+      const relativePath = current.relativePath
+        ? `${current.relativePath}/${entry.name}`
+        : entry.name
+      const normalizedRelativePath = normalizeGlobPath(relativePath)
+
+      if (shouldIgnore(normalizedRelativePath)) {
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        pendingDirs.push({
+          absolutePath,
+          relativePath: normalizedRelativePath,
+        })
+        continue
+      }
+
+      if (!entry.isFile() && !entry.isSymbolicLink()) {
+        continue
+      }
+
+      if (!shouldInclude(normalizedRelativePath, entry.name)) {
+        continue
+      }
+
+      try {
+        const stats = await fs.stat(absolutePath)
+        if (!stats.isFile()) {
+          continue
+        }
+        matches.push({ path: absolutePath, modifiedMs: stats.mtimeMs })
+      } catch {
+        continue
+      }
+
+      if (matches.length >= maxMatches) {
+        truncated = true
+        break
+      }
+    }
+
+    if (truncated) {
+      break
+    }
+  }
+
+  matches.sort((a, b) => a.modifiedMs - b.modifiedMs)
+  const files = matches.slice(offset, offset + limit).map(match => match.path)
+  return { files, truncated: truncated || matches.length > offset + limit }
+}
 
 /**
  * Extracts the static base directory from a glob pattern.
@@ -112,11 +280,31 @@ export async function glob(
   }
 
   // Exclude orphaned plugin version directories
-  for (const exclusion of await getGlobExclusionsForPluginCache(searchDir)) {
+  const pluginCacheExclusions = await getGlobExclusionsForPluginCache(searchDir)
+  for (const exclusion of pluginCacheExclusions) {
     args.push('--glob', exclusion)
   }
 
-  const allPaths = await ripGrep(args, searchDir, abortSignal)
+  let allPaths: string[]
+  try {
+    allPaths = await ripGrep(args, searchDir, abortSignal)
+  } catch (error) {
+    if (!isRipgrepUnavailableError(error)) {
+      throw error
+    }
+
+    return globWithNodeFallback(
+      searchPattern,
+      searchDir,
+      { limit, offset },
+      abortSignal,
+      [
+        ...ignorePatterns,
+        ...pluginCacheExclusions,
+      ],
+      hidden,
+    )
+  }
 
   // ripgrep returns relative paths, convert to absolute
   const absolutePaths = allPaths.map(p =>

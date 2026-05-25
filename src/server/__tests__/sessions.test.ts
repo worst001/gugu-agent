@@ -1231,6 +1231,53 @@ describe('Sessions API', () => {
     expect(executeRes.status).toBe(200)
   })
 
+  it('POST /api/sessions/:id/rewind should compare index fallback against default pre-route prompt text', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-333333333333'
+    const targetUserId = crypto.randomUUID()
+    const targetAssistantId = crypto.randomUUID()
+
+    await writeSessionFile('-tmp-api-rewind-index-default-route-visible-text', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry(
+        [
+          '[Agent mode: default + CE pre-route]',
+          'Default mode remains natural: do not enter a full CE workflow and do not add ceremony.',
+          'If the request is simple, answer directly.',
+          '',
+          'User message:',
+          'Build a small beauty-themed landing page',
+        ].join('\n'),
+        targetUserId,
+      ),
+      {
+        ...makeAssistantEntry('done', targetUserId),
+        uuid: targetAssistantId,
+      },
+    ])
+
+    const executeRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetUserMessageId: 'local-optimistic-message-id',
+        userMessageIndex: 0,
+        expectedContent: 'Build a small beauty-themed landing page',
+      }),
+    })
+
+    expect(executeRes.status).toBe(200)
+    const executeBody = await executeRes.json() as {
+      target: { targetUserMessageId: string; userMessageIndex: number }
+      conversation: { removedMessageIds: string[] }
+    }
+    expect(executeBody.target.targetUserMessageId).toBe(targetUserId)
+    expect(executeBody.target.userMessageIndex).toBe(0)
+    expect(executeBody.conversation.removedMessageIds).toEqual([
+      targetUserId,
+      targetAssistantId,
+    ])
+  })
+
   it('GET /api/sessions/:id/checkpoints should return user turn metadata', async () => {
     const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-111111111111'
     const firstUserId = crypto.randomUUID()

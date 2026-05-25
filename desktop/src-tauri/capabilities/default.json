@@ -99,6 +99,7 @@
     },
     "dialog:allow-open",
     "dialog:allow-save",
+    "notification:default",
     "process:allow-exit",
     "process:allow-restart",
     "updater:default"

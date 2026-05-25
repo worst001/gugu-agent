@@ -9,6 +9,7 @@ import { useBillingStore } from './billingStore'
 import { t } from '../i18n'
 import { AGENT_LIFECYCLE_TYPES } from '../types/team'
 import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
+import { notifyChatTaskComplete } from '../utils/taskCompletionNotification'
 import { type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
 import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
 import type { MessageEntry } from '../types/session'
@@ -28,6 +29,14 @@ import type {
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
 
+type PendingPermissionRequest = {
+  requestId: string
+  toolName: string
+  toolUseId?: string
+  input: unknown
+  description?: string
+}
+
 export type PerSessionState = {
   messages: UIMessage[]
   chatState: ChatState
@@ -37,13 +46,8 @@ export type PerSessionState = {
   activeToolUseId: string | null
   activeToolName: string | null
   activeThinkingId: string | null
-  pendingPermission: {
-    requestId: string
-    toolName: string
-    toolUseId?: string
-    input: unknown
-    description?: string
-  } | null
+  pendingPermission: PendingPermissionRequest | null
+  pendingPermissionQueue?: PendingPermissionRequest[]
   pendingComputerUsePermission: {
     requestId: string
     request: ComputerUsePermissionRequest
@@ -73,6 +77,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   activeToolName: null,
   activeThinkingId: null,
   pendingPermission: null,
+  pendingPermissionQueue: [],
   pendingComputerUsePermission: null,
   tokenUsage: { input_tokens: 0, output_tokens: 0 },
   elapsedSeconds: 0,
@@ -398,6 +403,17 @@ function consumePendingDelta(): string {
   return text
 }
 
+function hasActiveTurn(session: PerSessionState): boolean {
+  return (
+    session.chatState !== 'idle' ||
+    Boolean(session.streamingText.trim()) ||
+    Boolean(session.streamingToolInput.trim()) ||
+    Boolean(session.pendingPermission) ||
+    Boolean(session.pendingPermissionQueue?.length) ||
+    Boolean(session.pendingComputerUsePermission)
+  )
+}
+
 function getStreamingAppendText(currentText: string, incomingText: string): string {
   if (
     currentText.length >= SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH &&
@@ -705,6 +721,25 @@ function updateSessionIn(
   return { ...sessions, [sessionId]: { ...session, ...updater(session) } }
 }
 
+function createPermissionRequestMessage(
+  request: PendingPermissionRequest,
+): Extract<UIMessage, { type: 'permission_request' }> {
+  return {
+    id: nextId(),
+    type: 'permission_request',
+    requestId: request.requestId,
+    toolName: request.toolName,
+    toolUseId: request.toolUseId,
+    input: request.input,
+    description: request.description,
+    timestamp: Date.now(),
+  }
+}
+
+function shouldRenderPermissionRequestMessage(request: PendingPermissionRequest): boolean {
+  return request.toolName !== 'AskUserQuestion'
+}
+
 async function fetchAndMapSessionHistory(sessionId: string) {
   const { messages } = await sessionsApi.getMessages(sessionId)
   return {
@@ -738,16 +773,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       return
     }
 
-    set((s) => ({
-      sessions: {
-        ...s.sessions,
-        [sessionId]: {
-          ...createDefaultSessionState(),
-          connectionState: 'connecting',
-          messages: mergeLocalUserEchoes(sessionId, existing?.messages ?? []),
+    set((s) => {
+      const current = s.sessions[sessionId] ?? createDefaultSessionState()
+      return {
+        sessions: {
+          ...s.sessions,
+          [sessionId]: {
+            ...current,
+            connectionState: 'connecting',
+            messages: mergeLocalUserEchoes(sessionId, current.messages),
+          },
         },
-      },
-    }))
+      }
+    })
 
     wsManager.clearHandlers(sessionId)
     wsManager.connect(sessionId)
@@ -932,7 +970,30 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ...(options?.rule ? { rule: options.rule } : {}),
       ...(options?.updatedInput ? { updatedInput: options.updatedInput } : {}),
     })
-    set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, () => ({ pendingPermission: null, chatState: allowed ? 'tool_executing' : 'idle' })) }))
+    set((state) => {
+      const session = state.sessions[sessionId]
+      if (!session) return state
+
+      const queue = session.pendingPermissionQueue ?? []
+      const nextPermission = allowed ? queue[0] ?? null : null
+      const nextQueue = allowed ? queue.slice(1) : []
+      const messages = nextPermission && shouldRenderPermissionRequestMessage(nextPermission)
+        ? [...session.messages, createPermissionRequestMessage(nextPermission)]
+        : session.messages
+
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...session,
+            messages,
+            pendingPermission: nextPermission,
+            pendingPermissionQueue: nextQueue,
+            chatState: nextPermission ? 'permission_pending' : allowed ? 'tool_executing' : 'idle',
+          },
+        },
+      }
+    })
   },
 
   respondToComputerUsePermission: (sessionId, requestId, response) => {
@@ -950,12 +1011,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   setSessionPermissionMode: (sessionId, mode) => {
-    if (!get().sessions[sessionId]) return
+    const session = get().sessions[sessionId]
+    if (!session || hasActiveTurn(session)) return
     wsManager.send(sessionId, { type: 'set_permission_mode', mode })
   },
 
   setSessionEffort: (sessionId, level) => {
-    if (!get().sessions[sessionId]) return
+    const session = get().sessions[sessionId]
+    if (!session || hasActiveTurn(session)) return
     wsManager.send(sessionId, { type: 'set_effort', level })
   },
 
@@ -977,6 +1040,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             ...session,
             chatState: 'idle',
             pendingPermission: null,
+            pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             elapsedTimer: null,
           },
@@ -1004,11 +1068,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const session = state.sessions[sessionId]
         if (!session) return state
         const mergedMessages = mergeLocalUserEchoes(sessionId, uiMessages)
-        const hasLiveTurn = session.chatState !== 'idle' ||
-          Boolean(session.streamingText.trim()) ||
-          Boolean(session.streamingToolInput.trim()) ||
-          Boolean(session.pendingPermission) ||
-          Boolean(session.pendingComputerUsePermission)
+        const hasLiveTurn = hasActiveTurn(session)
         if (hasLiveTurn) {
           return { sessions: updateSessionIn(state.sessions, sessionId, () => ({
             historyLoading: false,
@@ -1080,6 +1140,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             streamingText: '',
             streamingToolInput: '',
             pendingPermission: null,
+            pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             elapsedTimer: null,
             statusVerb: '',
@@ -1292,31 +1353,44 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         break
 
       case 'permission_request':
-        update((s) => ({
-          pendingPermission: {
+        update((s) => {
+          const permissionRequest: PendingPermissionRequest = {
             requestId: msg.requestId,
             toolName: msg.toolName,
             toolUseId: msg.toolUseId,
             input: msg.input,
             description: msg.description,
-          },
-          pendingComputerUsePermission: null,
-          chatState: 'permission_pending',
-          activeThinkingId: null,
-          messages:
-            msg.toolName === 'AskUserQuestion'
-              ? s.messages
-              : [...s.messages, {
-                  id: nextId(),
-                  type: 'permission_request',
-                  requestId: msg.requestId,
-                  toolName: msg.toolName,
-                  toolUseId: msg.toolUseId,
-                  input: msg.input,
-                  description: msg.description,
-                  timestamp: Date.now(),
-                }],
-        }))
+          }
+          const queue = s.pendingPermissionQueue ?? []
+          if (
+            s.pendingPermission?.requestId === permissionRequest.requestId ||
+            queue.some((queued) => queued.requestId === permissionRequest.requestId)
+          ) {
+            return {
+              chatState: 'permission_pending',
+              activeThinkingId: null,
+            }
+          }
+
+          if (s.pendingPermission) {
+            return {
+              pendingPermissionQueue: [...queue, permissionRequest],
+              pendingComputerUsePermission: null,
+              chatState: 'permission_pending',
+              activeThinkingId: null,
+            }
+          }
+
+          return {
+            pendingPermission: permissionRequest,
+            pendingComputerUsePermission: null,
+            chatState: 'permission_pending',
+            activeThinkingId: null,
+            messages: shouldRenderPermissionRequestMessage(permissionRequest)
+              ? [...s.messages, createPermissionRequestMessage(permissionRequest)]
+              : s.messages,
+          }
+        })
         break
 
       case 'computer_use_permission_request':
@@ -1326,6 +1400,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             request: msg.request,
           },
           pendingPermission: null,
+          pendingPermissionQueue: [],
           chatState: 'permission_pending',
           activeThinkingId: null,
         }))
@@ -1334,6 +1409,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case 'message_complete': {
         const session = get().sessions[sessionId]
         if (!session) break
+        const shouldNotifyCompletion =
+          session.chatState !== 'idle' &&
+          session.messages.some((message) => message.type === 'user_text')
+        const sessionItems = useSessionStore.getState().sessions
+        const sessionTitle = Array.isArray(sessionItems)
+          ? sessionItems.find((entry) => entry.id === sessionId)?.title
+          : undefined
         const text = `${session.streamingText}${consumePendingDelta()}`
         if (text.trim()) {
           update((s) => ({
@@ -1349,10 +1431,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           chatState: 'idle',
           activeThinkingId: null,
           pendingPermission: null,
+          pendingPermissionQueue: [],
           pendingComputerUsePermission: null,
           elapsedTimer: null,
         }))
         refreshBillingIfTracked()
+        if (shouldNotifyCompletion) {
+          void notifyChatTaskComplete({ sessionId, sessionTitle })
+        }
         break
       }
 
@@ -1380,6 +1466,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               activeThinkingId: null,
               streamingText: '',
               pendingPermission: null,
+              pendingPermissionQueue: [],
               pendingComputerUsePermission: null,
             }
           })
@@ -1427,6 +1514,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             activeToolName: null,
             activeThinkingId: null,
             pendingPermission: null,
+            pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             chatState: 'idle',
             elapsedTimer: null,
@@ -1479,6 +1567,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             streamingText: '',
             activeThinkingId: null,
             pendingPermission: null,
+            pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             elapsedTimer: null,
           }))
@@ -1505,6 +1594,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               streamingText: '',
               activeThinkingId: null,
               pendingPermission: null,
+              pendingPermissionQueue: [],
               pendingComputerUsePermission: null,
               elapsedTimer: null,
             }))
@@ -1526,6 +1616,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             streamingText: '',
             activeThinkingId: null,
             pendingPermission: null,
+            pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             elapsedTimer: null,
           }))

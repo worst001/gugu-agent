@@ -620,7 +620,7 @@ export const handleWebSocket = {
           break
 
         case 'set_permission_mode':
-          handleSetPermissionMode(ws, message)
+          void handleSetPermissionMode(ws, message)
           break
 
         case 'set_effort':
@@ -926,11 +926,26 @@ function handleComputerUsePermissionResponse(
   }
 }
 
-function handleSetPermissionMode(
+async function handleSetPermissionMode(
   ws: ServerWebSocket<WebSocketData>,
   message: Extract<ClientMessage, { type: 'set_permission_mode' }>
 ) {
   const { sessionId } = ws.data
+
+  if (sessionTurnMonitors.has(sessionId)) {
+    try {
+      await settingsService.setPermissionMode(message.mode)
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      sendMessage(ws, {
+        type: 'error',
+        message: `Failed to update permission mode: ${errMsg}`,
+        code: 'PERMISSION_MODE_UPDATE_FAILED',
+      })
+    }
+    console.log(`[WS] Deferred permission mode restart for active session ${sessionId}: ${message.mode}`)
+    return
+  }
 
   // Switching to/from bypassPermissions requires the CLI to be (re)started with
   // --dangerously-skip-permissions. The CLI rejects a runtime set_permission_mode
@@ -982,6 +997,11 @@ async function handleSetRuntimeConfig(
     return
   }
 
+  if (sessionTurnMonitors.has(sessionId)) {
+    console.log(`[WS] Deferred runtime restart for active session ${sessionId}: ${modelId}`)
+    return
+  }
+
   if (!conversationService.hasSession(sessionId)) {
     const pendingStartup = sessionStartupPromises.get(sessionId)
     if (pendingStartup) {
@@ -1030,6 +1050,11 @@ async function handleSetEffort(
       message: `Failed to update effort: ${errMsg}`,
       code: 'EFFORT_UPDATE_FAILED',
     })
+    return
+  }
+
+  if (sessionTurnMonitors.has(sessionId)) {
+    console.log(`[WS] Deferred effort restart for active session ${sessionId}: ${level}`)
     return
   }
 

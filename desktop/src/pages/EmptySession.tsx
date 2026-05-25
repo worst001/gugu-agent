@@ -31,6 +31,7 @@ import {
   type AttachmentLimitIssue,
 } from '../utils/attachmentLimits'
 import { listenForTauriFileDrop } from '../utils/tauriFileDrop'
+import { chooseLocalFilePaths } from '../utils/localFileSelection'
 
 type Attachment = {
   id: string
@@ -62,6 +63,7 @@ export function EmptySession() {
   const [isDragActive, setIsDragActive] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const nativeFileDropAvailableRef = useRef(false)
   const plusMenuRef = useRef<HTMLDivElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
   const fileSearchRef = useRef<FileSearchMenuHandle>(null)
@@ -314,6 +316,10 @@ export function EmptySession() {
         displayAttachments: attachmentPayload,
         ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
       })
+      if (draftMode === 'plan') {
+        useAgentRunModeStore.getState().setMode(sessionId, AGENT_RUN_MODE_DEFAULT)
+        useAgentRunModeStore.getState().setMode(DRAFT_AGENT_RUN_MODE_KEY, AGENT_RUN_MODE_DEFAULT)
+      }
       setInput('')
       setAttachments([])
     } catch (error) {
@@ -566,11 +572,24 @@ export function EmptySession() {
     event.target.value = ''
   }
 
+  const handleChooseFiles = useCallback(async () => {
+    setPlusMenuOpen(false)
+    const paths = await chooseLocalFilePaths(t('empty.addFiles'))
+    if (paths === null) {
+      fileInputRef.current?.click()
+      return
+    }
+    if (paths.length > 0) {
+      await addPathFiles(paths)
+    }
+  }, [addPathFiles, t])
+
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()
     event.stopPropagation()
     setIsDragActive(false)
     if (!canAcceptAttachments) return
+    if (nativeFileDropAvailableRef.current) return
     const files = event.dataTransfer.files
     if (files.length > 0) addBrowserFiles(files)
   }
@@ -601,6 +620,7 @@ export function EmptySession() {
 
     let cancelled = false
     let unlisten: (() => void) | null = null
+    nativeFileDropAvailableRef.current = false
     void listenForTauriFileDrop({
       onHover: () => setIsDragActive(true),
       onLeave: () => setIsDragActive(false),
@@ -611,10 +631,12 @@ export function EmptySession() {
         return
       }
       unlisten = cleanup
+      nativeFileDropAvailableRef.current = Boolean(cleanup)
     })
 
     return () => {
       cancelled = true
+      nativeFileDropAvailableRef.current = false
       unlisten?.()
     }
   }, [addPathFiles, canAcceptAttachments])
@@ -772,10 +794,7 @@ export function EmptySession() {
                   {plusMenuOpen && (
                     <div className="absolute bottom-full left-0 mb-2 w-[240px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]">
                       <button
-                        onClick={() => {
-                          fileInputRef.current?.click()
-                          setPlusMenuOpen(false)
-                        }}
+                        onClick={() => void handleChooseFiles()}
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
                       >
                         <span className="material-symbols-outlined text-[18px] text-[var(--color-text-secondary)]">attach_file</span>

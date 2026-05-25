@@ -7,9 +7,13 @@ import { isEnvDefinedFalsy } from '../utils/envUtils.js'
 import { getAPIProvider } from '../utils/model/providers.js'
 import { getWorkload } from '../utils/workloadContext.js'
 
-const DEFAULT_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude.`
-const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`
-const AGENT_SDK_PREFIX = `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
+const LEGACY_DEFAULT_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude.`
+const LEGACY_AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`
+const LEGACY_AGENT_SDK_PREFIX = `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
+
+const DEFAULT_PREFIX = `You are Gugu, an AI assistant developed by 谷星曜共创社. You run in Gugu Desktop.`
+const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX = `You are Gugu, an AI assistant developed by 谷星曜共创社, running in Gugu Desktop.`
+const AGENT_SDK_PREFIX = `You are Gugu, an AI assistant developed by 谷星曜共创社, running in Gugu Desktop.`
 
 const CLI_SYSPROMPT_PREFIX_VALUES = [
   DEFAULT_PREFIX,
@@ -24,7 +28,12 @@ export type CLISyspromptPrefix = (typeof CLI_SYSPROMPT_PREFIX_VALUES)[number]
  * to identify prefix blocks by content rather than position.
  */
 export const CLI_SYSPROMPT_PREFIXES: ReadonlySet<string> = new Set(
-  CLI_SYSPROMPT_PREFIX_VALUES,
+  [
+    ...CLI_SYSPROMPT_PREFIX_VALUES,
+    LEGACY_DEFAULT_PREFIX,
+    LEGACY_AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX,
+    LEGACY_AGENT_SDK_PREFIX,
+  ],
 )
 
 export function getCLISyspromptPrefix(options?: {

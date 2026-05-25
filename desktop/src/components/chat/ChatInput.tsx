@@ -40,6 +40,7 @@ import {
   type AttachmentLimitIssue,
 } from '../../utils/attachmentLimits'
 import { listenForTauriFileDrop } from '../../utils/tauriFileDrop'
+import { chooseLocalFilePaths } from '../../utils/localFileSelection'
 
 type GitInfo = { branch: string | null; repoName: string | null; workDir: string; changedFiles: number }
 
@@ -97,6 +98,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const nativeFileDropAvailableRef = useRef(false)
   const promptOptimizeAbortRef = useRef<AbortController | null>(null)
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
   const voiceBaseInputRef = useRef('')
@@ -138,6 +140,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     voiceSupported,
   )
   const isHeroComposer = variant === 'hero' && !isMemberSession
+  const addFilesLabel = isHeroComposer ? t('empty.addFiles') : t('chat.addFiles')
+  const slashCommandsLabel = isHeroComposer ? t('empty.slashCommands') : t('chat.slashCommands')
   const resolvedWorkDir = activeSession?.workDir || gitInfo?.workDir || undefined
   const promptOptimizeProgressPercent = isPromptOptimizing
     ? Math.max(PROMPT_OPTIMIZE_INITIAL_PROGRESS, promptOptimizeProgress)
@@ -529,6 +533,9 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
         displayAttachments: attachmentPayload,
         ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
       })
+      if (agentMode === 'plan') {
+        useAgentRunModeStore.getState().setMode(activeTabId, AGENT_RUN_MODE_DEFAULT)
+      }
     } else {
       sendMessage(activeTabId, text)
     }
@@ -880,11 +887,24 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     event.target.value = ''
   }
 
+  const handleChooseFiles = useCallback(async () => {
+    setPlusMenuOpen(false)
+    const paths = await chooseLocalFilePaths(addFilesLabel)
+    if (paths === null) {
+      fileInputRef.current?.click()
+      return
+    }
+    if (paths.length > 0) {
+      await addPathFiles(paths)
+    }
+  }, [addFilesLabel, addPathFiles])
+
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()
     event.stopPropagation()
     setIsDragActive(false)
     if (!canAcceptAttachments) return
+    if (nativeFileDropAvailableRef.current) return
     const files = event.dataTransfer.files
     if (files.length > 0) addBrowserFiles(files)
   }
@@ -915,6 +935,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
     let cancelled = false
     let unlisten: (() => void) | null = null
+    nativeFileDropAvailableRef.current = false
     void listenForTauriFileDrop({
       onHover: () => setIsDragActive(true),
       onLeave: () => setIsDragActive(false),
@@ -925,10 +946,12 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
         return
       }
       unlisten = cleanup
+      nativeFileDropAvailableRef.current = Boolean(cleanup)
     })
 
     return () => {
       cancelled = true
+      nativeFileDropAvailableRef.current = false
       unlisten?.()
     }
   }, [addPathFiles, canAcceptAttachments])
@@ -1027,8 +1050,6 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
           ? t('teams.memberPlaceholder')
           : t('chat.placeholder')
 
-  const addFilesLabel = isHeroComposer ? t('empty.addFiles') : t('chat.addFiles')
-  const slashCommandsLabel = isHeroComposer ? t('empty.slashCommands') : t('chat.slashCommands')
   const voiceButtonTitle = !voiceSupported
     ? t('chat.voice.unavailable')
     : isVoiceRecording
@@ -1316,10 +1337,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     {plusMenuOpen && (
                       <div className="absolute bottom-full left-0 z-50 mb-2 w-[240px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]">
                         <button
-                          onClick={() => {
-                            fileInputRef.current?.click()
-                            setPlusMenuOpen(false)
-                          }}
+                          onClick={() => void handleChooseFiles()}
                           className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
                         >
                           <span className="material-symbols-outlined text-[18px] text-[var(--color-text-secondary)]">attach_file</span>
@@ -1363,7 +1381,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     )}
                   </button>
 
-                  <PermissionModeSelector />
+                  <PermissionModeSelector
+                    disabled={isActive}
+                    disabledReason={t('chat.runtimeControlsLocked')}
+                  />
                 </>
               )}
             </div>
@@ -1371,7 +1392,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             <div className="flex items-center gap-2">
               {!isMemberSession && activeTabId && (
                 <>
-                  <AgentRunModeControl sessionKey={activeTabId} disabled={isWorkspaceMissing} />
+                  <AgentRunModeControl sessionKey={activeTabId} disabled={isWorkspaceMissing || isActive} />
                 </>
               )}
               <button

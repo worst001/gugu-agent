@@ -241,6 +241,9 @@ export const zh: Record<TranslationKey, string> = {
   'chat.historyLoadFailedTitle': '会话记录暂时没有加载出来',
   'chat.historyLoadFailedBody': '本地桌面服务可能还在启动，或刚刚发生过短暂断开。记录仍保存在本地，服务恢复后可以重试加载。',
   'chat.historyLoadRetry': '重新加载记录',
+  'chat.taskCompleteNotification.title': 'Gugu 任务完成',
+  'chat.taskCompleteNotification.body': '回复已经准备好了，回来看看结果。',
+  'chat.taskCompleteNotification.bodyWithTitle': '“{title}”已完成，回来看看结果。',
 
   // Settings > Attachment Parser
   'settings.attachmentParser.title': 'GLM 文件与图片解析',
@@ -1138,6 +1141,7 @@ export const zh: Record<TranslationKey, string> = {
   'chat.select': '选择',
   'chat.dismiss': '关闭',
   'chat.stopTitle': '停止生成 (Cmd+.)',
+  'chat.runtimeControlsLocked': '本轮任务正在执行，结束后再修改权限设置。',
   'chat.rewindAction': '回滚到这里',
   'chat.rewindModalTitle': '回滚对话',
   'chat.rewindConfirm': '执行回滚',

@@ -28,7 +28,7 @@ describe('buildAgentRunModeMessage', () => {
     const result = buildAgentRunModeMessage('ce', 'quick', 'fix the failing test')
 
     expect(result.display).toBe('fix the failing test')
-    expect(result.modelPreference).toBe('fast')
+    expect(result.modelPreference).toBe('strong')
     expect(result.wire).toContain('[Workflow: quick iteration]')
     expect(result.wire).toContain('CE automation (binding)')
   })

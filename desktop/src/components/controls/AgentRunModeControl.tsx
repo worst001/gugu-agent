@@ -106,6 +106,10 @@ export function AgentRunModeControl({ sessionKey, disabled = false }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (disabled) setOpenMenu(null)
+  }, [disabled])
+
+  useEffect(() => {
     if (!openMenu) return
     const handleClick = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpenMenu(null)

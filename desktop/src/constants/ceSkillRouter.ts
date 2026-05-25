@@ -89,7 +89,7 @@ const ROUTES: RouteDefinition[] = [
     tier: 'L2',
     canonicalSkill: 'ce-debug',
     reason: 'The user is reporting a failure, error, regression, or bug that needs diagnosis.',
-    modelPreference: 'fast',
+    modelPreference: 'strong',
     threshold: 2,
     priority: 70,
     positive: [
@@ -156,7 +156,7 @@ const ROUTES: RouteDefinition[] = [
     tier: 'L2',
     canonicalSkill: 'ce-work',
     reason: 'The user is asking to execute an existing plan or proceed with substantive implementation.',
-    modelPreference: 'fast',
+    modelPreference: 'strong',
     threshold: 3,
     priority: 50,
     positive: [

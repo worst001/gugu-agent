@@ -48,7 +48,7 @@ import { ContentRouter } from '../layout/ContentRouter'
 import { sessionsApi } from '../../api/sessions'
 import { wsManager } from '../../api/websocket'
 import { ActiveSession } from '../../pages/ActiveSession'
-import { useAgentRunModeStore } from '../../stores/agentRunModeStore'
+import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../../stores/agentRunModeStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -143,6 +143,7 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('/ce-plan')
     expect(payload?.content).toContain('User message:\nplan the composer modes')
     expect(payload?.ceModelPreference).toBe('strong')
+    expect(useAgentRunModeStore.getState().selections['plan-mode-session']).toBe('normal')
   })
 
   it('uses a matching CE pre-route in default mode when a relevant skill is available', async () => {
@@ -196,7 +197,7 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('[Workflow: quick iteration]')
     expect(payload?.content).toContain('CE automation (binding)')
     expect(payload?.content).not.toContain('/ce-plan')
-    expect(payload?.ceModelPreference).toBe('fast')
+    expect(payload?.ceModelPreference).toBe('strong')
   })
 
   it('switches from plan to CE mode and uses the selected CE workflow', async () => {
@@ -258,5 +259,34 @@ describe('ChatInput submit', () => {
     })
     expect(screen.getByRole('img', { name: 'whale.png' })).toBeInTheDocument()
     expect(screen.queryByText('Start a fresh coding session. Gugu is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
+  })
+
+  it('resets draft plan mode after creating a new session from the empty composer', async () => {
+    useSettingsStore.setState({ locale: 'en' })
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({
+      sessions: [],
+      activeSessionId: null,
+      isLoading: false,
+      error: null,
+    })
+    useChatStore.setState({ sessions: {} })
+    useAgentRunModeStore.getState().setMode(DRAFT_AGENT_RUN_MODE_KEY, 'plan')
+
+    render(<ContentRouter />)
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'plan a landing page', selectionStart: 19 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('plan a landing page')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Agent mode: plan]')
+    expect(useAgentRunModeStore.getState().selections['created-image-session']).toBe('normal')
+    expect(useAgentRunModeStore.getState().selections[DRAFT_AGENT_RUN_MODE_KEY]).toBe('normal')
   })
 })
