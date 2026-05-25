@@ -22,6 +22,16 @@ function Write-Step {
   Write-Host "[build-windows-x64] $Message"
 }
 
+function Write-Utf8NoBom {
+  param(
+    [string]$Path,
+    [string]$Value
+  )
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($Path, $Value, $encoding)
+}
+
 function Assert-WindowsHost {
   if ($env:OS -ne 'Windows_NT') {
     throw '[build-windows-x64] This script must run on Windows.'
@@ -209,7 +219,14 @@ $tauriBuildArgs = @(
   '--ci'
 )
 
-$hasUpdaterSigningKey = $env:TAURI_SIGNING_PRIVATE_KEY -or $env:TAURI_SIGNING_PRIVATE_KEY_PATH
+if ((-not $env:TAURI_SIGNING_PRIVATE_KEY) -and $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
+  if (-not (Test-Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH)) {
+    throw "[build-windows-x64] TAURI_SIGNING_PRIVATE_KEY_PATH does not exist: $env:TAURI_SIGNING_PRIVATE_KEY_PATH"
+  }
+  $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Path $env:TAURI_SIGNING_PRIVATE_KEY_PATH -Raw
+}
+
+$hasUpdaterSigningKey = $env:TAURI_SIGNING_PRIVATE_KEY
 $tempConfigPath = $null
 if (-not $hasUpdaterSigningKey) {
   $tempConfigPath = Join-Path ([System.IO.Path]::GetTempPath()) 'cc-haha.tauri.local.windows.json'
@@ -284,6 +301,33 @@ $msiInstaller = Get-LatestArtifact -SearchRoots @(
 ) -Patterns @("*$appVersion*.msi")
 
 $msiInstallerPath = if ($msiInstaller) { $msiInstaller.FullName } else { 'not found' }
+
+$canonicalMsiPath = Join-Path $activeOutputDir "Gugu-Agent-${appVersion}-windows-x64.msi"
+$canonicalMsiSignaturePath = "$canonicalMsiPath.sig"
+$canonicalLatestJsonPath = Join-Path $activeOutputDir 'latest.json'
+
+if ((Test-Path $canonicalMsiPath) -and (Test-Path $canonicalMsiSignaturePath) -and -not (Test-Path $canonicalLatestJsonPath)) {
+  $updaterBaseUrl = if ($env:GUGU_UPDATER_BASE_URL) {
+    $env:GUGU_UPDATER_BASE_URL.TrimEnd('/')
+  } else {
+    'https://gxy-download.oss-cn-shanghai.aliyuncs.com'
+  }
+  $signature = (Get-Content -Path $canonicalMsiSignaturePath -Raw).Trim()
+  $manifest = @{
+    version = $appVersion
+    pub_date = [DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    platforms = @{
+      'windows-x86_64' = @{
+        url = "$updaterBaseUrl/Gugu-Agent-${appVersion}-windows-x64.msi"
+        signature = $signature
+      }
+    }
+  } | ConvertTo-Json -Depth 10
+  Write-Utf8NoBom -Path $canonicalLatestJsonPath -Value $manifest
+  if (-not $copiedArtifacts.Contains($canonicalLatestJsonPath)) {
+    $copiedArtifacts.Add($canonicalLatestJsonPath) | Out-Null
+  }
+}
 
 $buildInfo = @(
   "App version: $appVersion"

@@ -19,6 +19,7 @@ powershell -ExecutionPolicy Bypass -File scripts/setup-tauri-updater-key.ps1 -Ge
 - 更新 `desktop/src-tauri/tauri.conf.json` 里的 updater 公钥
 
 `secrets/`、`*.local.ps1`、`*.local.sh` 都被 git 忽略，不能提交。
+环境脚本会从私钥文件读取内容并设置 `TAURI_SIGNING_PRIVATE_KEY`，这是 Tauri CLI 实际生成 updater 签名时需要的变量。
 
 ## Windows 打包
 
@@ -39,6 +40,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ". .\scripts\updater-env.
 
 ```bash
 export TAURI_SIGNING_PRIVATE_KEY_PATH="/absolute/path/to/tauri-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY="$(cat "${TAURI_SIGNING_PRIVATE_KEY_PATH}")"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="同一份密码"
 export SIGN_BUILD=1
 ```

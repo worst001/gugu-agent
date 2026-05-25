@@ -121,7 +121,15 @@ TAURI_ARGS=(
 if [[ "${SIGN_BUILD:-0}" != "1" ]]; then
   TAURI_ARGS+=(--no-sign)
 else
-  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" && -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
+  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" && -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
+    if [[ ! -f "${TAURI_SIGNING_PRIVATE_KEY_PATH}" ]]; then
+      echo "[build-macos-arm64] TAURI_SIGNING_PRIVATE_KEY_PATH does not exist: ${TAURI_SIGNING_PRIVATE_KEY_PATH}" >&2
+      exit 1
+    fi
+    export TAURI_SIGNING_PRIVATE_KEY="$(cat "${TAURI_SIGNING_PRIVATE_KEY_PATH}")"
+  fi
+
+  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
     echo "[build-macos-arm64] SIGN_BUILD=1 requires TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH for updater artifacts." >&2
     exit 1
   fi

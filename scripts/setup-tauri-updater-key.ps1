@@ -116,6 +116,7 @@ $escapedWindowsKeyPath = $KeyPath.Replace("'", "''")
 $escapedWindowsPassword = $Password.Replace("'", "''")
 $windowsEnv = @"
 `$env:TAURI_SIGNING_PRIVATE_KEY_PATH = '$escapedWindowsKeyPath'
+`$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Path `$env:TAURI_SIGNING_PRIVATE_KEY_PATH -Raw
 `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '$escapedWindowsPassword'
 Write-Host 'Tauri updater signing env loaded. Build scripts can now emit updater artifacts.'
 "@
@@ -127,6 +128,7 @@ $macEnv = @"
 #!/usr/bin/env bash
 # Copy secrets/tauri-updater.key to your Mac, then edit this path.
 export TAURI_SIGNING_PRIVATE_KEY_PATH="/absolute/path/to/tauri-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY="$(cat "${TAURI_SIGNING_PRIVATE_KEY_PATH}")"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD='${escapedMacPassword}'
 export SIGN_BUILD=1
 "@
