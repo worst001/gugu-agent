@@ -209,8 +209,9 @@ $tauriBuildArgs = @(
   '--ci'
 )
 
+$hasUpdaterSigningKey = $env:TAURI_SIGNING_PRIVATE_KEY -or $env:TAURI_SIGNING_PRIVATE_KEY_PATH
 $tempConfigPath = $null
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+if (-not $hasUpdaterSigningKey) {
   $tempConfigPath = Join-Path ([System.IO.Path]::GetTempPath()) 'cc-haha.tauri.local.windows.json'
   $tempConfig = @{
     bundle = @{
@@ -218,7 +219,7 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
     }
   } | ConvertTo-Json -Depth 10
   Set-Content -Path $tempConfigPath -Value $tempConfig -Encoding UTF8
-  Write-Step 'TAURI_SIGNING_PRIVATE_KEY not set, disabling updater artifacts for local build'
+  Write-Step 'No Tauri updater signing key set, disabling updater artifacts for local build'
   $tauriBuildArgs += @('--config', $tempConfigPath)
 }
 

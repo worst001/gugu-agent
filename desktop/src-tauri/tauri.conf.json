@@ -29,7 +29,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlCOUIwRDExQTc5RTFGMzYKUldRMkg1Nm5FUTJibTJ2cGlHY0pkL0dGemxXMUlzc01pVTVMM1U3WGpmWUtrUC8wK2ErSXhLKzEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY3RDA4MTcxOUI0RUQxNzcKUldSMzBVNmJjWUhROTEza21EMGZBTmdxYlk2L3pwellBeGxCTitPVkp2WUtDbDJLSGsxZ244V3QK",
       "endpoints": [
         "https://gxy-download.oss-cn-shanghai.aliyuncs.com/latest.json"
       ],

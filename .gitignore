@@ -64,6 +64,8 @@ bug_attachments/
 *.p12
 credentials*.json
 *.local.ps1
+*.local.sh
+secrets/
 
 # TS build cache
 *.tsbuildinfo

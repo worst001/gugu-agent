@@ -23,8 +23,9 @@ Usage:
 Environment:
   SKIP_INSTALL=1   Skip `bun install` in the repo root and desktop app.
   SIGN_BUILD=1     Remove the default `--no-sign` flag and allow signed builds.
-                   Signed builds require TAURI_SIGNING_PRIVATE_KEY and emit
-                   updater artifacts used by hot update.
+                   Signed builds require TAURI_SIGNING_PRIVATE_KEY or
+                   TAURI_SIGNING_PRIVATE_KEY_PATH and emit updater artifacts
+                   used by hot update.
   OPEN_OUTPUT=1    Open the canonical artifact output directory in Finder after a successful build.
 
 Examples:
@@ -120,8 +121,8 @@ TAURI_ARGS=(
 if [[ "${SIGN_BUILD:-0}" != "1" ]]; then
   TAURI_ARGS+=(--no-sign)
 else
-  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-    echo "[build-macos-arm64] SIGN_BUILD=1 requires TAURI_SIGNING_PRIVATE_KEY for updater artifacts." >&2
+  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" && -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
+    echo "[build-macos-arm64] SIGN_BUILD=1 requires TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH for updater artifacts." >&2
     exit 1
   fi
 fi
