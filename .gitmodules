@@ -1,4 +1,4 @@
 [submodule "gateway"]
 	path = gateway
-	url = git@gitee.com:xiyouwangluo/claude-code-gugu.git
-	branch = gateway
+	url = git@gitee.com:xiyouwangluo/gugu-gateway.git
+	branch = master
