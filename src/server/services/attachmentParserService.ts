@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
+import { setTimeout as delay } from 'timers/promises'
 import { ApiError } from '../middleware/errorHandler.js'
 import { billingService } from './billingService.js'
 import {
@@ -588,7 +589,9 @@ export class AttachmentParserService {
     }
 
     const form = new FormData()
+    const fileType = inferGlmFileType(payload.name, payload.mimeType)
     form.append('tool_type', 'prime-sync')
+    if (fileType) form.append('file_type', fileType)
     form.append('file', new Blob([payload.data], { type: payload.mimeType }), payload.name)
 
     const response = await this.fetchFn(`${trimBaseUrl(config.baseUrl)}/files/parser/sync`, {
@@ -612,7 +615,53 @@ export class AttachmentParserService {
       throw new AttachmentParserError(`GLM file parsing failed: ${extractErrorMessage(body)}`)
     }
 
-    return assertParsedText(extractMarkdownFromAny(body), payload.name)
+    const parsed = extractMarkdownFromAny(body)
+    if (parsed) return assertParsedText(parsed, payload.name)
+
+    const taskId = extractFileParserTaskId(body)
+    if (taskId) {
+      return assertParsedText(await this.fetchFileParserTextResult(config, taskId), payload.name)
+    }
+
+    return assertParsedText(parsed, payload.name)
+  }
+
+  private async fetchFileParserTextResult(
+    config: AttachmentParserConfig,
+    taskId: string,
+  ): Promise<string> {
+    let lastBody: unknown = null
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) await delay(1000)
+      const response = await this.fetchFn(
+        `${trimBaseUrl(config.baseUrl)}/files/parser/result/${encodeURIComponent(taskId)}/text`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          signal: AbortSignal.timeout(120_000),
+        },
+      )
+      const text = await response.text()
+      let body: unknown = text
+      try {
+        body = JSON.parse(text)
+      } catch {
+        // Keep plain text bodies as-is.
+      }
+      lastBody = body
+
+      if (!response.ok) {
+        throw new AttachmentParserError(`GLM file parsing result fetch failed: ${extractErrorMessage(body)}`)
+      }
+
+      const parsed = extractMarkdownFromAny(body)
+      if (parsed) return parsed
+      if (!isFileParserPending(body)) break
+    }
+
+    return extractMarkdownFromAny(lastBody)
   }
 
   private async renderParsedPrompt(
@@ -815,12 +864,71 @@ function inferMimeType(name: string, type: AttachmentRef['type']): string {
   if (lower.endsWith('.xml')) return 'application/xml'
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html'
   if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (lower.endsWith('.doc')) return 'application/msword'
   if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  if (lower.endsWith('.xls')) return 'application/vnd.ms-excel'
   if (lower.endsWith('.pptx')) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  if (lower.endsWith('.ppt')) return 'application/vnd.ms-powerpoint'
   if (lower.endsWith('.zip')) return 'application/zip'
   if (lower.endsWith('.rar')) return 'application/vnd.rar'
   if (lower.endsWith('.7z')) return 'application/x-7z-compressed'
   return type === 'image' ? 'image/png' : 'application/octet-stream'
+}
+
+function inferGlmFileType(name: string, mimeType: string): string {
+  const ext = name.toLowerCase().split('.').pop() ?? ''
+  const byExt: Record<string, string> = {
+    wps: 'WPS',
+    pdf: 'PDF',
+    docx: 'DOCX',
+    doc: 'DOC',
+    xlsx: 'XLSX',
+    xls: 'XLS',
+    pptx: 'PPTX',
+    ppt: 'PPT',
+    png: 'PNG',
+    jpg: 'JPG',
+    jpeg: 'JPEG',
+    csv: 'CSV',
+    txt: 'TXT',
+    md: 'MD',
+    markdown: 'MD',
+    html: 'HTML',
+    htm: 'HTML',
+    bmp: 'BMP',
+    gif: 'GIF',
+    webp: 'WEBP',
+    heic: 'HEIC',
+    eps: 'EPS',
+    icns: 'ICNS',
+    im: 'IM',
+    pcx: 'PCX',
+    ppm: 'PPM',
+    tiff: 'TIFF',
+    tif: 'TIFF',
+    xbm: 'XBM',
+    heif: 'HEIF',
+    jp2: 'JP2',
+  }
+  if (byExt[ext]) return byExt[ext]
+
+  const normalizedMime = mimeType.toLowerCase()
+  if (normalizedMime === 'application/msword') return 'DOC'
+  if (normalizedMime.includes('wordprocessingml')) return 'DOCX'
+  if (normalizedMime === 'application/vnd.ms-excel') return 'XLS'
+  if (normalizedMime.includes('spreadsheetml')) return 'XLSX'
+  if (normalizedMime === 'application/vnd.ms-powerpoint') return 'PPT'
+  if (normalizedMime.includes('presentationml')) return 'PPTX'
+  if (normalizedMime === 'application/pdf') return 'PDF'
+  if (normalizedMime === 'text/csv') return 'CSV'
+  if (normalizedMime === 'text/markdown') return 'MD'
+  if (normalizedMime === 'text/plain') return 'TXT'
+  if (normalizedMime === 'text/html') return 'HTML'
+  if (normalizedMime === 'image/png') return 'PNG'
+  if (normalizedMime === 'image/jpeg') return 'JPG'
+  if (normalizedMime === 'image/webp') return 'WEBP'
+  if (normalizedMime === 'image/gif') return 'GIF'
+  return ''
 }
 
 function parseAttachmentData(data: string): Buffer | null {
@@ -913,18 +1021,33 @@ function extractMarkdownFromAny(body: unknown): string {
   if (!body || typeof body !== 'object') return ''
 
   const record = body as Record<string, unknown>
-  for (const key of ['md_results', 'markdown', 'content', 'text', 'result', 'output_text']) {
+  for (const key of [
+    'md_results',
+    'md',
+    'markdown',
+    'content',
+    'text',
+    'result',
+    'output',
+    'output_text',
+    'parsed_text',
+    'parsedText',
+    'file_content',
+    'fileContent',
+    'content_md',
+    'contentMd',
+  ]) {
     const value = record[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
   }
 
-  for (const key of ['md_results', 'results', 'data', 'documents']) {
+  for (const key of ['md_results', 'results', 'data', 'documents', 'output']) {
     const value = record[key]
     const extracted = extractMarkdownCollection(value)
     if (extracted) return extracted
   }
 
-  const nested = record.result ?? record.data
+  const nested = record.result ?? record.data ?? record.output
   if (nested && nested !== body) {
     const extracted = extractMarkdownFromAny(nested)
     if (extracted) return extracted
@@ -945,12 +1068,56 @@ function extractMarkdownCollection(value: unknown): string {
   }
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
-    for (const key of ['md_results', 'md', 'markdown', 'content', 'text']) {
+    for (const key of [
+      'md_results',
+      'md',
+      'markdown',
+      'content',
+      'text',
+      'result',
+      'output',
+      'output_text',
+      'parsed_text',
+      'parsedText',
+      'file_content',
+      'fileContent',
+      'content_md',
+      'contentMd',
+    ]) {
       const candidate = record[key]
       if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
     }
   }
   return ''
+}
+
+function extractFileParserTaskId(body: unknown): string {
+  if (!body || typeof body !== 'object') return ''
+  const record = body as Record<string, unknown>
+  for (const key of ['task_id', 'taskId', 'id']) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  for (const key of ['data', 'result', 'output']) {
+    const value = record[key]
+    if (value && typeof value === 'object' && value !== body) {
+      const nested = extractFileParserTaskId(value)
+      if (nested) return nested
+    }
+  }
+  return ''
+}
+
+function isFileParserPending(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false
+  const record = body as Record<string, unknown>
+  const status = String(record.status ?? record.state ?? record.task_status ?? '').toLowerCase()
+  if (['pending', 'processing', 'running', 'created'].includes(status)) return true
+  for (const key of ['data', 'result', 'output']) {
+    const value = record[key]
+    if (value && typeof value === 'object' && value !== body && isFileParserPending(value)) return true
+  }
+  return false
 }
 
 function assertParsedText(text: string, name: string): string {

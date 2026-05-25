@@ -205,6 +205,40 @@ describe('AttachmentParserService', () => {
     expect(result.content).toContain('# Sheet')
     expect(calls[0]!.url).toEndWith('/files/parser/sync')
     expect(calls[0]!.body).toBeInstanceOf(FormData)
+    expect((calls[0]!.body as FormData).get('file_type')).toBe('XLSX')
+  })
+
+  test('fetches parser result text when GLM returns a task id for a Word document', async () => {
+    const calls: Array<{ url: string; body: unknown }> = []
+    const service = new AttachmentParserService(async (url, init) => {
+      calls.push({ url: String(url), body: init?.body })
+      if (String(url).endsWith('/files/parser/sync')) {
+        return jsonResponse({
+          success: true,
+          message: 'created',
+          task_id: 'task-docx',
+        })
+      }
+      return jsonResponse({
+        data: {
+          content: '# Word Document\nParsed from fallback result.',
+        },
+      })
+    })
+    await service.updateConfig({ enabled: true, mode: 'custom', apiKey: 'glm-key' })
+
+    const result = await service.prepareMessageContent('read Word', 'session-1', [{
+      type: 'file',
+      name: 'contract.docx',
+      data: Buffer.from('docx').toString('base64'),
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }])
+
+    expect(result.content).toContain('# Word Document')
+    expect(calls).toHaveLength(2)
+    expect(calls[0]!.url).toEndWith('/files/parser/sync')
+    expect((calls[0]!.body as FormData).get('file_type')).toBe('DOCX')
+    expect(calls[1]!.url).toEndWith('/files/parser/result/task-docx/text')
   })
 
   test('keeps compressed archives as local metadata instead of sending them to GLM', async () => {
