@@ -49,7 +49,7 @@ jobs:
       - name: Build Windows artifacts
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -eq "push" -or "${{ inputs.require_updater }}" -eq "true") {
+          if ("${{ github.event_name }}" -eq "push" -or "${{ inputs.publish }}" -eq "true" -or "${{ inputs.require_updater }}" -eq "true") {
             if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
               throw "TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
             }
@@ -88,7 +88,7 @@ jobs:
       - name: Build macOS artifacts
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "push" || "${{ inputs.require_updater }}" == "true" ]]; then
+          if [[ "${{ github.event_name }}" == "push" || "${{ inputs.publish }}" == "true" || "${{ inputs.require_updater }}" == "true" ]]; then
             if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
               echo "::error::TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
               exit 1
