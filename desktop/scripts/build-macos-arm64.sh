@@ -323,17 +323,38 @@ if [[ -n "${LATEST_APP}" ]]; then
 fi
 
 if [[ "${SIGN_BUILD:-0}" == "1" ]]; then
-  if [[ -z "${LATEST_UPDATER_ARCHIVE}" || -z "${LATEST_UPDATER_SIGNATURE}" || -z "${LATEST_UPDATER_MANIFEST}" ]]; then
+  if [[ -z "${LATEST_UPDATER_ARCHIVE}" || -z "${LATEST_UPDATER_SIGNATURE}" ]]; then
     echo "[build-macos-arm64] ERROR: signed updater artifacts are incomplete." >&2
     echo "[build-macos-arm64] archive=${LATEST_UPDATER_ARCHIVE:-not found}" >&2
     echo "[build-macos-arm64] signature=${LATEST_UPDATER_SIGNATURE:-not found}" >&2
-    echo "[build-macos-arm64] manifest=${LATEST_UPDATER_MANIFEST:-not found}" >&2
     exit 1
   fi
 
-  cp -f "${LATEST_UPDATER_ARCHIVE}" "${CANONICAL_OUTPUT_DIR}/Gugu-Agent-${APP_VERSION}-darwin-aarch64.app.tar.gz"
-  cp -f "${LATEST_UPDATER_SIGNATURE}" "${CANONICAL_OUTPUT_DIR}/Gugu-Agent-${APP_VERSION}-darwin-aarch64.app.tar.gz.sig"
-  cp -f "${LATEST_UPDATER_MANIFEST}" "${CANONICAL_OUTPUT_DIR}/latest.json"
+  CANONICAL_UPDATER_ARCHIVE="${CANONICAL_OUTPUT_DIR}/Gugu-Agent-${APP_VERSION}-darwin-aarch64.app.tar.gz"
+  CANONICAL_UPDATER_SIGNATURE="${CANONICAL_UPDATER_ARCHIVE}.sig"
+  UPDATER_BASE_URL="${GUGU_UPDATER_BASE_URL:-https://gxy-download.oss-cn-shanghai.aliyuncs.com}"
+  UPDATER_BASE_URL="${UPDATER_BASE_URL%/}"
+  UPDATER_SIGNATURE_VALUE="$(tr -d '\r\n' < "${LATEST_UPDATER_SIGNATURE}")"
+
+  cp -f "${LATEST_UPDATER_ARCHIVE}" "${CANONICAL_UPDATER_ARCHIVE}"
+  cp -f "${LATEST_UPDATER_SIGNATURE}" "${CANONICAL_UPDATER_SIGNATURE}"
+
+  cat > "${CANONICAL_OUTPUT_DIR}/latest.json" <<EOF
+{
+  "version": "${APP_VERSION}",
+  "pub_date": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+  "platforms": {
+    "darwin-aarch64-app": {
+      "url": "${UPDATER_BASE_URL}/Gugu-Agent-${APP_VERSION}-darwin-aarch64.app.tar.gz",
+      "signature": "${UPDATER_SIGNATURE_VALUE}"
+    },
+    "darwin-aarch64": {
+      "url": "${UPDATER_BASE_URL}/Gugu-Agent-${APP_VERSION}-darwin-aarch64.app.tar.gz",
+      "signature": "${UPDATER_SIGNATURE_VALUE}"
+    }
+  }
+}
+EOF
 fi
 
 cat > "${CANONICAL_OUTPUT_DIR}/BUILD_INFO.txt" <<EOF
