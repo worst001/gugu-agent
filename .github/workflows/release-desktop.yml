@@ -1,0 +1,170 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload artifacts to OSS and Gitee Release
+        required: true
+        default: false
+        type: boolean
+      require_updater:
+        description: Require signed updater artifacts
+        required: true
+        default: true
+        type: boolean
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  build-windows:
+    name: Build Windows MSI
+    runs-on: windows-2022
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      GUGU_UPDATER_BASE_URL: https://gxy-download.oss-cn-shanghai.aliyuncs.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Windows artifacts
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push" -or "${{ inputs.require_updater }}" -eq "true") {
+            if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+              throw "TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
+            }
+          }
+          cd desktop
+          .\scripts\build-windows-x64.ps1
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-x64
+          path: desktop/build-artifacts/windows-x64/*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS Apple Silicon DMG
+    runs-on: macos-15
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      GUGU_UPDATER_BASE_URL: https://gxy-download.oss-cn-shanghai.aliyuncs.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build macOS artifacts
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" || "${{ inputs.require_updater }}" == "true" ]]; then
+            if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+              echo "::error::TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
+              exit 1
+            fi
+            export SIGN_BUILD=1
+          fi
+          ./desktop/scripts/build-macos-arm64.sh
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-arm64
+          path: desktop/build-artifacts/macos-arm64/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish OSS and Gitee Release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-windows
+      - build-macos
+    if: github.event_name == 'push' || inputs.publish == true
+    env:
+      GUGU_OSS_ACCESS_KEY_ID: ${{ secrets.GUGU_OSS_ACCESS_KEY_ID }}
+      GUGU_OSS_ACCESS_KEY_SECRET: ${{ secrets.GUGU_OSS_ACCESS_KEY_SECRET }}
+      GUGU_OSS_BUCKET: ${{ secrets.GUGU_OSS_BUCKET }}
+      GUGU_OSS_ENDPOINT: ${{ secrets.GUGU_OSS_ENDPOINT }}
+      GUGU_OSS_PUBLIC_BASE_URL: ${{ secrets.GUGU_OSS_PUBLIC_BASE_URL }}
+      GUGU_GITEE_ACCESS_TOKEN: ${{ secrets.GUGU_GITEE_ACCESS_TOKEN }}
+      GUGU_GITEE_OWNER: ${{ vars.GUGU_GITEE_OWNER || 'xiyouwangluo' }}
+      GUGU_GITEE_REPO: ${{ vars.GUGU_GITEE_REPO || 'claude-code-gugu' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-windows-x64
+          path: desktop/build-artifacts/windows-x64
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-macos-arm64
+          path: desktop/build-artifacts/macos-arm64
+
+      - name: Validate publish secrets
+        shell: bash
+        run: |
+          required=(
+            GUGU_OSS_ACCESS_KEY_ID
+            GUGU_OSS_ACCESS_KEY_SECRET
+            GUGU_OSS_BUCKET
+            GUGU_OSS_ENDPOINT
+            GUGU_OSS_PUBLIC_BASE_URL
+            GUGU_GITEE_ACCESS_TOKEN
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required secret/env: ${name}"
+              exit 1
+            fi
+          done
+
+      - name: Merge updater manifest
+        working-directory: desktop
+        run: bun run release:updater-manifest
+
+      - name: Upload release artifacts to OSS
+        run: bun run release:desktop:oss -- --require-updater --publish
+
+      - name: Publish Gitee Release
+        run: bun run release:desktop:gitee -- --publish
