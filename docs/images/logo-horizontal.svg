@@ -1,0 +1,30 @@
+<svg width="940" height="260" viewBox="0 0 940 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wordmark" x1="270" y1="68" x2="770" y2="188" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3F2419"/>
+      <stop offset="1" stop-color="#A76032"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="274" y1="174" x2="614" y2="174" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF6E7"/>
+      <stop offset="1" stop-color="#FFE1B7"/>
+    </linearGradient>
+    <filter id="iconShadow" x="4" y="8" width="252" height="252" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#9A542E" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#iconShadow)">
+    <image href="app-icon.svg" x="24" y="24" width="212" height="212" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+
+  <text x="272" y="120" fill="url(#wordmark)" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="68" font-weight="800" letter-spacing="0">
+    Gugu Agent
+  </text>
+  <text x="276" y="160" fill="#7B4E32" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="22" font-weight="600" letter-spacing="0">
+    Ready-to-use desktop AI agent
+  </text>
+  <rect x="272" y="182" width="354" height="42" rx="21" fill="url(#chip)" stroke="#E8B77E"/>
+  <text x="294" y="210" fill="#7B4E32" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="0">
+    Managed by default · fully configurable
+  </text>
+</svg>

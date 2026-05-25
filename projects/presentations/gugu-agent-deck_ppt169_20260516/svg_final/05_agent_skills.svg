@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA" />
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">多 Agent 与 Skills：可扩展的工作流引擎</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">把复杂任务拆成可并行的执行单元，把经验沉淀成可复用的 Skill</text>
+  </g>
+  <g id="agent_flow">
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M90,180 H324 A8,8 0 0 1 332,188 V264 A8,8 0 0 1 324,272 H90 A8,8 0 0 1 82,264 V188 A8,8 0 0 1 90,180 Z" />
+    <text x="207" y="218" text-anchor="middle" font-family="Microsoft YaHei" font-size="24" font-weight="700" fill="#1D2329">主 Agent</text>
+    <text x="207" y="250" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#667085">任务理解 / 调度</text>
+    <path fill="#D9E8F6" stroke="#2D628F" d="M418,160 H630 A8,8 0 0 1 638,168 V238 A8,8 0 0 1 630,246 H418 A8,8 0 0 1 410,238 V168 A8,8 0 0 1 418,160 Z" />
+    <text x="524" y="194" text-anchor="middle" font-family="Microsoft YaHei" font-size="21" font-weight="700" fill="#183F5D">Subagent</text>
+    <text x="524" y="224" text-anchor="middle" font-family="Microsoft YaHei" font-size="16" fill="#1D2329">独立上下文执行</text>
+    <path fill="#F3E7DA" stroke="#8F482F" d="M418,276 H630 A8,8 0 0 1 638,284 V354 A8,8 0 0 1 630,362 H418 A8,8 0 0 1 410,354 V284 A8,8 0 0 1 418,276 Z" />
+    <text x="524" y="310" text-anchor="middle" font-family="Microsoft YaHei" font-size="21" font-weight="700" fill="#8F482F">Fork</text>
+    <text x="524" y="340" text-anchor="middle" font-family="Microsoft YaHei" font-size="16" fill="#1D2329">继承上下文 / 缓存命中</text>
+    <path fill="#E2EBDD" stroke="#4F6237" d="M418,392 H630 A8,8 0 0 1 638,400 V470 A8,8 0 0 1 630,478 H418 A8,8 0 0 1 410,470 V400 A8,8 0 0 1 418,392 Z" />
+    <text x="524" y="426" text-anchor="middle" font-family="Microsoft YaHei" font-size="21" font-weight="700" fill="#4F6237">Teams</text>
+    <text x="524" y="456" text-anchor="middle" font-family="Microsoft YaHei" font-size="16" fill="#1D2329">邮箱通信 / 权限同步</text>
+    <line x1="332" y1="226" x2="410" y2="203" stroke="#2D628F" stroke-width="3" />
+    <line x1="332" y1="226" x2="410" y2="319" stroke="#8F482F" stroke-width="3" />
+    <line x1="332" y1="226" x2="410" y2="435" stroke="#4F6237" stroke-width="3" />
+  </g>
+  <g id="skills_panel">
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M732,166 H1190 A8,8 0 0 1 1198,174 V488 A8,8 0 0 1 1190,496 H732 A8,8 0 0 1 724,488 V174 A8,8 0 0 1 732,166 Z" />
+    <text x="762" y="212" font-family="Microsoft YaHei" font-size="28" font-weight="700" fill="#1D2329">Skills 系统</text>
+    <text x="762" y="250" font-family="Microsoft YaHei" font-size="19" fill="#667085">用 Markdown 定义专门工作流，按场景自动进入专业模式。</text>
+    <path fill="#D9E8F6" d="M770,292 H932 A8,8 0 0 1 940,300 V338 A8,8 0 0 1 932,346 H770 A8,8 0 0 1 762,338 V300 A8,8 0 0 1 770,292 Z" />
+    <text x="851" y="326" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#183F5D">Bundled</text>
+    <path fill="#F3E7DA" d="M970,292 H1132 A8,8 0 0 1 1140,300 V338 A8,8 0 0 1 1132,346 H970 A8,8 0 0 1 962,338 V300 A8,8 0 0 1 970,292 Z" />
+    <text x="1051" y="326" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#8F482F">Project</text>
+    <path fill="#E2EBDD" d="M770,366 H932 A8,8 0 0 1 940,374 V412 A8,8 0 0 1 932,420 H770 A8,8 0 0 1 762,412 V374 A8,8 0 0 1 770,366 Z" />
+    <text x="851" y="400" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#4F6237">Plugin</text>
+    <path fill="#F4DAD4" d="M970,366 H1132 A8,8 0 0 1 1140,374 V412 A8,8 0 0 1 1132,420 H970 A8,8 0 0 1 962,412 V374 A8,8 0 0 1 970,366 Z" />
+    <text x="1051" y="400" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#8F482F">MCP</text>
+    <text x="762" y="464" font-family="Microsoft YaHei" font-size="18" fill="#1D2329">能力沉淀：</text>
+    <text x="860" y="464" font-family="Microsoft YaHei" font-size="18" fill="#667085">代码审查、调试、TDD、发布、上下文工程等。</text>
+  </g>
+  <g id="takeaway">
+    <path fill="#1D2329" d="M90,560 H1190 A8,8 0 0 1 1198,568 V614 A8,8 0 0 1 1190,622 H90 A8,8 0 0 1 82,614 V568 A8,8 0 0 1 90,560 Z" />
+    <text x="122" y="600" font-family="Microsoft YaHei" font-size="21" font-weight="700" fill="#FFFFFF">关键能力：</text>
+    <text x="232" y="600" font-family="Microsoft YaHei" font-size="21" fill="#FFFFFF">并行探索、后台执行、团队协作、流程复用、记忆整合和隔离改动。</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">05 / 08</text>
+  </g>
+</svg>

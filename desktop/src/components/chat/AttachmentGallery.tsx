@@ -1,0 +1,154 @@
+import { useMemo, useState } from 'react'
+import { useTranslation } from '../../i18n'
+import { ImageGalleryModal } from './ImageGalleryModal'
+
+export type AttachmentPreview = {
+  id?: string
+  type: 'image' | 'file'
+  name: string
+  path?: string
+  data?: string
+  previewUrl?: string
+  mimeType?: string
+}
+
+type Props = {
+  attachments: AttachmentPreview[]
+  variant?: 'composer' | 'message'
+  onRemove?: (id: string) => void
+  onOpenAttachment?: (index: number) => void
+}
+
+export function AttachmentGallery({
+  attachments,
+  variant = 'message',
+  onRemove,
+  onOpenAttachment,
+}: Props) {
+  const [activeImageIndex, setActiveImageIndex] = useState<number | null>(null)
+  const t = useTranslation()
+
+  const images = useMemo(
+    () =>
+      attachments
+        .filter((attachment) => attachment.type === 'image' && (attachment.previewUrl || attachment.data))
+        .map((attachment) => ({
+          src: getImageSrc(attachment),
+          name: attachment.name,
+        })),
+    [attachments],
+  )
+
+  if (attachments.length === 0) return null
+
+  const isComposer = variant === 'composer'
+
+  return (
+    <>
+      <div className={isComposer ? 'flex flex-wrap items-center gap-2' : 'grid max-w-full grid-cols-1 justify-items-end gap-2 sm:grid-cols-2'}>
+        {attachments.map((attachment, index) => {
+          if (attachment.type === 'image' && (attachment.previewUrl || attachment.data)) {
+            const src = getImageSrc(attachment)
+            return (
+              <div
+                key={attachment.id || `${attachment.name}-${index}`}
+                className={isComposer ? 'group relative' : 'relative'}
+              >
+                <button
+                  type="button"
+                  onClick={() => setActiveImageIndex(images.findIndex((image) => image.src === src))}
+                  className={
+                    isComposer
+                      ? 'overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)]'
+                      : 'h-[180px] w-[280px] max-w-full overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] text-left shadow-sm transition-transform hover:scale-[1.01] sm:h-[210px] sm:w-[320px]'
+                  }
+                >
+                  <img
+                    src={src}
+                    alt={attachment.name}
+                    className={
+                      isComposer
+                        ? 'h-16 w-16 object-cover'
+                        : 'h-full w-full object-cover'
+                    }
+                  />
+                </button>
+                {onRemove && attachment.id && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(attachment.id!)}
+                    className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--color-error)] text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label={`Remove ${attachment.name}`}
+                  >
+                    ×
+                  </button>
+                )}
+                {!isComposer && onOpenAttachment && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onOpenAttachment(index)
+                    }}
+                    className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/90 text-[var(--color-text-secondary)] shadow-sm transition-colors hover:text-[var(--color-text-primary)]"
+                    aria-label={t('workbench.openTool')}
+                    title={t('workbench.openTool')}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">open_in_new</span>
+                  </button>
+                )}
+              </div>
+            )
+          }
+
+          return (
+            <div
+              key={attachment.id || `${attachment.name}-${index}`}
+              className={`${isComposer ? '' : 'min-h-[44px] w-[280px] max-w-full sm:w-[320px]'} flex items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]`}
+            >
+              <span className="material-symbols-outlined text-[14px]">attach_file</span>
+              <span className="max-w-[220px] truncate">{attachment.name}</span>
+              {!isComposer && onOpenAttachment && (
+                <button
+                  type="button"
+                  onClick={() => onOpenAttachment(index)}
+                  className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                  aria-label={t('workbench.openTool')}
+                  title={t('workbench.openTool')}
+                >
+                  <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                </button>
+              )}
+              {onRemove && attachment.id && (
+                <button
+                  type="button"
+                  onClick={() => onRemove(attachment.id!)}
+                  className="ml-1 text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-error)]"
+                  aria-label={`Remove ${attachment.name}`}
+                >
+                  <span className="material-symbols-outlined text-[14px]">close</span>
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {activeImageIndex !== null && activeImageIndex >= 0 && (
+        <ImageGalleryModal
+          open={activeImageIndex !== null}
+          images={images}
+          activeIndex={activeImageIndex}
+          onClose={() => setActiveImageIndex(null)}
+          onSelect={setActiveImageIndex}
+        />
+      )}
+    </>
+  )
+}
+
+function getImageSrc(attachment: AttachmentPreview): string {
+  const src = attachment.previewUrl || attachment.data || ''
+  if (!src || src.startsWith('data:') || src.startsWith('blob:')) return src
+  return `data:${attachment.mimeType || 'image/png'};base64,${src}`
+}

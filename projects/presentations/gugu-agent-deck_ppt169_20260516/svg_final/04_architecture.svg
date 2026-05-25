@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#F7F8FA" />
+  <g id="header">
+    <text x="72" y="86" font-family="Microsoft YaHei" font-size="38" font-weight="700" fill="#1D2329">整体架构：桌面端到 CLI 的三层通信</text>
+    <text x="72" y="122" font-family="Microsoft YaHei" font-size="18" fill="#667085">React WebView 负责体验，Bun Sidecar 负责会话，CLI 子进程负责 AI 与工具执行</text>
+  </g>
+  <g id="architecture_layers">
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M126,168 H1154 A8,8 0 0 1 1162,176 V276 A8,8 0 0 1 1154,284 H126 A8,8 0 0 1 118,276 V176 A8,8 0 0 1 126,168 Z" />
+    <text x="148" y="214" font-family="Microsoft YaHei" font-size="25" font-weight="700" fill="#2D628F">Tauri 主进程 + React WebView</text>
+    <text x="148" y="252" font-family="Microsoft YaHei" font-size="18" fill="#667085">窗口、原生桥接、桌面 UI、多标签、多会话、权限对话框</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M126,330 H1154 A8,8 0 0 1 1162,338 V438 A8,8 0 0 1 1154,446 H126 A8,8 0 0 1 118,438 V338 A8,8 0 0 1 126,330 Z" />
+    <text x="148" y="376" font-family="Microsoft YaHei" font-size="25" font-weight="700" fill="#8F482F">Server Sidecar（Bun HTTP + WebSocket）</text>
+    <text x="148" y="414" font-family="Microsoft YaHei" font-size="18" fill="#667085">REST API、WebSocket 网关、会话管理、Provider 配置、CLI 子进程代理</text>
+    <path fill="#FFFFFF" stroke="#D8DEE6" d="M126,492 H1154 A8,8 0 0 1 1162,500 V600 A8,8 0 0 1 1154,608 H126 A8,8 0 0 1 118,600 V500 A8,8 0 0 1 126,492 Z" />
+    <text x="148" y="538" font-family="Microsoft YaHei" font-size="25" font-weight="700" fill="#4F6237">CLI 子进程 + 工具运行时</text>
+    <text x="148" y="576" font-family="Microsoft YaHei" font-size="18" fill="#667085">AI 对话核心、工具调用、MCP、Agent 编排、Computer Use Python Bridge</text>
+  </g>
+  <g id="connectors">
+    <path fill="#D9E8F6" stroke="#2D628F" d="M575,292 H705 A15,15 0 0 1 720,307 V307 A15,15 0 0 1 705,322 H575 A15,15 0 0 1 560,307 V307 A15,15 0 0 1 575,292 Z" />
+    <text x="640" y="313" text-anchor="middle" font-family="Microsoft YaHei" font-size="16" fill="#183F5D">HTTP + WS</text>
+    <line x1="640" y1="284" x2="640" y2="330" stroke="#2D628F" stroke-width="3" />
+    <path fill="#E2EBDD" stroke="#4F6237" d="M575,454 H705 A15,15 0 0 1 720,469 V469 A15,15 0 0 1 705,484 H575 A15,15 0 0 1 560,469 V469 A15,15 0 0 1 575,454 Z" />
+    <text x="640" y="475" text-anchor="middle" font-family="Microsoft YaHei" font-size="16" fill="#4F6237">stdin / stdout</text>
+    <line x1="640" y1="446" x2="640" y2="492" stroke="#4F6237" stroke-width="3" />
+  </g>
+  <g id="sidecars">
+    <path fill="#F3E7DA" stroke="#8F482F" d="M860,208 H1084 A8,8 0 0 1 1092,216 V242 A8,8 0 0 1 1084,250 H860 A8,8 0 0 1 852,242 V216 A8,8 0 0 1 860,208 Z" />
+    <text x="972" y="235" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#8F482F">Adapter Sidecar</text>
+    <path fill="#F4DAD4" stroke="#C9886B" d="M860,370 H1084 A8,8 0 0 1 1092,378 V404 A8,8 0 0 1 1084,412 H860 A8,8 0 0 1 852,404 V378 A8,8 0 0 1 860,370 Z" />
+    <text x="972" y="397" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#8F482F">Provider / Proxy</text>
+    <path fill="#EEF1F5" stroke="#D8DEE6" d="M860,532 H1084 A8,8 0 0 1 1092,540 V566 A8,8 0 0 1 1084,574 H860 A8,8 0 0 1 852,566 V540 A8,8 0 0 1 860,532 Z" />
+    <text x="972" y="559" text-anchor="middle" font-family="Microsoft YaHei" font-size="17" fill="#1D2329">MCP / Runtime</text>
+  </g>
+  <g id="footer">
+    <text x="1144" y="676" font-family="Microsoft YaHei" font-size="16" fill="#667085">04 / 08</text>
+  </g>
+</svg>

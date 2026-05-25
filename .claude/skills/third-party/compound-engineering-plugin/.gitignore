@@ -1,0 +1,12 @@
+.DS_Store
+*.log
+node_modules/
+.codex/
+todos/
+.worktrees
+.context/
+.claude/worktrees/
+__pycache__/
+*.pyc
+
+.compound-engineering/*.local.yaml
