@@ -1,7 +1,7 @@
 {
   "name": "claude-code-desktop",
   "private": true,
-  "version": "0.1.14",
+  "version": "0.1.15",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -51,6 +51,7 @@
     "@tauri-apps/api": "^2.3.0",
     "@tauri-apps/cli": "^2.3.1",
     "@tauri-apps/plugin-dialog": "^2.2.1",
+    "@tauri-apps/plugin-notification": "^2.2.1",
     "@tauri-apps/plugin-process": "^2.2.1",
     "@tauri-apps/plugin-shell": "^2.2.1",
     "@tauri-apps/plugin-updater": "^2.2.1"

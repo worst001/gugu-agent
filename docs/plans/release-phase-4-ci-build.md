@@ -26,6 +26,28 @@
 - `publish=true`：构建完成后同时发布到 OSS 和 Gitee。
 - `require_updater=true`：要求生成完整热更新产物。
 
+### 本地触发 CI
+
+也可以不打开网页，在本地触发 GitHub Actions。先创建 GitHub token，至少需要当前仓库的 `Actions: write` 和 `Contents: read` 权限，然后本地填写：
+
+```powershell
+.\scripts\github-actions-env.local.ps1
+```
+
+触发一次只构建不发布的验证：
+
+```powershell
+.\scripts\trigger-github-desktop-release.ps1
+```
+
+如果没有设置 `GUGU_GITHUB_TOKEN`，脚本会自动改用 push-trigger 模式，将当前代码树生成轻量快照并推到 GitHub 的 `ci/desktop-release` 分支。这条分支只触发构建，不运行发布 job，也不要求 GitHub 镜像保留完整 Gitee 历史。
+
+触发构建并发布 OSS / Gitee Release：
+
+```powershell
+.\scripts\trigger-github-desktop-release.ps1 -Publish true
+```
+
 ### Tag 发布
 
 推送 `v*.*.*` tag 会自动触发完整发布：

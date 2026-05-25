@@ -82,6 +82,22 @@ describe('MessageList nested tool calls', () => {
     })
   })
 
+  it('shows an active status instead of a blank transcript during a fresh-session race', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'permission_pending',
+          messages: [],
+          streamingText: '',
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText(/Working\.\.\./)).toBeTruthy()
+  })
+
   it('renders sub-agent tool calls inline beneath the parent agent tool call', () => {
     useChatStore.setState({
       sessions: {
@@ -942,7 +958,7 @@ describe('MessageList nested tool calls', () => {
     expect(useChatStore.getState().sessions[ACTIVE_TAB]?.messages).toHaveLength(2)
   })
 
-  it('opens plan confirmation for recent planning replies and sends the implement choice', async () => {
+  it('shows inline plan confirmation for recent planning replies and sends the implement choice', async () => {
     const sendMessage = vi.fn()
 
     useChatStore.setState({
@@ -970,15 +986,68 @@ describe('MessageList nested tool calls', () => {
 
     render(<MessageList />)
 
-    const dialog = await screen.findByRole('dialog', { name: 'Confirm Plan' })
-    expect(within(dialog).getByText('Implementation plan')).toBeTruthy()
+    const planCard = await screen.findByRole('region', { name: 'Confirm Plan' })
+    expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+    expect(screen.getByText('Implementation plan')).toBeTruthy()
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Implement plan' }))
+    fireEvent.click(within(planCard).getByRole('button', { name: 'Implement plan' }))
 
     expect(sendMessage).toHaveBeenCalledWith(ACTIVE_TAB, 'Implement the plan')
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+      expect(screen.queryByRole('region', { name: 'Confirm Plan' })).toBeNull()
     })
+  })
+
+  it('keeps inline plan confirmation scoped to the active session', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-plan',
+              type: 'assistant_text',
+              content: [
+                'Implementation plan',
+                '',
+                '- Build the requested feature.',
+                '',
+                'Does this plan look right? Confirm and I will implement it.',
+              ].join('\n'),
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+        'other-tab': makeSessionState({
+          messages: [
+            {
+              id: 'assistant-plan',
+              type: 'assistant_text',
+              content: 'Regular answer in another session.',
+              timestamp: Date.now(),
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(await screen.findByRole('region', { name: 'Confirm Plan' })).toBeTruthy()
+
+    act(() => {
+      useTabStore.setState({
+        activeTabId: 'other-tab',
+        tabs: [
+          { sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' },
+          { sessionId: 'other-tab', title: 'Other', type: 'session' as const, status: 'idle' },
+        ],
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Confirm Plan' })).toBeNull()
+    })
+    expect(screen.getByText('Regular answer in another session.')).toBeTruthy()
   })
 
   it('prefills a plan update request instead of sending immediately', async () => {
@@ -1010,18 +1079,19 @@ describe('MessageList nested tool calls', () => {
 
     render(<MessageList />)
 
-    const dialog = await screen.findByRole('dialog', { name: 'Confirm Plan' })
-    fireEvent.change(within(dialog).getByLabelText('Need to adjust the plan?'), {
+    const planCard = await screen.findByRole('region', { name: 'Confirm Plan' })
+    expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+    fireEvent.change(within(planCard).getByLabelText('Need to adjust the plan?'), {
       target: { value: 'Add tests before implementation.' },
     })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Update plan' }))
+    fireEvent.click(within(planCard).getByRole('button', { name: 'Update plan' }))
 
     expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
       text: 'Please update the plan based on these changes:\n\nAdd tests before implementation.',
     })
     expect(sendMessage).not.toHaveBeenCalled()
     await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: 'Confirm Plan' })).toBeNull()
+      expect(screen.queryByRole('region', { name: 'Confirm Plan' })).toBeNull()
     })
   })
 

@@ -31,4 +31,15 @@ describe('PermissionModeSelector', () => {
 
     expect(screen.queryByText('Plan mode')).not.toBeInTheDocument()
   })
+
+  it('does not open the menu while disabled', () => {
+    render(<PermissionModeSelector disabled disabledReason="Wait for this turn to finish" />)
+
+    const button = screen.getByRole('button', { name: /auto accept/i })
+    expect(button).toBeDisabled()
+
+    fireEvent.click(button)
+
+    expect(screen.queryByText('Execution Permissions')).not.toBeInTheDocument()
+  })
 })

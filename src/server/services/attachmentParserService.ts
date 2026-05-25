@@ -18,11 +18,12 @@ const DEFAULT_SUMMARIZE_MODEL = 'glm-5.1'
 const SUMMARY_THRESHOLD_CHARS = 24_000
 const SUMMARY_TARGET_CHARS = 12_000
 const MAX_ATTACHMENT_TEXT_CHARS = 60_000
-const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 const MAX_ATTACHMENT_TOTAL_BYTES = 50 * 1024 * 1024
 const MAX_LOCAL_ARCHIVE_BYTES = 512 * 1024 * 1024
 const MAX_LOCAL_ARCHIVE_TOTAL_BYTES = 512 * 1024 * 1024
 const MAX_MANAGED_REMOTE_ATTACHMENT_BYTES = 8 * 1024 * 1024
+const MAX_MANAGED_REMOTE_IMAGE_BYTES = 5 * 1024 * 1024
 const MAX_MANAGED_REMOTE_ATTACHMENT_TOTAL_BYTES = 12 * 1024 * 1024
 const ARCHIVE_ATTACHMENT_EXTENSIONS = new Set([
   '7z',
@@ -73,6 +74,16 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   'ini',
   'conf',
   'env',
+])
+const MANAGED_REMOTE_IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg'])
+const MANAGED_REMOTE_FILE_EXTENSIONS = new Set([
+  'pdf',
+  'docx',
+  'doc',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
 ])
 
 export type AttachmentParserConfig = {
@@ -823,8 +834,22 @@ function assertManagedRemoteAttachmentLimits(payloads: AttachmentPayload[]): voi
 
   for (const payload of payloads) {
     const size = getPayloadSize(payload)
+    if (isImagePayload(payload)) {
+      if (!isManagedRemoteImagePayload(payload)) {
+        throw new AttachmentParserError(`Gugu Managed only parses PNG, JPG, and JPEG images. ${payload.name} is not a supported managed image format. Convert it to PNG/JPG/JPEG, or configure your own GLM key.`)
+      }
+      if (size > MAX_MANAGED_REMOTE_IMAGE_BYTES) {
+        throw new AttachmentParserError(`Gugu Managed only parses small images. ${payload.name} is ${formatBytes(size)}, over the ${formatBytes(MAX_MANAGED_REMOTE_IMAGE_BYTES)} managed image limit. For larger files, configure your own GLM key so the desktop app can connect to GLM directly.`)
+      }
+      continue
+    }
+
+    if (!isManagedRemoteFilePayload(payload)) {
+      throw new AttachmentParserError(`Gugu Managed only parses PDF and Office files through GLM. ${payload.name} is not a supported managed file format. Convert it to PDF/DOC/DOCX/XLS/XLSX/PPT/PPTX, or configure your own GLM key.`)
+    }
+
     if (size > MAX_MANAGED_REMOTE_ATTACHMENT_BYTES) {
-      throw new AttachmentParserError(`Gugu Managed only parses small image, PDF, and Office files. ${payload.name} is ${formatBytes(size)}, over the ${formatBytes(MAX_MANAGED_REMOTE_ATTACHMENT_BYTES)} managed limit. For larger files, configure your own GLM key so the desktop app can connect to GLM directly.`)
+      throw new AttachmentParserError(`Gugu Managed only parses small PDF and Office files. ${payload.name} is ${formatBytes(size)}, over the ${formatBytes(MAX_MANAGED_REMOTE_ATTACHMENT_BYTES)} managed limit. For larger files, configure your own GLM key so the desktop app can connect to GLM directly.`)
     }
   }
 
@@ -836,6 +861,33 @@ function assertManagedRemoteAttachmentLimits(payloads: AttachmentPayload[]): voi
 
 function getPayloadSize(payload: AttachmentPayload): number {
   return payload.size ?? payload.data.length
+}
+
+function getLowerFileExtension(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.tar.gz')) return 'tar.gz'
+  if (lower.endsWith('.tar.bz2')) return 'tar.bz2'
+  if (lower.endsWith('.tar.xz')) return 'tar.xz'
+  return lower.split('.').pop() ?? ''
+}
+
+function isManagedRemoteImagePayload(payload: AttachmentPayload): boolean {
+  const ext = getLowerFileExtension(payload.name)
+  const mime = payload.mimeType.toLowerCase()
+  return MANAGED_REMOTE_IMAGE_EXTENSIONS.has(ext) || mime === 'image/png' || mime === 'image/jpeg'
+}
+
+function isManagedRemoteFilePayload(payload: AttachmentPayload): boolean {
+  if (MANAGED_REMOTE_FILE_EXTENSIONS.has(getLowerFileExtension(payload.name))) return true
+
+  const mime = payload.mimeType.toLowerCase()
+  return mime === 'application/pdf'
+    || mime === 'application/msword'
+    || mime === 'application/vnd.ms-excel'
+    || mime === 'application/vnd.ms-powerpoint'
+    || mime.includes('wordprocessingml.document')
+    || mime.includes('spreadsheetml.sheet')
+    || mime.includes('presentationml.presentation')
 }
 
 function formatBytes(bytes: number): string {

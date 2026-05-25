@@ -22,9 +22,17 @@ type Props = {
   value?: PermissionMode
   /** Controlled mode: called on change instead of updating global store */
   onChange?: (mode: PermissionMode) => void
+  disabled?: boolean
+  disabledReason?: string
 }
 
-export function PermissionModeSelector({ workDir: workDirProp, value, onChange }: Props = {}) {
+export function PermissionModeSelector({
+  workDir: workDirProp,
+  value,
+  onChange,
+  disabled = false,
+  disabledReason,
+}: Props = {}) {
   const t = useTranslation()
   const { permissionMode: storeMode, setPermissionMode } = useSettingsStore()
   const setSessionPermissionMode = useChatStore((s) => s.setSessionPermissionMode)
@@ -79,6 +87,10 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
   const workDir = workDirProp || activeSession?.workDir || '~'
 
   useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
+
+  useEffect(() => {
     if (!open) return
     const handleClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
@@ -97,8 +109,10 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--color-surface-container-low)] hover:bg-[var(--color-surface-hover)] rounded-full text-xs font-medium text-[var(--color-text-secondary)] transition-colors"
+        onClick={() => !disabled && setOpen(!open)}
+        disabled={disabled}
+        title={disabled ? disabledReason : undefined}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--color-surface-container-low)] hover:bg-[var(--color-surface-hover)] rounded-full text-xs font-medium text-[var(--color-text-secondary)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className="material-symbols-outlined text-[14px]">{MODE_ICONS[displayMode]}</span>
         <span>{MODE_LABELS[displayMode]}</span>
@@ -114,6 +128,7 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
             <button
               key={item.value}
               onClick={() => {
+                if (disabled) return
                 if (item.value === 'bypassPermissions') {
                   setOpen(false)
                   setConfirmDialog(true)
@@ -201,6 +216,7 @@ export function PermissionModeSelector({ workDir: workDirProp, value, onChange }
               </button>
               <button
                 onClick={() => {
+                  if (disabled) return
                   if (isControlled) {
                     onChange?.('bypassPermissions')
                   } else {

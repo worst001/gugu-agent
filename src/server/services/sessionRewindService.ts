@@ -104,7 +104,10 @@ function extractCeWorkflowDisplayText(text: string): string | null {
     text.startsWith('[Workflow:') && text.includes('CE automation (binding)')
   const isPlanModeScaffold =
     text.startsWith('[Agent mode: plan]') && text.includes('product-facing planning mode')
-  if (!isCeWorkflowScaffold && !isPlanModeScaffold) return null
+  const isDefaultRouterScaffold =
+    text.startsWith('[Agent mode: default + CE pre-route]') &&
+    text.includes('Default mode remains natural')
+  if (!isCeWorkflowScaffold && !isPlanModeScaffold && !isDefaultRouterScaffold) return null
   const marker = '\nUser message:\n'
   const index = text.lastIndexOf(marker)
   if (index >= 0) return text.slice(index + marker.length)

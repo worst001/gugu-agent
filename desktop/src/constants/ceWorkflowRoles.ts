@@ -159,7 +159,7 @@ Ground direction with /ce-strategy where useful. For agent/MCP-heavy designs use
     preamble: `[Workflow: ship]
 Drive implementation with /ce-work, open PR with /ce-commit-push-pr when appropriate, use /ce-release-notes for user-facing summaries.`,
     enforceFirstPhase: 'work',
-    modelPreference: 'fast',
+    modelPreference: 'strong',
   },
   {
     id: 'doc',
@@ -188,6 +188,8 @@ export function getCeWorkflowRole(roleId: string | undefined): CeWorkflowRole {
 
 const STRONG_CE_SLASHES = [
   '/ce-plan',
+  '/ce-work',
+  '/ce-debug',
   '/ce-code-review',
   '/ce-review',
   '/ce-doc-review',
@@ -200,12 +202,22 @@ const STRONG_CE_SLASHES = [
 
 const FAST_CE_SLASHES = [
   '/ce-brainstorm',
-  '/ce-work',
-  '/ce-debug',
   '/ce-simplify-code',
   '/ce-commit',
   '/ce-release-notes',
 ]
+
+const STRONG_TASK_PATTERNS = [
+  /\b(fix|bug|failed|failing|failure|error|debug|crash|exception|stack trace|implement|build|refactor|optimi[sz]e|review|test|install|deploy|configure|parse|analy[sz]e|file|project|code)\b/iu,
+  /(修复|报错|错误|失败|崩溃|卡死|实现|开发|优化|重构|测试|安装|部署|配置|解析|分析|文件|项目|代码|检查|更新|模型|页面|上传|压缩|解压|插件|技能)/u,
+]
+
+function shouldPromoteFastRoleToStrong(userText: string): boolean {
+  const trimmed = userText.trim()
+  if (!trimmed) return true
+  if (trimmed.length >= 80) return true
+  return STRONG_TASK_PATTERNS.some((pattern) => pattern.test(trimmed))
+}
 
 export function resolveCeWorkflowModelPreference(
   role: CeWorkflowRole,
@@ -214,6 +226,7 @@ export function resolveCeWorkflowModelPreference(
   const lower = userText.toLowerCase()
   if (STRONG_CE_SLASHES.some((slash) => lower.includes(slash))) return 'strong'
   if (FAST_CE_SLASHES.some((slash) => lower.includes(slash))) return 'fast'
+  if (role.modelPreference === 'fast' && shouldPromoteFastRoleToStrong(userText)) return 'strong'
   return role.modelPreference
 }
 
