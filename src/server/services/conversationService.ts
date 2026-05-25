@@ -61,7 +61,7 @@ type SessionStartOptions = {
   skipResumeAfterStaleMetadata?: boolean
 }
 
-const DEFAULT_DESKTOP_MAX_TURNS = 20
+const DEFAULT_DESKTOP_MAX_TURNS = 40
 
 function getLocalDateString(): string {
   const now = new Date()
@@ -78,6 +78,7 @@ function getDesktopToolAvailabilityPrompt(): string {
     'Tool availability: Only call WebSearch if WebSearch is explicitly listed in the current available tools. If WebSearch is unavailable, do not attempt it; continue without web search or use WebFetch only for explicit URLs the user provided.',
     `Current local date: ${getLocalDateString()}.`,
     'Freshness rule: If WebSearch is available and the user asks for current, latest, recent, today, now, prices, schedules, releases, news, laws, office holders, company leaders, sports results, or any other time-sensitive public fact, you MUST call WebSearch before answering. Do not answer these from memory.',
+    'Stage-boundary rule: If the previous turn stopped at a stage boundary and the user asks to continue, continue from the recorded stage summary. Do not restart the task, and do not repeat failed tool calls unless the user explicitly corrected the path/input.',
   ].join('\n')
 }
 

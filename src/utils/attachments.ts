@@ -657,6 +657,9 @@ export type Attachment =
       type: 'max_turns_reached'
       maxTurns: number
       turnCount: number
+      reason?: 'max_turns' | 'repeated_tool_failure'
+      summary?: string
+      nextStep?: string
     }
   | {
       type: 'current_session_memory'

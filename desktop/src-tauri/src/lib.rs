@@ -1326,6 +1326,9 @@ mod tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .manage(ServerState::default())
         .manage(AdapterState::default())
         .manage(ScreenshotBridgeState::default())

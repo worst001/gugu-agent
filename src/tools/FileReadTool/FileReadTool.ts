@@ -608,6 +608,15 @@ export const FileReadTool = buildTool({
     } catch (error) {
       // Handle file-not-found: suggest similar files
       const code = getErrnoCode(error)
+      if (
+        code === 'EISDIR' ||
+        (error instanceof Error &&
+          /illegal operation on a directory|EISDIR/i.test(error.message))
+      ) {
+        throw new Error(
+          `Cannot read a directory as a file: ${fullFilePath}. Use a directory listing tool first, then read a specific file inside that directory.`,
+        )
+      }
       if (code === 'ENOENT') {
         // macOS screenshots may use a thin space or regular space before
         // AM/PM — try the alternate before giving up.

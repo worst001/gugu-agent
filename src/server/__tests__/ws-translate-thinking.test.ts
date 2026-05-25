@@ -1,8 +1,33 @@
 import { describe, expect, it } from 'bun:test'
-import { translateCliMessage } from '../ws/handler.js'
+import { __testing, translateCliMessage } from '../ws/handler.js'
 
 describe('translateCliMessage thinking bridge', () => {
   const sid = () => `ws-think-${Math.random().toString(36).slice(2)}`
+
+  it('turns max-turn results into a recoverable system notification', () => {
+    const out = translateCliMessage(
+      {
+        type: 'result',
+        subtype: 'error_max_turns',
+        is_error: true,
+        result: '阶段摘要：已经读取了模型目录，下一步应先列目录。',
+        errors: ['Reached maximum number of turns (20)'],
+        usage: { input_tokens: 3, output_tokens: 5 },
+      },
+      sid(),
+    )
+
+    expect(out).toHaveLength(2)
+    expect(out[0]?.type).toBe('system_notification')
+    if (out[0]?.type === 'system_notification') {
+      expect(out[0].subtype).toBe('max_turns_reached')
+      expect(out[0].message).toContain('阶段摘要')
+    }
+    expect(out[1]).toEqual({
+      type: 'message_complete',
+      usage: { input_tokens: 3, output_tokens: 5 },
+    })
+  })
 
   it('forwards thinking from final assistant when stream_events ran but no thinking_delta arrived', () => {
     const sessionId = sid()
@@ -351,5 +376,58 @@ describe('translateCliMessage thinking bridge', () => {
       sessionId,
     )
     expect(nextTurn).toContainEqual({ type: 'content_delta', text: 'Configured API key auth.' })
+  })
+
+  it('suppresses stop-triggered diagnostic errors when stream key differs from session id', () => {
+    const sessionId = sid()
+    const streamKey = `${sessionId}:stream`
+    const usage = { input_tokens: 0, output_tokens: 0 }
+
+    __testing.markStopRequestedForTest(sessionId)
+    const out = translateCliMessage(
+      {
+        type: 'result',
+        is_error: true,
+        result: [
+          '[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use',
+          'Error: 1P event logging: 107 events failed to export (status=403)',
+          'Error: No suitable shell found. Claude CLI requires a Posix shell environment.',
+        ].join('\n'),
+        usage,
+      },
+      streamKey,
+      sessionId,
+    )
+    __testing.clearStopRequestedForTest(sessionId)
+
+    expect(out).toEqual([{ type: 'message_complete', usage }])
+  })
+
+  it('keeps suppressing delayed diagnostic errors shortly after stop', () => {
+    const sessionId = sid()
+    const usage = { input_tokens: 0, output_tokens: 0 }
+
+    __testing.markStopRequestedForTest(sessionId)
+    translateCliMessage(
+      {
+        type: 'result',
+        usage,
+      },
+      `${sessionId}:first-stream`,
+      sessionId,
+    )
+    const delayedError = translateCliMessage(
+      {
+        type: 'result',
+        is_error: true,
+        result: 'Error: 1P event logging: 2 events failed to export (status=403)',
+        usage,
+      },
+      `${sessionId}:second-stream`,
+      sessionId,
+    )
+    __testing.clearStopRequestedForTest(sessionId)
+
+    expect(delayedError).toEqual([{ type: 'message_complete', usage }])
   })
 })

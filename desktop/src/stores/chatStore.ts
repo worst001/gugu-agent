@@ -470,6 +470,13 @@ function getUnsupportedAttachmentPrompt(message: string): string | null {
     : null
 }
 
+function getMaxTurnsReachedPrompt(message: string): string | null {
+  if (!/Reached maximum number of turns/i.test(message)) return null
+  const maxTurns = message.match(/\((\d+)\)/)?.[1]
+  const suffix = maxTurns ? `（${maxTurns} 轮）` : ''
+  return `本轮连续操作已达到上限${suffix}，Gugu 已先停下来，避免继续绕圈。通常是路径不存在、把目录当成文件读取，或某个工具连续失败导致的。你可以补充目标文件/目录，或直接说“继续”，Gugu 会接着处理。`
+}
+
 function getAgentRecoveryPrompt(message: string): string | null {
   if (
     message.includes('模型长时间没有返回内容') ||
@@ -1352,6 +1359,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case 'error':
         {
           const unsupportedAttachmentPrompt = getUnsupportedAttachmentPrompt(msg.message)
+          const maxTurnsReachedPrompt = getMaxTurnsReachedPrompt(msg.message)
           const agentRecoveryPrompt = getAgentRecoveryPrompt(msg.message)
           update((s) => {
             const pendingText = `${s.streamingText}${consumePendingDelta()}`
@@ -1361,9 +1369,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }
             newMessages = unsupportedAttachmentPrompt
               ? appendAssistantPromptMessage(newMessages, unsupportedAttachmentPrompt, Date.now())
-              : agentRecoveryPrompt
-                ? appendSystemMessage(newMessages, agentRecoveryPrompt, Date.now())
-                : [...newMessages, { id: nextId(), type: 'error', message: msg.message, code: msg.code, timestamp: Date.now() }]
+              : maxTurnsReachedPrompt
+                ? appendSystemMessage(newMessages, maxTurnsReachedPrompt, Date.now())
+                : agentRecoveryPrompt
+                  ? appendSystemMessage(newMessages, agentRecoveryPrompt, Date.now())
+                  : [...newMessages, { id: nextId(), type: 'error', message: msg.message, code: msg.code, timestamp: Date.now() }]
             return {
               messages: newMessages,
               chatState: 'idle',
@@ -1373,7 +1383,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               pendingComputerUsePermission: null,
             }
           })
-          useTabStore.getState().updateTabStatus(sessionId, unsupportedAttachmentPrompt || agentRecoveryPrompt ? 'idle' : 'error')
+          useTabStore.getState().updateTabStatus(sessionId, unsupportedAttachmentPrompt || maxTurnsReachedPrompt || agentRecoveryPrompt ? 'idle' : 'error')
           if (msg.code === 'GUGU_QUOTA_EXHAUSTED' || msg.message.includes('[GUGU_QUOTA_EXHAUSTED]')) {
             refreshBillingIfTracked()
           }
@@ -1500,6 +1510,26 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }))
             useTabStore.getState().updateTabStatus(sessionId, 'idle')
           }
+        }
+        if (msg.subtype === 'max_turns_reached') {
+          const session = get().sessions[sessionId]
+          if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
+          update((session) => ({
+            messages: appendSystemMessage(
+              session.messages,
+              typeof msg.message === 'string' && msg.message.trim()
+                ? msg.message
+                : '本轮连续操作已达到上限，Gugu 已先停下来，避免继续绕圈。你可以补充目标文件/目录，或直接说“继续”。',
+              Date.now(),
+            ),
+            chatState: 'idle',
+            streamingText: '',
+            activeThinkingId: null,
+            pendingPermission: null,
+            pendingComputerUsePermission: null,
+            elapsedTimer: null,
+          }))
+          useTabStore.getState().updateTabStatus(sessionId, 'idle')
         }
         if (msg.subtype === 'task_notification' && msg.data && typeof msg.data === 'object') {
           const data = msg.data as Record<string, unknown>

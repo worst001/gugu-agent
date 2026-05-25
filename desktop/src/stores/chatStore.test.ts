@@ -1116,6 +1116,44 @@ describe('chatStore history mapping', () => {
     })
   })
 
+  it('turns max-turn errors into neutral system messages', () => {
+    seedSession({ chatState: 'thinking' })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      code: 'CLI_ERROR',
+      message: 'Reached maximum number of turns (20)',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.messages).toHaveLength(1)
+    expect(session?.messages[0]).toMatchObject({
+      type: 'system',
+    })
+    if (session?.messages[0]?.type === 'system') {
+      expect(session.messages[0].content).toContain('20')
+    }
+  })
+
+  it('shows max-turn system notifications without entering error state', () => {
+    seedSession({ chatState: 'thinking' })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'max_turns_reached',
+      message: '本轮连续操作已达到上限（20 轮），Gugu 已先停下来。',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.messages).toHaveLength(1)
+    expect(session?.messages[0]).toMatchObject({
+      type: 'system',
+      content: '本轮连续操作已达到上限（20 轮），Gugu 已先停下来。',
+    })
+  })
+
   it('turns unsupported image provider errors into assistant guidance', () => {
     seedSession()
 

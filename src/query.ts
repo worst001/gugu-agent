@@ -162,6 +162,201 @@ function* yieldMissingToolResultBlocks(
  * rules, ye will be punished with an entire day of debugging and hair pulling.
  */
 const MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3
+const REPEATED_TOOL_FAILURE_LIMIT = 3
+const RECENT_TOOL_ACTIVITY_LIMIT = 8
+
+type StageBoundaryReason = 'max_turns' | 'repeated_tool_failure'
+
+type ToolActivity = {
+  toolName: string
+  inputPreview: string
+  outputPreview: string
+  isError: boolean
+}
+
+type RepeatedToolFailure = {
+  toolName: string
+  inputPreview: string
+  outputPreview: string
+  count: number
+}
+
+function getContentBlocks(message: unknown): unknown[] {
+  const content = (message as any)?.message?.content
+  return Array.isArray(content) ? content : []
+}
+
+function toCompactText(value: unknown, maxLength = 180): string {
+  let text = ''
+  if (typeof value === 'string') {
+    text = value
+  } else if (Array.isArray(value)) {
+    text = value
+      .map(item => {
+        if (typeof item === 'string') return item
+        if (item && typeof item === 'object' && 'text' in item) {
+          const textValue = (item as { text?: unknown }).text
+          return typeof textValue === 'string' ? textValue : ''
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join(' ')
+  } else if (value !== undefined && value !== null) {
+    try {
+      text = JSON.stringify(value)
+    } catch {
+      text = String(value)
+    }
+  }
+
+  text = text.replace(/\s+/g, ' ').trim()
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text
+}
+
+function buildToolInputPreview(input: unknown): string {
+  if (!input || typeof input !== 'object') return toCompactText(input, 120)
+  const record = input as Record<string, unknown>
+  const preferred =
+    record.file_path ??
+    record.path ??
+    record.pattern ??
+    record.command ??
+    record.query ??
+    record.url
+  if (preferred !== undefined) return toCompactText(preferred, 120)
+  return toCompactText(input, 120)
+}
+
+function collectRecentToolActivity(messages: unknown[]): ToolActivity[] {
+  const toolUses = new Map<string, { toolName: string; inputPreview: string }>()
+  const activities: ToolActivity[] = []
+
+  for (const message of messages) {
+    for (const block of getContentBlocks(message)) {
+      if (!block || typeof block !== 'object') continue
+      const record = block as Record<string, unknown>
+      if (record.type === 'tool_use' && typeof record.id === 'string') {
+        toolUses.set(record.id, {
+          toolName:
+            typeof record.name === 'string' && record.name.trim()
+              ? record.name
+              : 'Tool',
+          inputPreview: buildToolInputPreview(record.input),
+        })
+      }
+      if (record.type === 'tool_result' && typeof record.tool_use_id === 'string') {
+        const tool = toolUses.get(record.tool_use_id) ?? {
+          toolName: 'Tool',
+          inputPreview: record.tool_use_id,
+        }
+        activities.push({
+          toolName: tool.toolName,
+          inputPreview: tool.inputPreview,
+          outputPreview: toCompactText(record.content, 180),
+          isError: record.is_error === true,
+        })
+      }
+    }
+  }
+
+  return activities.slice(-RECENT_TOOL_ACTIVITY_LIMIT)
+}
+
+function getToolFailureKey(failure: ToolActivity): string {
+  return [
+    failure.toolName,
+    failure.inputPreview,
+    failure.outputPreview.toLowerCase().slice(0, 120),
+  ].join('\0')
+}
+
+function findRepeatedToolFailure(
+  messages: unknown[],
+  currentMessages: unknown[],
+): RepeatedToolFailure | null {
+  const failures = collectRecentToolActivity(messages).filter(activity => activity.isError)
+  const currentFailureKeys = new Set(
+    collectRecentToolActivity(currentMessages)
+      .filter(activity => activity.isError)
+      .map(getToolFailureKey),
+  )
+  const counts = new Map<string, RepeatedToolFailure>()
+
+  for (const failure of failures) {
+    const key = getToolFailureKey(failure)
+    const existing = counts.get(key)
+    if (existing) {
+      existing.count++
+    } else {
+      counts.set(key, {
+        toolName: failure.toolName,
+        inputPreview: failure.inputPreview,
+        outputPreview: failure.outputPreview,
+        count: 1,
+      })
+    }
+  }
+
+  return [...counts.entries()]
+    .find(
+      ([key, failure]) =>
+        currentFailureKeys.has(key) &&
+        failure.count >= REPEATED_TOOL_FAILURE_LIMIT,
+    )?.[1] ?? null
+}
+
+function buildStageBoundarySummary({
+  messages,
+  reason,
+  turnCount,
+  maxTurns,
+  repeatedFailure,
+}: {
+  messages: unknown[]
+  reason: StageBoundaryReason
+  turnCount: number
+  maxTurns?: number
+  repeatedFailure?: RepeatedToolFailure | null
+}): { summary: string; nextStep: string } {
+  const recentActivity = collectRecentToolActivity(messages)
+  const recentTools = recentActivity
+    .slice(-5)
+    .map(activity => {
+      const status = activity.isError ? '失败' : '完成'
+      const target = activity.inputPreview ? ` ${activity.inputPreview}` : ''
+      return `- ${activity.toolName}${target}：${status}`
+    })
+
+  const lines = [
+    reason === 'repeated_tool_failure'
+      ? '检测到同一个工具调用连续失败，Gugu 先停在阶段边界，避免继续重复尝试。'
+      : `本轮连续操作已达到上限${maxTurns ? `（${maxTurns} 轮）` : ''}，Gugu 先停在阶段边界，避免继续绕圈。`,
+    `已推进到第 ${turnCount} 轮。`,
+  ]
+
+  if (recentTools.length > 0) {
+    lines.push('最近的工具进展：', ...recentTools)
+  }
+
+  if (repeatedFailure) {
+    lines.push(
+      `重复失败点：${repeatedFailure.toolName}${repeatedFailure.inputPreview ? ` ${repeatedFailure.inputPreview}` : ''}，连续 ${repeatedFailure.count} 次返回类似错误：${repeatedFailure.outputPreview || '无详细输出'}`,
+    )
+  }
+
+  const nextStep =
+    reason === 'repeated_tool_failure'
+      ? '如果继续，先换一种策略：不要重复同一个失败调用，改为列目录、检查路径是否存在，或让用户确认目标文件。'
+      : '如果用户说“继续”，基于上面的阶段结果继续下一段，不要从头开始；优先复用已获得的信息，只补查缺口。'
+
+  lines.push(`下一步建议：${nextStep}`)
+
+  return {
+    summary: lines.join('\n'),
+    nextStep,
+  }
+}
 
 /**
  * Is this a max_output_tokens error message? If so, the streaming loop should
@@ -1408,6 +1603,35 @@ async function* queryLoop(
     }
     queryCheckpoint('query_tool_execution_end')
 
+    const boundaryMessages = [
+      ...messagesForQuery,
+      ...assistantMessages,
+      ...toolResults,
+    ]
+    const repeatedFailure = findRepeatedToolFailure(
+      boundaryMessages,
+      [...assistantMessages, ...toolResults],
+    )
+    if (repeatedFailure) {
+      const nextTurnCountOnFailure = turnCount + 1
+      const { summary, nextStep } = buildStageBoundarySummary({
+        messages: boundaryMessages,
+        reason: 'repeated_tool_failure',
+        turnCount: nextTurnCountOnFailure,
+        maxTurns,
+        repeatedFailure,
+      })
+      yield createAttachmentMessage({
+        type: 'max_turns_reached',
+        maxTurns: maxTurns ?? nextTurnCountOnFailure,
+        turnCount: nextTurnCountOnFailure,
+        reason: 'repeated_tool_failure',
+        summary,
+        nextStep,
+      })
+      return { reason: 'max_turns', turnCount: nextTurnCountOnFailure }
+    }
+
     // Generate tool use summary after tool batch completes — passed to next recursive call
     let nextPendingToolUseSummary:
       | Promise<ToolUseSummaryMessage | null>
@@ -1506,10 +1730,19 @@ async function* queryLoop(
       // Check maxTurns before returning when aborted
       const nextTurnCountOnAbort = turnCount + 1
       if (maxTurns && nextTurnCountOnAbort > maxTurns) {
+        const { summary, nextStep } = buildStageBoundarySummary({
+          messages: boundaryMessages,
+          reason: 'max_turns',
+          turnCount: nextTurnCountOnAbort,
+          maxTurns,
+        })
         yield createAttachmentMessage({
           type: 'max_turns_reached',
           maxTurns,
           turnCount: nextTurnCountOnAbort,
+          reason: 'max_turns',
+          summary,
+          nextStep,
         })
       }
       return { reason: 'aborted_tools' }
@@ -1703,10 +1936,19 @@ async function* queryLoop(
 
     // Check if we've reached the max turns limit
     if (maxTurns && nextTurnCount > maxTurns) {
+      const { summary, nextStep } = buildStageBoundarySummary({
+        messages: [...messagesForQuery, ...assistantMessages, ...toolResults],
+        reason: 'max_turns',
+        turnCount: nextTurnCount,
+        maxTurns,
+      })
       yield createAttachmentMessage({
         type: 'max_turns_reached',
         maxTurns,
         turnCount: nextTurnCount,
+        reason: 'max_turns',
+        summary,
+        nextStep,
       })
       return { reason: 'max_turns', turnCount: nextTurnCount }
     }

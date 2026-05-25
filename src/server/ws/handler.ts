@@ -52,7 +52,26 @@ const sessionsStoppedAfterDisconnect = new Set<string>()
  * Track sessions where user requested stop — suppress the CLI_ERROR that
  * follows an interrupt so the frontend doesn't show "处理过程中发生错误".
  */
-const sessionStopRequested = new Set<string>()
+const STOP_ERROR_SUPPRESSION_MS = 30_000
+const sessionStopRequestedUntil = new Map<string, number>()
+
+function markSessionStopRequested(sessionId: string): void {
+  sessionStopRequestedUntil.set(sessionId, Date.now() + STOP_ERROR_SUPPRESSION_MS)
+}
+
+function clearSessionStopRequested(sessionId: string): void {
+  sessionStopRequestedUntil.delete(sessionId)
+}
+
+function hasRecentSessionStopRequest(sessionId: string): boolean {
+  const until = sessionStopRequestedUntil.get(sessionId)
+  if (!until) return false
+  if (until < Date.now()) {
+    sessionStopRequestedUntil.delete(sessionId)
+    return false
+  }
+  return true
+}
 
 /**
  * Track user message count and title state per session for auto-title generation.
@@ -131,6 +150,26 @@ type TurnMonitor = {
 }
 
 const sessionTurnMonitors = new Map<string, TurnMonitor>()
+
+function getMaxTurnsReachedMessage(cliMsg: any): string {
+  if (typeof cliMsg?.result === 'string' && cliMsg.result.trim()) {
+    return cliMsg.result.trim()
+  }
+  const maxTurnsText = Array.isArray(cliMsg?.errors)
+    ? cliMsg.errors.find(
+        (error: unknown) =>
+          typeof error === 'string' &&
+          /Reached maximum number of turns/i.test(error),
+      )
+    : ''
+  const maxTurnsMatch =
+    typeof maxTurnsText === 'string'
+      ? maxTurnsText.match(/\((\d+)\)/)
+      : null
+  const maxTurns = maxTurnsMatch?.[1]
+  const suffix = maxTurns ? `（${maxTurns} 轮）` : ''
+  return `本轮连续操作已达到上限${suffix}，Gugu 已先停下来，避免继续绕圈。通常是路径不存在、把目录当成文件读取，或某个工具连续失败导致的。你可以补充目标文件/目录，或直接说“继续”，Gugu 会接着处理。`
+}
 
 export function getSlashCommands(sessionId: string): Array<{ name: string; description: string }> {
   return sessionSlashCommands.get(sessionId) || []
@@ -484,7 +523,7 @@ function noteSdkDisconnected(sessionId: string): void {
 
 function recoverStalledTurn(sessionId: string, message: string): void {
   stopTurnMonitor(sessionId)
-  sessionStopRequested.add(sessionId)
+  markSessionStopRequested(sessionId)
   conversationService.stopSession(sessionId)
   broadcastToSession(sessionId, {
     type: 'system_notification',
@@ -650,7 +689,7 @@ async function handleUserMessage(
   const startupOverrides = await getUserMessageRuntimeOverrides(message)
 
   // Clear any stale stop flag from a previous turn
-  sessionStopRequested.delete(sessionId)
+  clearSessionStopRequested(sessionId)
   clearPrewarmState(sessionId)
 
   const desktopSlashCommand = getDesktopSlashCommand(message.content)
@@ -1085,7 +1124,7 @@ function handleStopGeneration(ws: ServerWebSocket<WebSocketData>) {
   const { sessionId } = ws.data
   console.log(`[WS] Stop generation requested for session: ${sessionId}`)
 
-  sessionStopRequested.add(sessionId)
+  markSessionStopRequested(sessionId)
   stopTurnMonitor(sessionId)
 
   if (conversationService.hasSession(sessionId)) {
@@ -1256,6 +1295,7 @@ function cleanupStreamStatesForSession(sessionId: string) {
 
 function cleanupSessionRuntimeState(sessionId: string) {
   stopTurnMonitor(sessionId)
+  clearSessionStopRequested(sessionId)
   const prewarmCallback = prewarmMetadataCallbacks.get(sessionId)
   if (prewarmCallback) {
     conversationService.removeOutputCallback(sessionId, prewarmCallback)
@@ -1486,8 +1526,13 @@ async function ensureCliSessionStarted(
 }
 
 /** Exported for unit tests — translates one CLI stdout JSON line into WS payloads. */
-export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessage[] {
-  const streamState = getStreamState(sessionId)
+export function translateCliMessage(
+  cliMsg: any,
+  streamStateKey: string,
+  logicalSessionId = streamStateKey,
+): ServerMessage[] {
+  const streamState = getStreamState(streamStateKey)
+  const sessionId = logicalSessionId
   switch (cliMsg.type) {
     case 'assistant': {
       if (cliMsg.error) {
@@ -1797,9 +1842,20 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
       if (cliMsg.is_error) {
         // If the user requested stop, this "error" is just the interrupt
         // result — don't show it as an error in the chat UI.
-        if (sessionStopRequested.has(sessionId)) {
-          sessionStopRequested.delete(sessionId)
+        if (hasRecentSessionStopRequest(sessionId)) {
           return [{ type: 'message_complete', usage }]
+        }
+
+        if (cliMsg.subtype === 'error_max_turns') {
+          return [
+            {
+              type: 'system_notification',
+              subtype: 'max_turns_reached',
+              message: getMaxTurnsReachedMessage(cliMsg),
+              data: cliMsg,
+            },
+            { type: 'message_complete', usage },
+          ]
         }
 
         const resultMessage =
@@ -1818,8 +1874,6 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
         ]
       }
 
-      // Clear stop flag on successful completion too
-      sessionStopRequested.delete(sessionId)
       return [{ type: 'message_complete', usage }]
     }
 
@@ -2047,7 +2101,7 @@ function rebindSessionOutput(
       return
     }
 
-    const serverMsgs = translateCliMessage(cliMsg, streamKey)
+    const serverMsgs = translateCliMessage(cliMsg, streamKey, sessionId)
     for (const msg of serverMsgs) {
       sendMessage(ws, msg)
     }
@@ -2173,6 +2227,12 @@ export function getActiveSessionIds(): string[] {
 }
 
 export const __testing = {
+  markStopRequestedForTest(sessionId: string) {
+    markSessionStopRequested(sessionId)
+  },
+  clearStopRequestedForTest(sessionId: string) {
+    clearSessionStopRequested(sessionId)
+  },
   clearTurnMonitor(sessionId: string) {
     stopTurnMonitor(sessionId)
   },

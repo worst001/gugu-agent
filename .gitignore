@@ -63,9 +63,13 @@ bug_attachments/
 *.key
 *.p12
 credentials*.json
+*.local.ps1
 
 # TS build cache
 *.tsbuildinfo
+
+# Local codegraph index
+.codegraph/
 
 # Temp markdown snapshots
 sidebar-snapshot.md

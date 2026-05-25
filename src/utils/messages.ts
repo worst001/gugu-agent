@@ -3522,6 +3522,25 @@ Read the team config to discover your teammates' names. Check the task list peri
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- teammate_mailbox/team_context/skill_discovery/bagel_console handled above
   // biome-ignore lint/nursery/useExhaustiveSwitchCases: teammate_mailbox/team_context/max_turns_reached/skill_discovery/bagel_console handled above, can't add case for dead code elimination
   switch (attachment.type) {
+    case 'max_turns_reached': {
+      const summary = attachment.summary?.trim()
+      const nextStep = attachment.nextStep?.trim()
+      const content = [
+        'Gugu stopped at a stage boundary before continuing automatically.',
+        summary ? `Stage summary:\n${summary}` : '',
+        nextStep ? `Continuation instruction: ${nextStep}` : '',
+        'If the user asks to continue, continue from this stage summary and avoid repeating failed tool calls.',
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+
+      return wrapMessagesInSystemReminder([
+        createUserMessage({
+          content,
+          isMeta: true,
+        }),
+      ])
+    }
     case 'directory': {
       return wrapMessagesInSystemReminder([
         createToolUseMessage(BashTool.name, {

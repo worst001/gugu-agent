@@ -866,6 +866,10 @@ export class QueryEngine {
                 initialAppState.fastMode,
               ),
               uuid: randomUUID(),
+              result: message.attachment.summary ?? '',
+              stage_reason: message.attachment.reason ?? 'max_turns',
+              stage_summary: message.attachment.summary,
+              next_step: message.attachment.nextStep,
               errors: [
                 `Reached maximum number of turns (${message.attachment.maxTurns})`,
               ],
