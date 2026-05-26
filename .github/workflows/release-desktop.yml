@@ -109,6 +109,7 @@ jobs:
   publish:
     name: Publish OSS and Gitee Release
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     needs:
       - build-windows
       - build-macos
@@ -169,4 +170,4 @@ jobs:
         run: bun run release:desktop:oss -- --require-updater --publish
 
       - name: Publish Gitee Release
-        run: bun run release:desktop:gitee -- --publish
+        run: bun run release:desktop:gitee -- --publish --skip-assets

@@ -361,16 +361,20 @@ Gitee Release must:
 - be named `Gugu Agent v0.1.16`
 - use `release-notes/v0.1.16.md` as the body source
 - include SHA256 values from `desktop/build-artifacts/release.json`
-- include installer assets:
+- link to the OSS installer URLs from `desktop/build-artifacts/release.json`
 
 ```text
 Gugu-Agent-0.1.16-windows-x64.msi
 Gugu-Agent-0.1.16-aarch64.dmg
 ```
 
-If assets with the same names already exist, the publish script should replace
-them unless `--keep-existing-assets` is intentionally used. For a re-publish,
-replacement is the expected behavior.
+OSS is the canonical binary and updater artifact host. Gitee installer
+attachments are optional; for `0.1.16` the workflow publishes the Gitee Release
+body with `--skip-assets` to avoid large attachment uploads hanging the release
+pipeline. If Gitee attachments are intentionally required later, run
+`bun run release:desktop:gitee -- --publish` after confirming the Gitee upload
+path is healthy. Existing same-named assets are replaced unless
+`--keep-existing-assets` is intentionally used.
 
 ### Publishing Verification
 
@@ -381,8 +385,8 @@ After publishing, verify:
 - OSS `release.json` says `0.1.16`.
 - OSS `latest.json` says `0.1.16` and includes all platform aliases.
 - Gitee Release `v0.1.16` exists.
-- Gitee Release contains both installer assets.
-- Gitee Release body is readable and references correct SHA256 values.
+- Gitee Release body is readable and references correct OSS URLs and SHA256
+  values.
 - A fresh install can launch and discover packaged skills/plugins/agents.
 
 ## Normal New Release Flow
@@ -555,10 +559,10 @@ bun run release:updater-manifest
 bun run release:desktop:oss -- --require-updater --publish
 ```
 
-6. Creates or updates the Gitee Release:
+6. Creates or updates the Gitee Release body, using OSS as the binary host:
 
 ```bash
-bun run release:desktop:gitee -- --publish
+bun run release:desktop:gitee -- --publish --skip-assets
 ```
 
 Required CI secrets/env for publish:
@@ -639,12 +643,16 @@ release-notes/v0.1.16.md
 desktop/build-artifacts/release.json
 ```
 
-Expected installer assets:
+Expected installer links in the release body:
 
 ```text
 Gugu-Agent-0.1.16-windows-x64.msi
 Gugu-Agent-0.1.16-aarch64.dmg
 ```
+
+The workflow skips Gitee attachment uploads for `0.1.16`; OSS carries the
+installers, latest aliases, signed updater archives, signatures, `latest.json`,
+and `release.json`.
 
 It also writes a rendered body for inspection:
 
@@ -713,8 +721,8 @@ After CI finishes:
 - OSS `latest.json` points to `0.1.16` updater archives and valid signatures.
 - OSS `release.json` reports version `0.1.16`.
 - Gitee release `v0.1.16` exists.
-- Gitee release assets include the Windows MSI and macOS DMG.
-- Generated Gitee release body has readable notes and correct SHA256 values.
+- Generated Gitee release body has readable notes, correct OSS installer URLs,
+  and correct SHA256 values.
 - Smoke test installer:
   - app launches
   - sidecar starts
