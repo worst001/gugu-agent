@@ -1,5 +1,11 @@
 !macro NSIS_HOOK_PREINSTALL
-  DetailPrint "Stopping running Gugu Agent sidecars..."
+  DetailPrint "Stopping running gugu-agent sidecars..."
+  nsExec::ExecToLog 'taskkill /F /T /IM gugu-sidecar-x86_64-pc-windows-msvc.exe'
+  Pop $0
+  nsExec::ExecToLog 'taskkill /F /T /IM gugu-sidecar-aarch64-pc-windows-msvc.exe'
+  Pop $0
+  nsExec::ExecToLog 'taskkill /F /T /IM gugu-sidecar.exe'
+  Pop $0
   nsExec::ExecToLog 'taskkill /F /T /IM claude-sidecar-x86_64-pc-windows-msvc.exe'
   Pop $0
   nsExec::ExecToLog 'taskkill /F /T /IM claude-sidecar-aarch64-pc-windows-msvc.exe'
@@ -10,8 +16,16 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  DetailPrint "Stopping running Gugu Agent processes..."
+  DetailPrint "Stopping running gugu-agent processes..."
+  nsExec::ExecToLog 'taskkill /F /T /IM gugu-agent.exe'
+  Pop $0
   nsExec::ExecToLog 'taskkill /F /T /IM claude-code-desktop.exe'
+  Pop $0
+  nsExec::ExecToLog 'taskkill /F /T /IM gugu-sidecar-x86_64-pc-windows-msvc.exe'
+  Pop $0
+  nsExec::ExecToLog 'taskkill /F /T /IM gugu-sidecar-aarch64-pc-windows-msvc.exe'
+  Pop $0
+  nsExec::ExecToLog 'taskkill /F /T /IM gugu-sidecar.exe'
   Pop $0
   nsExec::ExecToLog 'taskkill /F /T /IM claude-sidecar-x86_64-pc-windows-msvc.exe'
   Pop $0

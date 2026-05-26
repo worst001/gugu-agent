@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/tauri-schema-v2.json",
-  "productName": "Gugu Agent",
+  "productName": "gugu-agent",
   "version": "0.1.15",
-  "identifier": "com.claude-code-gugu.desktop",
+  "identifier": "com.guxingyao.guguagent.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Gugu Agent",
+        "title": "gugu-agent",
         "width": 1440,
         "height": 960,
         "minWidth": 960,
@@ -42,16 +42,20 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "publisher": "Guxingyao",
     "windows": {
       "webviewInstallMode": {
         "type": "skip"
+      },
+      "wix": {
+        "upgradeCode": "a0484ed0-129a-56a0-871c-61aa70a29fa8"
       },
       "nsis": {
         "installerHooks": "windows-installer-hooks.nsh"
       }
     },
     "externalBin": [
-      "binaries/claude-sidecar"
+      "binaries/gugu-sidecar"
     ],
     "resources": {
       "../../.agents/skills": "gugu-agent-pack"

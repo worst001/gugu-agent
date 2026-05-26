@@ -30,7 +30,7 @@ function Stop-PortOwners {
 $repoRootInput = $RepoRoot.Trim().Trim('"')
 $repo = (Resolve-Path -LiteralPath $repoRootInput -ErrorAction Stop).Path
 $desktopDir = Join-Path $repo "desktop"
-$debugSidecar = Join-Path $repo "desktop\src-tauri\target\debug\claude-sidecar.exe"
+$debugSidecar = Join-Path $repo "desktop\src-tauri\target\debug\gugu-sidecar.exe"
 
 if (-not (Test-Path -LiteralPath $desktopDir -PathType Container)) {
   Write-Error "[restart] desktop directory not found: $desktopDir"
@@ -38,9 +38,13 @@ if (-not (Test-Path -LiteralPath $desktopDir -PathType Container)) {
 }
 
 @(
+  "gugu-sidecar.exe",
+  "gugu-sidecar-x86_64-pc-windows-msvc.exe",
+  "gugu-sidecar-aarch64-pc-windows-msvc.exe",
   "claude-sidecar.exe",
   "claude-sidecar-x86_64-pc-windows-msvc.exe",
   "claude-sidecar-aarch64-pc-windows-msvc.exe",
+  "gugu-agent.exe",
   "claude-code-desktop.exe",
   "Gugu Agent.exe",
   "cargo.exe",

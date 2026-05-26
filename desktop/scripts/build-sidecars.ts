@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
@@ -57,18 +57,30 @@ if (scanExit !== 0) {
 }
 
 await mkdir(binariesDir, { recursive: true })
+await removeStaleSidecars()
 
 // 单一合并 sidecar：server / cli 共享一份 bun runtime + 共享依赖代码。
 // 调用方（Tauri lib.rs / conversationService）通过第一个 positional 参数
 // 选择 'server' 或 'cli' 模式，详见 desktop/sidecars/claude-sidecar.ts。
 await compileExecutable({
   entrypoint: path.join(desktopRoot, 'sidecars/claude-sidecar.ts'),
-  outfileBase: path.join(binariesDir, `claude-sidecar-${targetTriple}`),
-  productName: 'Claude Code Sidecar',
+  outfileBase: path.join(binariesDir, `gugu-sidecar-${targetTriple}`),
+  productName: 'Gugu Sidecar',
   bunTarget,
 })
 
 console.log(`[build-sidecars] Built desktop sidecar for ${targetTriple} (${bunTarget})`)
+
+async function removeStaleSidecars() {
+  const staleNames = [
+    `claude-sidecar-${targetTriple}`,
+    `gugu-sidecar-${targetTriple}`,
+  ]
+  for (const name of staleNames) {
+    await rm(path.join(binariesDir, name), { force: true })
+    await rm(path.join(binariesDir, `${name}.exe`), { force: true })
+  }
+}
 
 async function detectHostTriple() {
   const proc = Bun.spawn(['rustc', '-vV'], {
@@ -185,7 +197,7 @@ async function compileExecutable({
       autoloadPackageJson: true,
       windows: {
         title: productName,
-        publisher: 'Claude Code',
+        publisher: 'Guxingyao',
         description: productName,
         hideConsole: true,
       },
@@ -226,7 +238,7 @@ async function writeBundledAdaptersModule(
     .map(([adapter, spec]) => {
       if (!availability[adapter as keyof typeof optionalAdapterPackages]) {
         return `    case '${adapter}':
-      console.warn('[claude-sidecar] --${adapter} requested but ${spec.label} SDK is not bundled in this build - skipping')
+      console.warn('[gugu-sidecar] --${adapter} requested but ${spec.label} SDK is not bundled in this build - skipping')
       return false`
       }
 
@@ -253,7 +265,7 @@ async function startAdapter(label: string, importer: () => Promise<unknown>): Pr
     return true
   } catch (err) {
     console.error(
-      \`[claude-sidecar] failed to start \${label} adapter:\`,
+      \`[gugu-sidecar] failed to start \${label} adapter:\`,
       err instanceof Error ? err.message : err,
     )
     return false

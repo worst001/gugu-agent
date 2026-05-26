@@ -9,8 +9,8 @@ REPO_ROOT="$(cd "${DESKTOP_DIR}/.." && pwd)"
 TARGET_TRIPLE="aarch64-apple-darwin"
 TAURI_TARGET_DIR="${DESKTOP_DIR}/src-tauri/target"
 CANONICAL_OUTPUT_DIR="${DESKTOP_DIR}/build-artifacts/macos-arm64"
-APP_BUNDLE_NAME="Gugu Agent.app"
-APP_BUNDLE_ID="com.claude-code-gugu.desktop"
+APP_BUNDLE_NAME="gugu-agent.app"
+APP_BUNDLE_ID="com.guxingyao.guguagent.desktop"
 APP_VERSION="$(grep -m1 '"version"' "${DESKTOP_DIR}/src-tauri/tauri.conf.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 
 usage() {
@@ -89,11 +89,16 @@ fi
 #      避免 sidecar 被重复编译浪费 ~10s
 # 任一步失败,整个脚本立即退出(set -e)。
 echo "[build-macos-arm64] Cleaning stale sidecar binaries and bundle output..."
+rm -rf "${DESKTOP_DIR}/src-tauri/binaries/gugu-sidecar-"*
 rm -rf "${DESKTOP_DIR}/src-tauri/binaries/claude-sidecar-"*
 rm -rf "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/bundle"
 rm -rf "${DESKTOP_DIR}/src-tauri/target/release/bundle"
 rm -rf "${DESKTOP_DIR}/dist"
 rm -f "${DESKTOP_DIR}/tsconfig.tsbuildinfo"
+rm -rf "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/build/gugu-agent-"*
+rm -rf "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/.fingerprint/gugu-agent-"*
+rm -f "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/deps/gugu_agent-"*
+rm -f "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/deps/libgugu_agent-"*
 rm -rf "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/build/claude-code-desktop-"*
 rm -rf "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/.fingerprint/claude-code-desktop-"*
 rm -f "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/deps/claude_code_desktop-"*
@@ -212,7 +217,7 @@ build_canonical_dmg() {
 
   # Create a read-write DMG first so we can customize the Finder layout
   hdiutil create \
-    -volname "Gugu Agent" \
+  -volname "gugu-agent" \
     -srcfolder "${staging_dir}" \
     -ov \
     -format UDRW \
@@ -233,7 +238,7 @@ build_canonical_dmg() {
   # 所以这里允许 osascript 非零退出,只 warn,不让 set -e 炸掉整个脚本。
   if ! osascript <<APPLESCRIPT
 tell application "Finder"
-  tell disk "Gugu Agent"
+  tell disk "gugu-agent"
     open
     set current view of container window to icon view
     set toolbar visible of container window to false
@@ -275,7 +280,7 @@ codesign_cdhash() {
 
 sign_canonical_app_bundle() {
   local app_bundle="$1"
-  local sidecar="${app_bundle}/Contents/MacOS/claude-sidecar"
+  local sidecar="${app_bundle}/Contents/MacOS/gugu-sidecar"
   local sidecar_cdhash_before=""
   local sidecar_cdhash_after=""
 
@@ -285,7 +290,7 @@ sign_canonical_app_bundle() {
 
   # Tauri --no-sign leaves the outer .app with no sealed resources, which
   # fails strict bundle validation once Resources/icon.icns exists. Sign only
-  # the outer bundle: do not pass --deep, because re-signing claude-sidecar
+  # the outer bundle: do not pass --deep, because re-signing gugu-sidecar
   # changes its code-signature hash and breaks existing macOS Keychain ACLs.
   codesign --force --sign - --timestamp=none "${app_bundle}"
 

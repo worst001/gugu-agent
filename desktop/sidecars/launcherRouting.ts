@@ -57,7 +57,7 @@ export function parseLauncherArgs(
   }
 
   if (!appRoot) {
-    throw new Error('Missing --app-root for claude-sidecar')
+    throw new Error('Missing --app-root for gugu-sidecar')
   }
 
   return { appRoot, args: nextArgs }

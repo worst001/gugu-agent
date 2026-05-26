@@ -305,7 +305,7 @@ describe('ConversationService', () => {
     )) as Record<string, string>
 
     expect(env.CC_HAHA_COMPUTER_USE_HOST_BUNDLE_ID).toBe(
-      'com.claude-code-gugu.desktop',
+      'com.guxingyao.guguagent.desktop',
     )
     expect(env.CC_HAHA_DESKTOP_SERVER_URL).toBe('http://127.0.0.1:3456')
     expect(env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING).toBe('1')

@@ -1,10 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     fs,
-    io::{Error as IoError, ErrorKind, Read, Write},
+    io::{BufRead, BufReader, Error as IoError, ErrorKind, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
-    process::{Command as StdCommand, Stdio},
+    process::{Child, Command as StdCommand, Stdio},
     str,
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -21,10 +21,9 @@ use tauri::path::BaseDirectory;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Emitter;
 use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
-use tauri_plugin_shell::{
-    process::{CommandChild, CommandEvent},
-    ShellExt,
-};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 const SERVER_STARTUP_LOG_LIMIT: usize = 80;
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -38,7 +37,7 @@ struct ServerState(Mutex<ServerStatus>);
 
 struct ServerRuntime {
     url: String,
-    child: CommandChild,
+    child: SidecarChild,
 }
 
 #[derive(Default)]
@@ -59,7 +58,22 @@ struct AppExitState {
 /// 而且需要支持运行时热重启 —— 用户在设置页保存飞书 / Telegram 凭据后，
 /// 前端会通过 invoke('restart_adapters_sidecar') 来重启它，让新凭据生效。
 #[derive(Default)]
-struct AdapterState(Mutex<Option<CommandChild>>);
+struct AdapterState(Mutex<Option<SidecarChild>>);
+
+struct SidecarChild {
+    child: Child,
+}
+
+impl SidecarChild {
+    fn new(child: Child) -> Self {
+        Self { child }
+    }
+
+    fn kill(mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
 
 #[derive(Default)]
 struct ScreenshotBridgeState(Mutex<Option<ScreenshotBridgeRuntime>>);
@@ -243,13 +257,13 @@ fn show_main_window(app: &AppHandle) {
 
 fn setup_system_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
-        .text(TRAY_SHOW_ID, "Show Gugu Agent")
+        .text(TRAY_SHOW_ID, "Show gugu-agent")
         .separator()
-        .text(TRAY_QUIT_ID, "Quit Gugu Agent")
+        .text(TRAY_QUIT_ID, "Quit gugu-agent")
         .build()?;
 
     let mut tray = TrayIconBuilder::with_id("main-tray")
-        .tooltip("Gugu Agent")
+        .tooltip("gugu-agent")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -966,6 +980,154 @@ fn resolve_bundled_agent_pack_dir(app: &AppHandle) -> Option<PathBuf> {
     })
 }
 
+fn resolve_sidecar_binary(app: &AppHandle) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+    let names = sidecar_binary_names();
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for name in &names {
+                candidates.push(dir.join(name));
+            }
+            for name in &names {
+                candidates.push(dir.join("binaries").join(name));
+            }
+            for name in &names {
+                candidates.push(dir.join("..").join("..").join("binaries").join(name));
+            }
+        }
+    }
+
+    for name in &names {
+        if let Ok(path) = app.path().resolve(name, BaseDirectory::Resource) {
+            candidates.push(path);
+        }
+        if let Ok(path) = app
+            .path()
+            .resolve(format!("binaries/{name}"), BaseDirectory::Resource)
+        {
+            candidates.push(path);
+        }
+    }
+
+    for candidate in &candidates {
+        if candidate.is_file() {
+            return Ok(candidate.clone());
+        }
+    }
+
+    let searched = candidates
+        .into_iter()
+        .map(|path| format!("  - {}", path.to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Err(format!("sidecar binary not found. Searched:\n{searched}"))
+}
+
+fn sidecar_binary_names() -> Vec<String> {
+    let mut names = Vec::new();
+    for base in ["gugu-sidecar", "claude-sidecar"] {
+        names.push(platform_executable_name(base));
+        if let Some(target) = target_sidecar_name(base) {
+            names.push(target);
+        }
+    }
+    names
+}
+
+fn platform_executable_name(base: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        format!("{base}.exe")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        base.to_string()
+    }
+}
+
+fn target_sidecar_name(base: &str) -> Option<String> {
+    let triple = target_triple()?;
+    let mut name = format!("{base}-{triple}");
+    #[cfg(target_os = "windows")]
+    {
+        name.push_str(".exe");
+    }
+    Some(name)
+}
+
+fn target_triple() -> Option<&'static str> {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        return Some("x86_64-pc-windows-msvc");
+    }
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    {
+        return Some("aarch64-pc-windows-msvc");
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return Some("aarch64-apple-darwin");
+    }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        return Some("x86_64-apple-darwin");
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn configure_sidecar_command(command: &mut StdCommand) {
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
+fn pipe_sidecar_output(
+    child: &mut Child,
+    label: &'static str,
+    logs: Option<Arc<Mutex<VecDeque<String>>>>,
+) {
+    if let Some(stdout) = child.stdout.take() {
+        let logs = logs.clone();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).split(b'\n') {
+                let Ok(line) = line else {
+                    break;
+                };
+                let text = String::from_utf8_lossy(&line).trim_end().to_string();
+                if text.is_empty() {
+                    continue;
+                }
+                println!("[{label}] {text}");
+                if let Some(logs) = logs.as_ref() {
+                    push_server_startup_log(logs, format!("[stdout] {text}"));
+                }
+            }
+        });
+    }
+
+    if let Some(stderr) = child.stderr.take() {
+        thread::spawn(move || {
+            for line in BufReader::new(stderr).split(b'\n') {
+                let Ok(line) = line else {
+                    break;
+                };
+                let text = String::from_utf8_lossy(&line).trim_end().to_string();
+                if text.is_empty() {
+                    continue;
+                }
+                eprintln!("[{label}] {text}");
+                if let Some(logs) = logs.as_ref() {
+                    push_server_startup_log(logs, format!("[stderr] {text}"));
+                }
+            }
+        });
+    }
+}
+
 fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let host = "127.0.0.1";
     let port = reserve_local_port()?;
@@ -974,22 +1136,18 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let app_root_arg = app_root.to_string_lossy().to_string();
 
     // 单一合并 sidecar：第一个参数选 server / cli / adapters 模式。
-    let mut sidecar = app
-        .shell()
-        .sidecar("claude-sidecar")
-        .map_err(|err| format!("resolve sidecar: {err}"))?;
     let mut env = terminal_environment(&default_shell());
     apply_default_gateway_url(&mut env, DEFAULT_GATEWAY_URL.or(Some(BUILTIN_GATEWAY_URL)));
-    for (key, value) in env {
-        sidecar = sidecar.env(key, value);
-    }
     if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {
-        sidecar = sidecar.env(
-            "GUGU_AGENT_PACK_DIR",
+        env.insert(
+            "GUGU_AGENT_PACK_DIR".to_string(),
             pack_dir.to_string_lossy().to_string(),
         );
     }
-    let sidecar = sidecar.args([
+
+    let sidecar_path = resolve_sidecar_binary(app)?;
+    let mut command = StdCommand::new(&sidecar_path);
+    command.envs(env).args([
         "server",
         "--app-root",
         &app_root_arg,
@@ -998,48 +1156,26 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
         "--port",
         &port.to_string(),
     ]);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    configure_sidecar_command(&mut command);
 
     let startup_logs = Arc::new(Mutex::new(VecDeque::new()));
-    let logs_for_task = Arc::clone(&startup_logs);
-
-    let (mut rx, child) = sidecar
+    let mut child = command
         .spawn()
-        .map_err(|err| format!("spawn server sidecar: {err}"))?;
+        .map_err(|err| format!("spawn server sidecar at {}: {err}", sidecar_path.display()))?;
 
-    tauri::async_runtime::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line) => {
-                    let line = String::from_utf8_lossy(&line);
-                    let line = line.trim_end();
-                    println!("[claude-server] {line}");
-                    push_server_startup_log(&logs_for_task, format!("[stdout] {line}"));
-                }
-                CommandEvent::Stderr(line) => {
-                    let line = String::from_utf8_lossy(&line);
-                    let line = line.trim_end();
-                    eprintln!("[claude-server] {line}");
-                    push_server_startup_log(&logs_for_task, format!("[stderr] {line}"));
-                }
-                CommandEvent::Terminated(payload) => {
-                    let line = format!(
-                        "sidecar exited (code={:?}, signal={:?})",
-                        payload.code, payload.signal
-                    );
-                    eprintln!("[claude-server] {line}");
-                    push_server_startup_log(&logs_for_task, format!("[exit] {line}"));
-                }
-                _ => {}
-            }
-        }
-    });
+    pipe_sidecar_output(&mut child, "gugu-server", Some(Arc::clone(&startup_logs)));
 
     if let Err(err) = wait_for_server(host, port) {
         let _ = child.kill();
+        let _ = child.wait();
         return Err(format_server_startup_error(&err, &startup_logs));
     }
 
-    Ok(ServerRuntime { url, child })
+    Ok(ServerRuntime {
+        url,
+        child: SidecarChild::new(child),
+    })
 }
 
 fn stop_server_sidecar(app: &AppHandle) {
@@ -1052,13 +1188,13 @@ fn stop_server_sidecar(app: &AppHandle) {
     };
 
     if let Some(runtime) = guard.runtime.take() {
-        let _ = runtime.child.kill();
+        runtime.child.kill();
     }
 }
 
 /// 启动 adapter sidecar。返回 Result 主要为了把"无法 spawn"和"spawn 后立刻
 /// 退出（凭据缺失）"区分开 —— 后者不算错误，是正常 default 状态。
-fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
+fn start_adapters_sidecar(app: &AppHandle) -> Result<SidecarChild, String> {
     let app_root = resolve_app_root(app)?;
     let app_root_arg = app_root.to_string_lossy().to_string();
 
@@ -1089,23 +1225,21 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
         server_http_url.clone()
     };
 
-    let mut sidecar = app
-        .shell()
-        .sidecar("claude-sidecar")
-        .map_err(|err| format!("resolve sidecar: {err}"))?;
-    for (key, value) in terminal_environment(&default_shell()) {
-        sidecar = sidecar.env(key, value);
-    }
+    let mut env = terminal_environment(&default_shell());
     if let Some(url) = screenshot_bridge_url(app) {
-        sidecar = sidecar.env("GUGU_DESKTOP_SCREENSHOT_URL", url);
+        env.insert("GUGU_DESKTOP_SCREENSHOT_URL".to_string(), url);
     }
     if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {
-        sidecar = sidecar.env(
-            "GUGU_AGENT_PACK_DIR",
+        env.insert(
+            "GUGU_AGENT_PACK_DIR".to_string(),
             pack_dir.to_string_lossy().to_string(),
         );
     }
-    let sidecar = sidecar.env("ADAPTER_SERVER_URL", &server_ws_url).args([
+    env.insert("ADAPTER_SERVER_URL".to_string(), server_ws_url.clone());
+
+    let sidecar_path = resolve_sidecar_binary(app)?;
+    let mut command = StdCommand::new(&sidecar_path);
+    command.envs(env).args([
         "adapters",
         "--app-root",
         &app_root_arg,
@@ -1115,13 +1249,16 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
         "--wecom",
         "--qq",
     ]);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    configure_sidecar_command(&mut command);
 
-    let (mut rx, child) = sidecar
+    let mut child = command
         .spawn()
-        .map_err(|err| format!("spawn adapter sidecar: {err}"))?;
+        .map_err(|err| format!("spawn adapter sidecar at {}: {err}", sidecar_path.display()))?;
 
     // 用一个 async task 把 sidecar 的 stdout/stderr 转发出来。它退出时
     // 整个 task 也会自然结束。
+    #[cfg(any())]
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
@@ -1147,7 +1284,9 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<CommandChild, String> {
         }
     });
 
-    Ok(child)
+    pipe_sidecar_output(&mut child, "gugu-adapters", None);
+
+    Ok(SidecarChild::new(child))
 }
 
 /// spawn adapter sidecar 并把 child handle 存进 AdapterState。
@@ -1175,13 +1314,16 @@ fn stop_adapters_sidecar(app: &AppHandle) {
         return;
     };
     if let Some(child) = guard.take() {
-        let _ = child.kill();
+        child.kill();
     }
 }
 
 #[cfg(target_os = "windows")]
 fn kill_windows_sidecars() {
     for image_name in [
+        "gugu-sidecar-x86_64-pc-windows-msvc.exe",
+        "gugu-sidecar-aarch64-pc-windows-msvc.exe",
+        "gugu-sidecar.exe",
         "claude-sidecar-x86_64-pc-windows-msvc.exe",
         "claude-sidecar-aarch64-pc-windows-msvc.exe",
         "claude-sidecar.exe",
@@ -1359,7 +1501,7 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
 
-            let app_submenu = SubmenuBuilder::new(app, "Gugu Agent")
+            let app_submenu = SubmenuBuilder::new(app, "gugu-agent")
                 .item(&about_item)
                 .separator()
                 .item(&settings_item)
