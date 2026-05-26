@@ -1,6 +1,6 @@
 # Desktop 0.1.16 Release Packaging Runbook
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 
 This document records the current desktop packaging flow for re-publishing `0.1.16`.
 It is intentionally written as a handoff-safe runbook: if the active conversation is
@@ -10,9 +10,10 @@ compacted or lost, continue from the "Next Conversation Prompt" section.
 
 - Repository: `D:\Claude Code\claude-code-gugu`
 - Current branch: `fix/bug-from-master`
-- Current HEAD: `d48d16a release: v0.1.16`
-- Local tag: `v0.1.16` exists and points at current HEAD.
-- Local worktree status at time of writing: clean before this documentation change.
+- Published tag: `v0.1.16`
+- Published annotated tag object: `1cebf11f34a214e9ac26d660eef322914a1f30a2`
+- Published peeled commit: `695d5be ci: publish gitee release without attachments`
+- Original release commit before re-publication fixes: `d48d16a release: v0.1.16`
 - Version files already contain `0.1.16`:
   - `desktop/package.json`
   - `desktop/src-tauri/tauri.conf.json`
@@ -199,11 +200,14 @@ Gugu-Agent-0.1.16-aarch64.dmg
 Updater artifact names must use:
 
 ```text
-Gugu-Agent-0.1.16-windows-x64.msi.zip
-Gugu-Agent-0.1.16-windows-x64.msi.zip.sig
+Gugu-Agent-0.1.16-windows-x64.msi
+Gugu-Agent-0.1.16-windows-x64.msi.sig
 Gugu-Agent-0.1.16-darwin-aarch64.app.tar.gz
 Gugu-Agent-0.1.16-darwin-aarch64.app.tar.gz.sig
 ```
+
+For `0.1.16`, the final Windows updater URL in `latest.json` is the versioned
+MSI itself, paired with `Gugu-Agent-0.1.16-windows-x64.msi.sig`.
 
 ### Packaging Verification
 
@@ -313,9 +317,8 @@ OSS must contain immutable versioned artifacts:
 
 ```text
 Gugu-Agent-0.1.16-windows-x64.msi
+Gugu-Agent-0.1.16-windows-x64.msi.sig
 Gugu-Agent-0.1.16-aarch64.dmg
-Gugu-Agent-0.1.16-windows-x64.msi.zip
-Gugu-Agent-0.1.16-windows-x64.msi.zip.sig
 Gugu-Agent-0.1.16-darwin-aarch64.app.tar.gz
 Gugu-Agent-0.1.16-darwin-aarch64.app.tar.gz.sig
 ```
@@ -425,25 +428,29 @@ Because `0.1.16` is already committed and tagged locally, do not run
 removed. Running it against the same version will try to create another release
 commit/tag and is the wrong default for this situation.
 
-Preferred path:
+Preferred future re-publish path:
 
-1. Confirm the release ref is still `d48d16a release: v0.1.16`.
+1. Confirm the intended release ref before touching the tag.
 2. Trigger `.github/workflows/release-desktop.yml` manually with:
-   - ref: a branch or tag that contains `d48d16a`
+   - ref: a branch or tag that contains the intended release commit
    - `publish`: `true`
    - `require_updater`: `true`
 3. Let CI rebuild Windows and macOS artifacts.
 4. Let the publish job regenerate updater metadata and publish to OSS and Gitee.
 
-Alternative path if a tag push must retrigger the workflow:
+Completed `0.1.16` re-publication path:
 
-1. Confirm the remote tag state first.
-2. Only if the team intentionally wants to replace the remote tag, delete and
-   recreate `v0.1.16` so it still points to `d48d16a`.
-3. Push the tag.
+1. Fixed the Tauri npm/Rust version mismatch.
+2. Re-ran CI from branch `fix/bug-from-master`; build and publish succeeded,
+   but Gitee attachment upload was very slow.
+3. Updated the publish workflow to use `--skip-assets` for Gitee body updates
+   and a 30-minute publish job timeout.
+4. Moved `v0.1.16` to `695d5be` and pushed the tag to trigger the canonical
+   tag release workflow.
+5. Verified run `26463819919` completed successfully.
 
-Do not move `v0.1.16` to a different commit without explicitly agreeing that
-the re-release is no longer byte-for-byte tied to the current release commit.
+Do not move `v0.1.16` again without explicitly agreeing that another
+same-version re-publication is intended.
 
 ## CI Packaging Flow
 
@@ -491,8 +498,6 @@ Expected Windows outputs for `0.1.16`:
 ```text
 Gugu-Agent-0.1.16-windows-x64.msi
 Gugu-Agent-0.1.16-windows-x64.msi.sig
-Gugu-Agent-0.1.16-windows-x64.msi.zip
-Gugu-Agent-0.1.16-windows-x64.msi.zip.sig
 latest.json
 BUILD_INFO.txt
 ```
@@ -613,8 +618,8 @@ Updater metadata and signed updater artifacts:
 
 ```text
 latest.json
-Gugu-Agent-0.1.16-windows-x64.msi.zip
-Gugu-Agent-0.1.16-windows-x64.msi.zip.sig
+Gugu-Agent-0.1.16-windows-x64.msi
+Gugu-Agent-0.1.16-windows-x64.msi.sig
 Gugu-Agent-0.1.16-darwin-aarch64.app.tar.gz
 Gugu-Agent-0.1.16-darwin-aarch64.app.tar.gz.sig
 ```
@@ -676,7 +681,8 @@ git log --oneline --decorate -5
 Confirm:
 
 - worktree is clean except intentional documentation edits
-- `v0.1.16` points at `d48d16a`
+- `v0.1.16` points at the intended release commit; after the completed
+  re-publication it peels to `695d5be`
 - `desktop/package.json` version is `0.1.16`
 - `desktop/src-tauri/tauri.conf.json` version is `0.1.16`
 - `desktop/src-tauri/Cargo.toml` version is `0.1.16`
@@ -773,13 +779,15 @@ release.
 
 ## Handoff Summary
 
-We are preparing to re-publish desktop `0.1.16`.
+Desktop `0.1.16` re-publication is complete.
 
 Confirmed facts:
 
 - Current repo is `D:\Claude Code\claude-code-gugu`.
-- Current HEAD is `d48d16a release: v0.1.16`.
-- Local tag `v0.1.16` exists at that HEAD.
+- Published tag `v0.1.16` peels to
+  `695d5be ci: publish gitee release without attachments`.
+- The original release commit before re-publication fixes was
+  `d48d16a release: v0.1.16`.
 - Desktop version files already say `0.1.16`.
 - Release notes `release-notes/v0.1.16.md` exists.
 - Packaging source for built-in skills/plugins/agents is `.agents/skills`.
@@ -790,20 +798,25 @@ Confirmed facts:
 - Bundled plugins include `compound-engineering`, `coding-tutor`,
   `engineering-advanced-skills`, `engineering-skills`, and `claude-mem`.
 - Official packaging path is `.github/workflows/release-desktop.yml`.
-- For re-publishing the same `0.1.16`, prefer manually dispatching or rerunning
-  the workflow with `publish=true` and `require_updater=true` instead of running
-  the version bump script again.
+- Successful canonical tag run: `26463819919`.
+- Earlier workflow dispatch run `26461764067` also completed successfully after
+  a slow Gitee attachment upload.
+- First workflow dispatch run `26460295363` failed because the Tauri Rust crate
+  and npm packages were out of sync.
 
-Immediate next step after user confirmation:
+Post-release state to preserve:
 
-1. Re-check `rtk git status`, tag, and version files.
-2. Decide whether to use workflow dispatch or tag re-push.
-3. Trigger CI release packaging.
-4. Monitor Windows, macOS, and publish jobs.
-5. Verify OSS, updater `latest.json`, `release.json`, and Gitee release.
+1. Do not run `bun run scripts/release.ts 0.1.16`; the version/tag already
+   exists.
+2. Do not move `v0.1.16` again unless another same-version re-publication is
+   explicitly requested.
+3. OSS is the canonical artifact host; Gitee Release should keep the release
+   body and may also contain installer attachments.
+4. If Gitee attachment upload is slow again, use `--skip-assets` for the Gitee
+   body update and keep OSS links as the download source.
 
 ## Next Conversation Prompt
 
 ```text
-继续发布 Gugu Agent Desktop 0.1.16。请先阅读 docs/plans/desktop-0.1.16-release-packaging-runbook.md，然后按文档确认当前状态。目标是重新发布同一个 0.1.16，并确保 .agents/skills 中的 skills、plugins、plugin agents 被打进桌面包。已知当前目标提交是 d48d16a release: v0.1.16，本地 tag v0.1.16 指向它，desktop/package.json、desktop/src-tauri/tauri.conf.json、desktop/src-tauri/Cargo.toml 都是 0.1.16。优先使用 .github/workflows/release-desktop.yml 的 workflow_dispatch 或 rerun，publish=true，require_updater=true；不要默认重新跑 scripts/release.ts 生成新 tag，除非确认要替换远程 tag。发布后检查 OSS release.json/latest.json、Windows MSI、macOS DMG、updater artifacts/signatures，以及 Gitee release v0.1.16。
+接手 Gugu Agent Desktop 0.1.16 发布收尾。请先阅读 docs/plans/desktop-0.1.16-release-packaging-runbook.md。发布已经完成：v0.1.16 是 annotated tag 1cebf11f34a214e9ac26d660eef322914a1f30a2，peel 到 695d5be74f8abfb787acf99db769979cf717556e；成功的 tag workflow run 是 26463819919。请不要再运行 scripts/release.ts 0.1.16，也不要再次移动 v0.1.16，除非用户明确要求再发布一次同版本。若需要复核，请检查 OSS latest.json/release.json、Windows MSI 与 .msi.sig、macOS DMG、macOS updater tar.gz 与 .sig、Gitee release v0.1.16 正文和附件，并确认 .agents/skills 的 skills/plugins/plugin agents 仍通过 gugu-agent-pack 打进桌面包。
 ```
