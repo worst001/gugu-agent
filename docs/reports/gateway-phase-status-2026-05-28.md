@@ -9,6 +9,7 @@
 - 0.1.17 已经通过 GitHub Actions 发布，OSS/Gitee release 同步完成。
 - 生产 gateway 已在 2026-05-28 13:16 CST 从 SQLite 切到 MySQL `gugu_gateway`。
 - 微信和支付宝各完成一笔真实付款验证，订单均 fulfilled，均有激活码，通知均 processed。
+- 最新生产只读 monitor 在 2026-05-28 16:35:59 CST 通过，`ok=true`、`issues=[]`。
 - Redis 已在生产安装并限制本机访问，但 gateway 代码尚未接入 Redis。
 - 现在仍处在 MySQL cutover 后的 24-72 小时观察期，SQLite 回滚快照和切换工件必须保留。
 
@@ -32,6 +33,7 @@
 - 生产 MySQL rehearsal 和 rollback rehearsal 已通过。
 - 生产已正式切换到 `GUGU_STORE_DRIVER=mysql`。
 - `post-cutover-monitor.ts` 已跑过 24 小时窗口检查，结果 `ok=true`、`issues=[]`。
+- 生产 MySQL backup timer 部署后再次执行 monitor，仍然 `ok=true`、`issues=[]`。
 
 3. 支付链路
 
@@ -71,7 +73,12 @@
 
 - SQLite 备份和 restore-check 脚本已完成。
 - systemd backup service/timer 模板已完成。
-- 生产是否已经启用 nightly backup timer，还需要再查一次。
+- 生产已确认没有安装旧的 `gugu-gateway-backup.timer`。
+- 由于生产已切到 MySQL，旧 SQLite timer 不能覆盖 active 业务数据。
+- 已补 MySQL backup 脚本和 `gugu-gateway-mysql-backup` systemd timer 模板。
+- 生产当前布局 `/root/opt/gugu` 已部署 MySQL nightly backup timer。
+- 手动 systemd backup 验收已通过，`gateway-mysql-20260528-163030.sql` 的 sha256 校验 OK。
+- timer 已 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。
 - MySQL 切换后 72 小时观察期尚未结束，不能清理回滚工件。
 
 3. systemd 和生产布局
@@ -113,12 +120,11 @@
 
 1. 先把当前“模型接入收敛”改动 commit，但不急着发版。
 2. 立即再跑一次生产只读 monitor，确认 MySQL、支付、健康状态仍然干净。
-3. 核对生产 backup timer 是否启用；如果未启用，先启用并做一次 restore-check 验收。
-4. 继续 24-72 小时 cutover 观察，不清理 SQLite 和切换工件。
-5. MySQL 观察稳定后，再做 Redis-backed limiter/circuit，先 feature flag 默认关闭，再灰度打开。
-6. GLM async task queue 放在 Redis 状态后端之后。
-7. Docker/多实例/生产目录规范化放最后，单独开维护窗口。
+3. 继续 24-72 小时 cutover 观察，不清理 SQLite 和切换工件。
+4. MySQL 观察稳定后，再做 Redis-backed limiter/circuit，先 feature flag 默认关闭，再灰度打开。
+5. GLM async task queue 放在 Redis 状态后端之后。
+6. Docker/多实例/生产目录规范化放最后，单独开维护窗口。
 
 ## 下一次对话 prompt
 
-继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis 已安装但 gateway 未接入。当前工作区还有“模型接入只保留 Gugu 内置，其他走用户自定义接口”的本地改动，测试已通过但尚未 commit/release。不要误判为所有 gateway phase 都完成。下一步优先：提交模型接入改动、跑生产只读 monitor、核对 backup timer，再推进 Redis-backed limiter/circuit。
+继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis 已安装但 gateway 未接入。当前“模型接入只保留 Gugu 内置，其他走用户自定义接口”的改动已提交但尚未 release。生产 MySQL backup timer 已部署并 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。不要误判为所有 gateway phase 都完成。下一步优先：继续 MySQL cutover 24-72 小时观察，再推进 Redis-backed limiter/circuit。

@@ -474,6 +474,62 @@ The first production run after the 2026-05-28 cutover returned `ok=true` and
 `issues=[]` with one fulfilled WeChat order and one fulfilled Alipay order in
 the 24-hour window.
 
+## MySQL Backups After Cutover
+
+After production switches to `GUGU_STORE_DRIVER=mysql`, the SQLite backup timer
+is no longer sufficient for active business data. Keep SQLite rollback snapshots
+untouched during the first 24-72 hours, but add a MySQL dump backup for the live
+store.
+
+Manual backup from the live gateway tree:
+
+```bash
+cd /root/opt/gugu
+bun run scripts/mysql-backup.ts \
+  --env-file /root/opt/gugu/.env \
+  --out-dir /var/backups/gugu-gateway \
+  --retention-days 7
+```
+
+Expected result:
+
+- A `gateway-mysql-YYYYMMDD-HHMMSS.sql` dump is created.
+- A sibling `.manifest.json` file records table counts and SHA-256.
+- A sibling `.sha256` file is created.
+- The script exits non-zero if `GUGU_MYSQL_URL` is missing, MySQL is
+  unreachable, both dump methods fail, or the dump is empty.
+
+By default, `mysql-backup.ts` uses `--dump-method auto`: it tries `mysqldump`
+first and falls back to a mysql2-based logical SQL dump if the local MySQL
+client cannot authenticate with the same URL. Use `--dump-method mysqldump` or
+`--dump-method js` to force either path.
+
+For the normalized `/opt/gugu-gateway` layout, install the timer templates:
+
+```bash
+sudo cp gateway/deploy/systemd/gugu-gateway-mysql-backup.service /etc/systemd/system/
+sudo cp gateway/deploy/systemd/gugu-gateway-mysql-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gugu-gateway-mysql-backup.timer
+systemctl list-timers gugu-gateway-mysql-backup.timer --no-pager
+```
+
+Before relying on the timer, run the service once manually and review the
+manifest:
+
+```bash
+sudo systemctl start gugu-gateway-mysql-backup.service
+journalctl -u gugu-gateway-mysql-backup.service -n 100 --no-pager
+ls -lh /var/backups/gugu-gateway/gateway-mysql-*.sql
+```
+
+Current production note: because the live gateway still uses `/root/opt/gugu`
+until the later layout normalization window, production has an adapted
+`gugu-gateway-mysql-backup.service` installed directly under
+`/etc/systemd/system`. It was manually started successfully on 2026-05-28 and
+`gugu-gateway-mysql-backup.timer` is enabled, with the next run scheduled for
+2026-05-29 03:38:38 CST.
+
 Optional local Docker rehearsal for a non-production SQLite copy:
 
 ```bash
