@@ -11,7 +11,7 @@
 - 微信和支付宝各完成一笔真实付款验证，订单均 fulfilled，均有激活码，通知均 processed。
 - Redis 已在生产安装并限制本机访问；gateway limiter/circuit 已接入 Redis 并启用。
 - Redis limiter/circuit 启用后的生产 monitor 在 2026-05-28 21:37:05 CST 通过，`ok=true`、`issues=[]`。
-- 生产 recurring monitor timer 已启用，每 5 分钟运行一次 post-cutover monitor；最近一次运行在 2026-05-28 21:48:42 CST 通过，`issues=[]`，下一次计划运行时间是 2026-05-28 21:54:01 CST。
+- 生产 recurring monitor timer 已启用，每 5 分钟运行一次 post-cutover monitor；最近一次运行在 2026-05-28 22:04:40 CST 通过，`issues=[]`，下一次计划运行时间是 2026-05-28 22:09:57 CST。
 - 现在仍处在 MySQL cutover 后的 24-72 小时观察期，SQLite 回滚快照和切换工件必须保留。
 
 ## 已完成
