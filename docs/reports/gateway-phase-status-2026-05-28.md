@@ -70,6 +70,8 @@
 - 生产已打开 `GUGU_REDIS_LIMITER_ENABLED=1` 和 `GUGU_REDIS_CIRCUIT_ENABLED=1`。
 - 生产 smoke 已确认 Redis limiter key 产生；admin metrics 显示 DeepSeek/GLM circuit `backend=redis`、`fallbackActive=false`。
 - `gugu-gateway-monitor.timer` 已部署到生产并启用，每 5 分钟运行一次只读支付/健康 monitor。
+- 2026-05-28 21:59 CST 已部署 managed GLM file_parser 修复：gateway 会为 Office/PDF 文件补 `file_type`，并在 GLM 返回 `task_id` 时继续拉取 `/files/parser/result/{task_id}/text`，避免内测用户长文档解析只拿到空任务结果。
+- 桌面端附件解析阶段增加 15 秒一次的状态心跳；长附件解析发生在 CLI turn monitor 启动前时，用户也能看到“正在解析附件，已等待 N 秒”。
 
 ## 部分完成
 
@@ -105,10 +107,11 @@
 
 1. Phase 4 GLM 任务队列
 
-- 尚未做。
+- 尚未完整落地。
 - 这会改变客户端体验和协议：任务提交、排队、状态查询、结果回取、失败重试。
 - 当前只是用进程内并发池保护 GLM，不是异步任务系统。
 - 任务锁、队列 lease 还没实现；多实例前还需要把 GLM 队列状态和 worker lease 放进 Redis。
+- 已先补低风险前置项：managed file_parser 会追 `task_id` 结果，桌面附件解析会持续显示等待状态。
 
 2. Phase 5 Docker、多实例和全局扩容
 
@@ -127,9 +130,9 @@
 
 1. 继续 24-72 小时 cutover 观察，不清理 SQLite 和切换工件。
 2. 观察 `gugu-gateway-monitor.timer` 和 Redis limiter/circuit 生产日志，确认没有支付问题和 Redis fallback warning。
-3. 推进 GLM async task queue，补任务锁、队列 lease、状态查询和客户端友好提示。
+3. 推进 GLM async task queue，补任务锁、队列 lease、状态查询和客户端友好提示；当前已补 status 心跳和 `task_id` 追结果，下一步才是正式异步协议。
 4. Docker/多实例/生产目录规范化放最后，单独开维护窗口。
 
 ## 下一次对话 prompt
 
-继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis limiter/circuit 已在生产启用，admin metrics 显示 `backend=redis`、`fallbackActive=false`，启用后的 monitor 在 2026-05-28 21:37:05 CST 通过；生产 `gugu-gateway-monitor.timer` 已启用，每 5 分钟运行只读 post-cutover monitor，2026-05-28 21:48:42 CST 运行通过，下一次计划运行时间是 2026-05-28 21:54:01 CST。当前“模型接入只保留 Gugu 内置，其他走用户自定义接口”的改动已提交但尚未 release。生产 MySQL backup timer 已部署并 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。不要误判为所有 gateway phase 都完成。下一步优先：观察 monitor/Redis fallback 日志，然后推进 GLM async task queue；Docker/多实例/生产目录规范化最后做。
+继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis limiter/circuit 已在生产启用，admin metrics 显示 `backend=redis`、`fallbackActive=false`，启用后的 monitor 在 2026-05-28 21:37:05 CST 通过；生产 `gugu-gateway-monitor.timer` 已启用，每 5 分钟运行只读 post-cutover monitor。2026-05-28 21:59 CST 已部署 gateway managed GLM file_parser `task_id` 追结果修复，重启后 health OK、monitor `issues=[]`。当前“模型接入只保留 Gugu 内置，其他走用户自定义接口”的改动已提交但尚未 release；桌面端附件解析 15 秒状态心跳已实现但也尚未 release。生产 MySQL backup timer 已部署并 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。不要误判为所有 gateway phase 都完成。下一步优先：观察 monitor/Redis fallback 日志，然后推进正式 GLM async task queue；Docker/多实例/生产目录规范化最后做。

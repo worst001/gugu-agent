@@ -119,6 +119,8 @@ const DEFAULT_ACTIVE_SESSION_RECONNECT_GRACE_MS = 30 * 60_000
 const DEFAULT_TURN_WATCHDOG_INTERVAL_MS = 5_000
 const DEFAULT_TURN_PROGRESS_NOTICE_MS = 45_000
 const DEFAULT_TURN_PROGRESS_REMINDER_MS = 60_000
+const DEFAULT_ATTACHMENT_PARSE_PROGRESS_NOTICE_MS = 15_000
+const DEFAULT_ATTACHMENT_PARSE_PROGRESS_REMINDER_MS = 15_000
 const DEFAULT_MODEL_STALL_NOTICE_MS = 5 * 60_000
 const DEFAULT_SDK_LIVENESS_TIMEOUT_MS = 2 * 60_000
 const DEFAULT_SDK_RECONNECT_GRACE_MS = 10 * 60_000
@@ -247,6 +249,31 @@ function getTurnStatusVerb(phase: TurnPhase): string {
   if (phase === 'permission_pending') return '等待权限确认'
   if (phase === 'streaming') return '仍在接收模型输出'
   return '仍在等待模型响应'
+}
+
+function startAttachmentParseProgress(sessionId: string): () => void {
+  const startedAt = Date.now()
+  let nextNoticeAt = startedAt + getEnvMs(
+    'CC_HAHA_ATTACHMENT_PARSE_PROGRESS_NOTICE_MS',
+    DEFAULT_ATTACHMENT_PARSE_PROGRESS_NOTICE_MS,
+  )
+  const timer = setInterval(() => {
+    const now = Date.now()
+    if (now < nextNoticeAt) return
+    const elapsedSeconds = Math.max(1, Math.round((now - startedAt) / 1000))
+    broadcastToSession(sessionId, {
+      type: 'status',
+      state: 'thinking',
+      verb: `正在解析附件，已等待 ${elapsedSeconds} 秒`,
+    })
+    nextNoticeAt = now + getEnvMs(
+      'CC_HAHA_ATTACHMENT_PARSE_PROGRESS_REMINDER_MS',
+      DEFAULT_ATTACHMENT_PARSE_PROGRESS_REMINDER_MS,
+    )
+  }, 1000)
+  const unref = (timer as { unref?: () => void }).unref
+  if (unref) unref.call(timer)
+  return () => clearInterval(timer)
 }
 
 function startTurnMonitor(sessionId: string): void {
@@ -732,6 +759,7 @@ async function handleUserMessage(
   let cliContent = message.content
   let cliAttachments = message.attachments
   if (message.attachments?.length) {
+    const stopAttachmentProgress = startAttachmentParseProgress(sessionId)
     try {
       sendMessage(ws, { type: 'status', state: 'thinking', verb: '正在解析附件' })
       const workDir = conversationService.hasSession(sessionId)
@@ -767,6 +795,8 @@ async function handleUserMessage(
       })
       sendMessage(ws, { type: 'status', state: 'idle' })
       return
+    } finally {
+      stopAttachmentProgress()
     }
   }
 
