@@ -526,6 +526,29 @@ first and falls back to a mysql2-based logical SQL dump if the local MySQL
 client cannot authenticate with the same URL. Use `--dump-method mysqldump` or
 `--dump-method js` to force either path.
 
+Periodically verify that a backup can restore into a scratch database. Do not
+point this at the live `gugu_gateway` database:
+
+The target scratch database must already exist, and the restore-check user must
+have enough privileges on that scratch database to drop and recreate tables.
+
+```bash
+cd /root/opt/gugu
+bun run scripts/mysql-restore-check.ts \
+  --env-file /root/opt/gugu/.env \
+  --backup /var/backups/gugu-gateway/gateway-mysql-YYYYMMDD-HHMMSS.sql \
+  --target-mysql-url mysql://gugu_gateway_app:REPLACE_WITH_PASSWORD@127.0.0.1:3306/gugu_gateway_restore
+```
+
+Expected result:
+
+- The script verifies the backup SHA-256 against the manifest or `.sha256`
+  file.
+- The target database name looks like scratch/restore/dryrun/test and is not
+  the source database unless explicitly overridden.
+- Table counts match the backup manifest.
+- Basic payment/order integrity checks return no issues.
+
 For the normalized `/opt/gugu-gateway` layout, install the timer templates:
 
 ```bash

@@ -19,6 +19,18 @@
 - 生产 monitor timer 每 5 分钟运行一次；最近查看到的运行时间是 `2026-05-29 00:11:24 CST`，日志结尾 `issues=[]`。
 - MySQL backup timer 已启用，下一次计划运行时间是 `2026-05-29 03:38:35 CST`。
 
+`2026-05-29 00:42 CST` 追加只读检查：
+
+- `gugu-gateway`、`mysqld`、`redis` 仍为 `active`，本地 health 仍为 `{"ok":true}`。
+- 机器负载很低：load average `0.02, 0.13, 0.09`；内存约 `3.5GB`，available 约 `1.1GB`；根分区使用率约 `40%`。
+- `gugu-gateway-monitor.timer` 最近一次运行在 `2026-05-29 00:37:57 CST`，monitor 输出 `ok=true`、`issues=[]`。
+- `gugu-gateway-mysql-backup.timer` 还未到首次自动运行时间；仍计划在 `2026-05-29 03:38:35 CST` 运行。
+- 手动 MySQL backup service 最近一次成功记录是 `2026-05-28 16:30:30 CST`，产物 `/var/backups/gugu-gateway/gateway-mysql-20260528-163030.sql`，`bytes=400652`，`dumpMethod=js`，sha256 `39ba36018617e9e7ddd5a0ddbb1a22e8d0df5d1591a7589945ad0eb5cb3b1e1b`，表计数 `devices=13`、`activation_codes=13`、`usage_events=1813`、`orders=42`、`payment_notifications=2`。
+- admin metrics 显示 message 队列 `active=0`、`waiting=0`，GLM 队列 `active=0`、`waiting=0`；DeepSeek/GLM circuit 均为 `closed`，`backend=redis`、`fallbackActive=false`。
+- attachment task 仍按预期关闭：`enabled=false`、`redisEnabled=false`、`queued=0`、`running=0`、`completed=0`。
+- 近一小时 gateway 日志没有 Redis fallback、支付失败、上游熔断或 timeout；有一段公网扫描 `.env`、`wp-config.php`、`docker-compose.yml` 等常见敏感路径的探测，均返回 `404 NOT_FOUND`。这不影响当前业务，但后续可放入 Nginx 边缘规则/告警降噪。
+- 本地新增了 `gateway/scripts/mysql-restore-check.ts` 和 `bun run mysql-restore-check`，用于把 MySQL backup 恢复到 scratch/restore/dryrun/test 库后校验 sha256、表计数和基础支付/订单一致性；该脚本尚未部署到生产。
+
 ## 生产运行图
 
 - 服务器：`139.196.214.54`
