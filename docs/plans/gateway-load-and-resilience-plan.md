@@ -292,7 +292,12 @@ Dashboard 先展示关键水位，不追求复杂图表。
 - 已补 Redis 状态/lease 骨架，默认关闭：`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1` 后，task metadata、状态计数和 worker lease 会写 Redis；Redis 异常或未配置 URL 时回落进程内任务状态。
 - 已补本地 payload spool：任务请求体会写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR` 下的临时 JSON 文件，worker 执行时读回，完成后删除；超出 `GUGU_ATTACHMENT_TASK_SPOOL_MAX_BYTES` 会在上游调用前返回 413；`GUGU_ATTACHMENT_TASK_SPOOL_CLEANUP_INTERVAL_MS` 控制启动/运行期清理守护扫描间隔，守护只清理超过安全窗口的 orphan `.json`，并跳过当前进程正在引用的 payload。
 - async task 失败退款边界已用回归测试固定：任务执行复用 `forwardAttachment`，上游 5xx/网络/超时/空结果会沿用同步路径退款并把剩余额度透传给 task status；自动重试暂不启用，避免在缺少幂等 reservation 前制造重复扣费/重复退款。
-- 当前仍不能直接当作多实例正式队列：payload 仍在本机 spool，共享文件系统/私有对象存储未规范化；生产灰度开关验证仍是后续工作。
+- 灰度验证顺序：
+  1. 先部署代码但保持 `GUGU_ATTACHMENT_TASKS_ENABLED=0`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，验证 `/v1/attachments/tasks` 返回 `404 ATTACHMENT_TASKS_DISABLED`，桌面端自动回退同步 `/v1/attachments/parse`。
+  2. 内测小流量打开 `GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，验证 task 创建/轮询/成功/失败退款、`Retry-After`、spool 完成删除和 stale orphan 清理。
+  3. 再打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，验证 admin metrics 里 attachment task `backend=redis`、`fallbackActive=false`，Redis 异常时能回退本机状态且不影响同步 parse。
+  4. 回滚只需要把 `GUGU_ATTACHMENT_TASKS_ENABLED=0` 后重启 gateway，桌面端会自动回到同步解析；清理守护会继续处理历史 stale spool 文件。
+- 当前仍不能直接当作多实例正式队列：payload 仍在本机 spool，共享文件系统/私有对象存储未规范化。
 - 成本边界：内测和单机阶段不把用户上传附件 payload 写入 OSS，避免对象数量、流量、隐私和生命周期管理失控。
 
 ## 数据库与缓存平滑迁移
