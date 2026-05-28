@@ -644,6 +644,11 @@ Expected behavior:
 - Admin metrics include circuit `backend` and `fallbackActive` fields.
 - Payment and order endpoints remain backed by MySQL, not Redis.
 
+Current production note: Redis limiter and circuit state were enabled on
+2026-05-28. Admin metrics showed DeepSeek and GLM circuits with
+`backend=redis` and `fallbackActive=false`, and the post-change monitor returned
+`ok=true` with `issues=[]`.
+
 ## Post-Change Health Checks
 
 ```bash
