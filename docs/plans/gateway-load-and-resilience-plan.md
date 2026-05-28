@@ -290,7 +290,7 @@ Dashboard 先展示关键水位，不追求复杂图表。
 - 已补第一阶段异步协议代码，默认关闭：`POST /v1/attachments/tasks` 创建任务，`GET /v1/attachments/tasks/:id` 查询状态；响应里有 `task.provider`，当前值为 `glm`，后续可切到 `deepseek-v4` 而不改客户端协议。
 - 桌面端 managed 附件解析会先尝试异步 task；如果 gateway 旧版本、未开启或返回 `ATTACHMENT_TASKS_DISABLED`，自动回退到原 `/v1/attachments/parse` 同步路径。
 - 已补 Redis 状态/lease 骨架，默认关闭：`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1` 后，task metadata、状态计数和 worker lease 会写 Redis；Redis 异常或未配置 URL 时回落进程内任务状态。
-- 已补本地 payload spool：任务请求体会写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR` 下的临时 JSON 文件，worker 执行时读回，完成后删除；超出 `GUGU_ATTACHMENT_TASK_SPOOL_MAX_BYTES` 会在上游调用前返回 413。
+- 已补本地 payload spool：任务请求体会写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR` 下的临时 JSON 文件，worker 执行时读回，完成后删除；超出 `GUGU_ATTACHMENT_TASK_SPOOL_MAX_BYTES` 会在上游调用前返回 413；`GUGU_ATTACHMENT_TASK_SPOOL_CLEANUP_INTERVAL_MS` 控制启动/运行期清理守护扫描间隔，守护只清理超过安全窗口的 orphan `.json`，并跳过当前进程正在引用的 payload。
 - 当前仍不能直接当作多实例正式队列：payload 仍在本机 spool，共享文件系统/私有对象存储未规范化；失败重试、失败退款和生产灰度开关验证仍是后续工作。
 - 成本边界：内测和单机阶段不把用户上传附件 payload 写入 OSS，避免对象数量、流量、隐私和生命周期管理失控。
 

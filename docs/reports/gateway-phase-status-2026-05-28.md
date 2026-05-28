@@ -113,10 +113,10 @@
 - 桌面端 managed 附件解析会优先尝试异步 task；旧 gateway、关闭开关或 `ATTACHMENT_TASKS_DISABLED` 会自动回退原同步 `/v1/attachments/parse`。
 - 任务状态包含 `provider` 字段，当前为 `glm`；后续 DeepSeek V4 多模态上线时，应通过 provider/worker 配置平滑切到 `deepseek-v4` 识图，不改客户端 task 协议。
 - Redis 状态/lease 骨架已完成但默认关闭：`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1` 时，task metadata、状态计数和 worker lease 会写 Redis；Redis 异常或未配置 URL 时回落进程内状态。
-- 本地 payload spool 已完成：任务请求体写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR`，worker 执行时读回，完成后删除；超过 `GUGU_ATTACHMENT_TASK_SPOOL_MAX_BYTES` 会在上游调用前 413。
+- 本地 payload spool 已完成：任务请求体写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR`，worker 执行时读回，完成后删除；超过 `GUGU_ATTACHMENT_TASK_SPOOL_MAX_BYTES` 会在上游调用前 413；`GUGU_ATTACHMENT_TASK_SPOOL_CLEANUP_INTERVAL_MS` 控制启动/运行期清理守护，守护只清理超过安全窗口的 orphan `.json`，并跳过当前进程正在引用的 payload。
 - 当前仍不是多实例正式队列：payload 仍在本机 spool，共享文件系统或私有对象存储未规范化。
 - 内测和单机阶段不把用户上传附件 payload 写入 OSS，避免对象数量、流量、隐私和生命周期管理失控；OSS 只作为未来多实例的可选方案，且必须私有、限额、短 TTL。
-- 仍需补失败重试、失败退款、spool 清理守护和生产灰度验证。
+- 仍需补失败重试、失败退款明确化和生产灰度验证。
 - 已先补低风险前置项：managed file_parser 会追 `task_id` 结果，桌面附件解析会持续显示等待状态。
 
 2. Phase 5 Docker、多实例和全局扩容
@@ -136,9 +136,9 @@
 
 1. 继续 24-72 小时 cutover 观察，不清理 SQLite 和切换工件。
 2. 观察 `gugu-gateway-monitor.timer` 和 Redis limiter/circuit 生产日志，确认没有支付问题和 Redis fallback warning。
-3. 继续推进附件解析 async task queue：默认关闭协议、Redis metadata/lease、本地 payload spool 已完成，下一步补 spool 清理守护、失败重试/退款和灰度开关验证；协议保持 provider-neutral，为 DeepSeek V4 多模态替换 GLM 留口。
+3. 继续推进附件解析 async task queue：默认关闭协议、Redis metadata/lease、本地 payload spool 和 spool 清理守护已完成，下一步补失败重试/退款明确化和灰度开关验证；协议保持 provider-neutral，为 DeepSeek V4 多模态替换 GLM 留口。
 4. Docker/多实例/生产目录规范化放最后，单独开维护窗口。
 
 ## 下一次对话 prompt
 
-继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis limiter/circuit 已在生产启用，admin metrics 显示 `backend=redis`、`fallbackActive=false`，启用后的 monitor 在 2026-05-28 21:37:05 CST 通过；生产 `gugu-gateway-monitor.timer` 已启用，每 5 分钟运行只读 post-cutover monitor。2026-05-28 21:59 CST 已部署 gateway managed GLM file_parser `task_id` 追结果修复，重启后 health OK、monitor `issues=[]`。当前“模型接入只保留 Gugu 内置，其他走用户自定义接口”的改动已提交但尚未 release；桌面端附件解析 15 秒状态心跳已实现但也尚未 release。Phase 4 默认关闭协议、Redis metadata/lease、本地 payload spool 已在本地完成：gateway 有 async attachment task API，桌面 managed 解析会优先 task polling 并在旧网关/关闭开关时回退同步 parse；`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1` 可把 task metadata/status/lease 写 Redis；任务请求体会写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR` 并在完成后删除。内测/单机阶段不要把用户上传附件 payload 写入 OSS；OSS 只作为未来多实例的可选方案，且必须私有、限额、短 TTL；协议通过 `task.provider` 保持 provider-neutral，当前 `glm`，后续 DeepSeek V4 多模态要平滑替换 worker/provider。生产 MySQL backup timer 已部署并 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。不要误判为所有 gateway phase 都完成。下一步优先：观察 monitor/Redis fallback 日志，然后补 spool 清理守护、失败重试/退款和灰度开关验证；Docker/多实例/生产目录规范化最后做。
+继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis limiter/circuit 已在生产启用，admin metrics 显示 `backend=redis`、`fallbackActive=false`，启用后的 monitor 在 2026-05-28 21:37:05 CST 通过；生产 `gugu-gateway-monitor.timer` 已启用，每 5 分钟运行只读 post-cutover monitor。2026-05-28 21:59 CST 已部署 gateway managed GLM file_parser `task_id` 追结果修复，重启后 health OK、monitor `issues=[]`。当前“模型接入只保留 Gugu 内置，其他走用户自定义接口”的改动已提交但尚未 release；桌面端附件解析 15 秒状态心跳已实现但也尚未 release。Phase 4 默认关闭协议、Redis metadata/lease、本地 payload spool 与 spool 清理守护已在本地完成：gateway 有 async attachment task API，桌面 managed 解析会优先 task polling 并在旧网关/关闭开关时回退同步 parse；`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1` 可把 task metadata/status/lease 写 Redis；任务请求体会写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR` 并在完成后删除，启动/运行期清理守护会按 `GUGU_ATTACHMENT_TASK_SPOOL_CLEANUP_INTERVAL_MS` 清理 stale orphan `.json`。内测/单机阶段不要把用户上传附件 payload 写入 OSS；OSS 只作为未来多实例的可选方案，且必须私有、限额、短 TTL；协议通过 `task.provider` 保持 provider-neutral，当前 `glm`，后续 DeepSeek V4 多模态要平滑替换 worker/provider。生产 MySQL backup timer 已部署并 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。不要误判为所有 gateway phase 都完成。下一步优先：观察 monitor/Redis fallback 日志，然后补失败重试/退款明确化和灰度开关验证；Docker/多实例/生产目录规范化最后做。
