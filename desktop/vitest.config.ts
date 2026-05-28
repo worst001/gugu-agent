@@ -14,6 +14,6 @@ export default defineConfig({
     globals: true,
     css: true,
     setupFiles: ['./src/test/setup.ts'],
-    exclude: [...configDefaults.exclude, 'src-tauri/target/**'],
+    exclude: [...configDefaults.exclude, 'src-tauri/target/**', 'build-artifacts/**'],
   },
 })
