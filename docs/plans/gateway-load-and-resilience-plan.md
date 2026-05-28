@@ -278,7 +278,8 @@ Dashboard 先展示关键水位，不追求复杂图表。
 - worker 执行当前 provider 的解析逻辑。
 - 客户端轮询任务状态。
 - 失败时退款。
-- 文件走 OSS 临时对象，设置生命周期自动删除。
+- 当前单机阶段文件走本机私有 spool，不默认进入 OSS。
+- 未来多实例确实需要跨实例共享 payload 时，才评估私有对象存储或共享文件系统；如果使用 OSS，必须是私有桶/私有 prefix、严格大小限制、短生命周期自动删除，不能复用公开下载桶。
 
 这一步会改客户端协议，放在 Phase 1 稳定后再做。
 
@@ -290,7 +291,8 @@ Dashboard 先展示关键水位，不追求复杂图表。
 - 桌面端 managed 附件解析会先尝试异步 task；如果 gateway 旧版本、未开启或返回 `ATTACHMENT_TASKS_DISABLED`，自动回退到原 `/v1/attachments/parse` 同步路径。
 - 已补 Redis 状态/lease 骨架，默认关闭：`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1` 后，task metadata、状态计数和 worker lease 会写 Redis；Redis 异常或未配置 URL 时回落进程内任务状态。
 - 已补本地 payload spool：任务请求体会写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR` 下的临时 JSON 文件，worker 执行时读回，完成后删除；超出 `GUGU_ATTACHMENT_TASK_SPOOL_MAX_BYTES` 会在上游调用前返回 413。
-- 当前仍不能直接当作多实例正式队列：payload 还没有进入 OSS 临时对象，共享文件系统也未规范化；失败重试、失败退款和生产灰度开关验证仍是后续工作。
+- 当前仍不能直接当作多实例正式队列：payload 仍在本机 spool，共享文件系统/私有对象存储未规范化；失败重试、失败退款和生产灰度开关验证仍是后续工作。
+- 成本边界：内测和单机阶段不把用户上传附件 payload 写入 OSS，避免对象数量、流量、隐私和生命周期管理失控。
 
 ## 数据库与缓存平滑迁移
 
