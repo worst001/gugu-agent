@@ -399,6 +399,14 @@ Redis 不需要一次性替换进程内状态，按风险递增迁移：
 - Redis 中的 idempotency key 必须有 TTL。
 - Redis 只做协调，最终账务以 MySQL 为准。
 
+当前状态：
+
+- Redis-backed 限流和熔断代码已完成，均通过 feature flag 默认关闭。
+- `GUGU_REDIS_LIMITER_ENABLED=1` 后，设备/IP token bucket 会优先使用 Redis，Redis 命令失败时回落进程内 token bucket。
+- `GUGU_REDIS_CIRCUIT_ENABLED=1` 后，DeepSeek/GLM circuit 状态会优先使用 Redis，Redis 命令失败时回落进程内 circuit。
+- 生产尚未打开 Redis limiter/circuit；应在 MySQL cutover 观察稳定后灰度开启。
+- GLM 队列状态和 worker lease 尚未迁入 Redis。
+
 ### 支付链路迁移保护
 
 现有代码已经做了这些保护：

@@ -590,7 +590,59 @@ Expected result:
 - `PING` returns `PONG`.
 - `maxmemory` is `256mb`.
 - `maxmemory-policy` is `noeviction`.
-- No gateway code depends on Redis yet.
+- Gateway code can use Redis for limiter/circuit state, but both switches
+  default to off.
+
+## Enable Redis Limiter And Circuit State
+
+Use this only after Redis is installed, localhost-only, password/env wiring is
+verified, and MySQL cutover monitoring is clean.
+
+Add the Redis URL and keep both feature flags off for the first restart:
+
+```bash
+sudo cp -a /etc/gugu-gateway/gateway.env /etc/gugu-gateway/gateway.env.$(date +%Y%m%d%H%M%S).bak
+sudoedit /etc/gugu-gateway/gateway.env
+```
+
+Required values:
+
+```bash
+GUGU_REDIS_URL=redis://:REPLACE_WITH_STRONG_PASSWORD@127.0.0.1:6379/0
+GUGU_REDIS_COMMAND_TIMEOUT_MS=1000
+GUGU_REDIS_LIMITER_ENABLED=0
+GUGU_REDIS_CIRCUIT_ENABLED=0
+```
+
+Restart and verify the gateway still uses the existing in-memory behavior:
+
+```bash
+sudo systemctl restart gugu-gateway
+curl -fsS http://127.0.0.1:18787/health
+journalctl -u gugu-gateway -n 100 --no-pager
+```
+
+Then enable limiter first:
+
+```bash
+sudo sed -i 's/^GUGU_REDIS_LIMITER_ENABLED=.*/GUGU_REDIS_LIMITER_ENABLED=1/' /etc/gugu-gateway/gateway.env
+sudo systemctl restart gugu-gateway
+curl -fsS http://127.0.0.1:18787/health
+```
+
+If logs stay clean, enable shared circuit state:
+
+```bash
+sudo sed -i 's/^GUGU_REDIS_CIRCUIT_ENABLED=.*/GUGU_REDIS_CIRCUIT_ENABLED=1/' /etc/gugu-gateway/gateway.env
+sudo systemctl restart gugu-gateway
+curl -fsS http://127.0.0.1:18787/health
+```
+
+Expected behavior:
+
+- Redis failures log a warning and fall back to in-memory limiter/circuit.
+- Admin metrics include circuit `backend` and `fallbackActive` fields.
+- Payment and order endpoints remain backed by MySQL, not Redis.
 
 ## Post-Change Health Checks
 

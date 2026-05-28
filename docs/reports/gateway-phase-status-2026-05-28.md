@@ -57,7 +57,7 @@
 - 自定义接口保留通用协议选项：Anthropic Messages 兼容、OpenAI Chat 兼容、OpenAI Responses 兼容。
 - 旧 presetId 运行时 env 兼容已保留，避免已有内测用户升级后失效。
 - 相关桌面和服务端测试已通过。
-- 这部分尚未 commit，也尚未发布。
+- 这部分已 commit 并推送到当前分支，但尚未 release。
 
 ## 部分完成
 
@@ -93,9 +93,12 @@
 1. Redis 接入
 
 - Redis 6.2.20 已安装，监听 `127.0.0.1:6379`。
-- gateway 当前没有依赖 Redis。
-- Redis-backed 限流、熔断状态、任务锁、队列 lease 都还没实现。
-- 多实例前必须先完成 Redis 状态后端，否则单机限流无法全局生效。
+- gateway 已补 Redis-backed rate limiter 和 circuit breaker 代码，feature flag 默认关闭。
+- 新增 `GUGU_REDIS_URL`、`GUGU_REDIS_LIMITER_ENABLED`、`GUGU_REDIS_CIRCUIT_ENABLED`、`GUGU_REDIS_COMMAND_TIMEOUT_MS`。
+- Redis backend 支持 fallback：Redis 命令失败时回落到内存实现，避免 gateway 因 Redis 抖动直接拒绝请求。
+- 本地 gateway 测试已通过，但生产还没有打开 Redis limiter/circuit。
+- 任务锁、队列 lease 还没实现，属于 GLM async task queue 的前置工作。
+- 多实例前必须先在生产灰度打开 Redis limiter/circuit，否则单机限流无法全局生效。
 
 2. Phase 4 GLM 任务队列
 
@@ -121,10 +124,10 @@
 1. 先把当前“模型接入收敛”改动 commit，但不急着发版。
 2. 立即再跑一次生产只读 monitor，确认 MySQL、支付、健康状态仍然干净。
 3. 继续 24-72 小时 cutover 观察，不清理 SQLite 和切换工件。
-4. MySQL 观察稳定后，再做 Redis-backed limiter/circuit，先 feature flag 默认关闭，再灰度打开。
-5. GLM async task queue 放在 Redis 状态后端之后。
+4. MySQL 观察稳定后，在生产灰度打开 Redis limiter/circuit。
+5. GLM async task queue 放在 Redis 状态后端之后，补任务锁和队列 lease。
 6. Docker/多实例/生产目录规范化放最后，单独开维护窗口。
 
 ## 下一次对话 prompt
 
-继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis 已安装但 gateway 未接入。当前“模型接入只保留 Gugu 内置，其他走用户自定义接口”的改动已提交但尚未 release。生产 MySQL backup timer 已部署并 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。不要误判为所有 gateway phase 都完成。下一步优先：继续 MySQL cutover 24-72 小时观察，再推进 Redis-backed limiter/circuit。
+继续从 `docs/reports/gateway-phase-status-2026-05-28.md` 和 `docs/plans/0.1.16-current-handoff.md` 接手。注意：0.1.17 桌面发布已完成；生产 gateway 已在 2026-05-28 13:16 CST 切到 MySQL `gugu_gateway`；微信和支付宝真实支付均验证通过；Redis 已安装；Redis-backed limiter/circuit 代码已完成但生产 flag 仍默认关闭。当前“模型接入只保留 Gugu 内置，其他走用户自定义接口”的改动已提交但尚未 release。生产 MySQL backup timer 已部署并 enabled，下一次运行时间是 2026-05-29 03:38:38 CST。不要误判为所有 gateway phase 都完成。下一步优先：继续 MySQL cutover 24-72 小时观察，随后灰度打开 Redis limiter/circuit，再推进 GLM async task queue。
