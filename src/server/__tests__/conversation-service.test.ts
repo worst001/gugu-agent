@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { ConversationService } from '../services/conversationService.js'
-import { ProviderService } from '../services/providerService.js'
+import { GUGU_MANAGED_PROVIDER_ID, ProviderService } from '../services/providerService.js'
 
 describe('ConversationService', () => {
   let tmpDir: string
@@ -14,6 +14,10 @@ describe('ConversationService', () => {
   let originalEntrypoint: string | undefined
   let originalOAuthToken: string | undefined
   let originalProviderManagedByHost: string | undefined
+  let originalDisableDefaultGateway: string | undefined
+  let originalGuguGatewayUrl: string | undefined
+  let originalGatewayUrl: string | undefined
+  let originalDesktopDefaultGatewayUrl: string | undefined
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-conversation-service-'))
@@ -24,6 +28,10 @@ describe('ConversationService', () => {
     originalEntrypoint = process.env.CLAUDE_CODE_ENTRYPOINT
     originalOAuthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
     originalProviderManagedByHost = process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST
+    originalDisableDefaultGateway = process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
+    originalGuguGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
+    originalGatewayUrl = process.env.GUGU_GATEWAY_URL
+    originalDesktopDefaultGatewayUrl = process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
 
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     process.env.ANTHROPIC_AUTH_TOKEN = 'test-token'
@@ -34,6 +42,10 @@ describe('ConversationService', () => {
     // buildChildEnv injects it or not without interference from the shell env.
     delete process.env.CLAUDE_CODE_ENTRYPOINT
     delete process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST
+    delete process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
+    delete process.env.CC_GUGU_GATEWAY_URL
+    delete process.env.GUGU_GATEWAY_URL
+    delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
   })
 
   afterEach(async () => {
@@ -57,6 +69,18 @@ describe('ConversationService', () => {
 
     if (originalProviderManagedByHost === undefined) delete process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST
     else process.env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST = originalProviderManagedByHost
+
+    if (originalDisableDefaultGateway === undefined) delete process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY
+    else process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY = originalDisableDefaultGateway
+
+    if (originalGuguGatewayUrl === undefined) delete process.env.CC_GUGU_GATEWAY_URL
+    else process.env.CC_GUGU_GATEWAY_URL = originalGuguGatewayUrl
+
+    if (originalGatewayUrl === undefined) delete process.env.GUGU_GATEWAY_URL
+    else process.env.GUGU_GATEWAY_URL = originalGatewayUrl
+
+    if (originalDesktopDefaultGatewayUrl === undefined) delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
+    else process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = originalDesktopDefaultGatewayUrl
 
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
@@ -172,6 +196,48 @@ describe('ConversationService', () => {
     expect(env.ANTHROPIC_MODEL).toBe('kimi-k2.6')
     expect(env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST).toBe('1')
     expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined()
+  })
+
+  test('blocks Gugu Managed startup with a quota error before launching the CLI', async () => {
+    process.env.CC_GUGU_DISABLE_DEFAULT_GATEWAY = '1'
+    const ccHahaDir = path.join(tmpDir, 'cc-haha')
+    await fs.mkdir(ccHahaDir, { recursive: true })
+    await fs.writeFile(
+      path.join(ccHahaDir, 'billing.json'),
+      JSON.stringify({
+        licenseKey: 'gugu-test',
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        status: 'quota_exhausted',
+        message: 'Included credits have been used up.',
+      }),
+      'utf-8',
+    )
+
+    const service = new ConversationService() as any
+
+    await expect(
+      service.assertGuguManagedBillingCanStart({
+        providerId: GUGU_MANAGED_PROVIDER_ID,
+      }),
+    ).rejects.toMatchObject({
+      code: 'GUGU_QUOTA_EXHAUSTED',
+      message: '[GUGU_QUOTA_EXHAUSTED]',
+    })
+  })
+
+  test('maps quota markers from CLI startup output back to a billing error', () => {
+    const service = new ConversationService() as any
+    service.sessions.set('session-quota', {
+      stderrLines: ['[GUGU_QUOTA_EXHAUSTED] Included credits have been used up.'],
+      stdoutLines: [],
+      sdkMessages: [],
+    })
+
+    const error = service.buildStartupError('session-quota', 2)
+
+    expect(error.code).toBe('GUGU_QUOTA_EXHAUSTED')
+    expect(error.message).toBe('[GUGU_QUOTA_EXHAUSTED] Included credits have been used up.')
   })
 
   test('buildChildEnv uses the session-selected model for session-scoped providers', async () => {

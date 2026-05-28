@@ -12,7 +12,7 @@ export function resolveBundledCliPathFromExecPath(
 ): string | null {
   const execName = path.basename(execPath)
 
-  if (execName.startsWith('claude-sidecar')) {
+  if (isDesktopSidecarName(execName)) {
     return execPath
   }
 
@@ -47,7 +47,7 @@ export function resolveClaudeCliLauncher(options?: {
   }
 
   const cliBaseName = path.basename(command)
-  if (cliBaseName.startsWith('claude-sidecar')) {
+  if (isDesktopSidecarName(cliBaseName)) {
     return {
       command,
       kind: 'sidecar',
@@ -100,4 +100,11 @@ export function buildClaudeCliArgs(
   }
 
   return [launcher.command, ...baseArgs]
+}
+
+function isDesktopSidecarName(fileName: string): boolean {
+  return (
+    fileName.startsWith('claude-sidecar') ||
+    fileName.startsWith('gugu-sidecar')
+  )
 }

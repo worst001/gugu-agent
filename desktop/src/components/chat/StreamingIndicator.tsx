@@ -9,6 +9,8 @@ function formatElapsed(seconds: number): string {
   return `${m}m ${s}s`
 }
 
+const LONG_RUNNING_HINT_SECONDS = 30
+
 type StreamingIndicatorProps = {
   sessionId?: string | null
   /** True while waiting for the first thinking_delta (spinner only, no ThinkingBlock yet) */
@@ -28,8 +30,11 @@ export function StreamingIndicator({
   const sessionState = useChatStore((s) => targetSessionId ? s.sessions[targetSessionId] : undefined)
   const chatState = sessionState?.chatState ?? 'idle'
   const statusVerb = sessionState?.statusVerb ?? ''
+  const activeToolName = sessionState?.activeToolName ?? ''
   const elapsedSeconds = sessionState?.elapsedSeconds ?? 0
   const tokenUsage = sessionState?.tokenUsage ?? { input_tokens: 0, output_tokens: 0 }
+  const showLongRunningHint =
+    chatState !== 'idle' && elapsedSeconds >= LONG_RUNNING_HINT_SECONDS
   let verb: string
   if (statusVerb) {
     verb = statusVerb
@@ -38,7 +43,9 @@ export function StreamingIndicator({
       chatState === 'thinking'
         ? t('streaming.thinking')
         : chatState === 'tool_executing'
-          ? t('streaming.running')
+          ? activeToolName
+            ? t('streaming.runningTool', { toolName: activeToolName })
+            : t('streaming.running')
           : showPreResponseHint
             ? t('streaming.preparingResponse')
           : t('streaming.working')
@@ -68,6 +75,11 @@ export function StreamingIndicator({
       {showPreResponseHint && (
         <p className="max-w-md pl-1 text-[10px] leading-snug text-[var(--color-text-tertiary)]">
           {t('streaming.preResponseHint')}
+        </p>
+      )}
+      {showLongRunningHint && (
+        <p className="max-w-md pl-1 text-[10px] leading-snug text-[var(--color-text-tertiary)]">
+          {t('streaming.longRunningHint')}
         </p>
       )}
     </div>

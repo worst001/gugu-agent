@@ -11,8 +11,10 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   ProviderService,
+  isGuguManagedProvider,
   resolveProviderModelId,
 } from './providerService.js'
+import { billingService, type BillingStatusResponse } from './billingService.js'
 import { sessionService } from './sessionService.js'
 import {
   buildClaudeCliArgs,
@@ -87,6 +89,8 @@ export class ConversationStartupError extends Error {
     message: string,
     readonly code:
       | 'WORKDIR_INVALID'
+      | 'GUGU_QUOTA_EXHAUSTED'
+      | 'GUGU_SUBSCRIPTION_INACTIVE'
       | 'CLI_AUTH_REQUIRED'
       | 'CLI_SESSION_CONFLICT'
       | 'CLI_START_FAILED'
@@ -158,6 +162,8 @@ export class ConversationService {
         'WORKDIR_INVALID',
       )
     }
+
+    await this.assertGuguManagedBillingCanStart(options)
 
     const args = this.buildSessionCliArgs(
       sessionId,
@@ -1025,6 +1031,11 @@ export class ConversationService {
       this.extractStartupDetail(authStatus) ||
       streamText
 
+    const guguBillingError = this.buildGuguBillingStartupError(detail)
+    if (guguBillingError) {
+      return guguBillingError
+    }
+
     if (
       /(not logged in|run \/login|sign in again|login required|unauthenticated|logged_out)/i.test(
         detail,
@@ -1062,6 +1073,77 @@ export class ConversationService {
       'CLI_START_FAILED',
       true,
     )
+  }
+
+  private async assertGuguManagedBillingCanStart(
+    options?: SessionStartOptions,
+  ): Promise<void> {
+    if (!(await this.isSessionUsingGuguManagedProvider(options))) return
+
+    const status = await billingService.getStatus()
+    const error = this.buildGuguBillingStatusError(status)
+    if (error) {
+      throw error
+    }
+  }
+
+  private async isSessionUsingGuguManagedProvider(
+    options?: SessionStartOptions,
+  ): Promise<boolean> {
+    if (options?.providerId === null) return false
+    if (typeof options?.providerId === 'string') {
+      const provider = await this.providerService.getProvider(options.providerId)
+      return isGuguManagedProvider(provider)
+    }
+
+    if (!this.shouldStripInheritedProviderEnv(options?.providerId)) {
+      return false
+    }
+
+    const { providers, activeId } = await this.providerService.listProviders()
+    const provider = providers.find((p) => p.id === activeId)
+    return Boolean(provider && isGuguManagedProvider(provider))
+  }
+
+  private buildGuguBillingStatusError(
+    status: BillingStatusResponse,
+  ): ConversationStartupError | null {
+    if (status.status === 'quota_exhausted') {
+      return new ConversationStartupError(
+        '[GUGU_QUOTA_EXHAUSTED]',
+        'GUGU_QUOTA_EXHAUSTED',
+      )
+    }
+    if (status.status === 'expired' || status.status === 'inactive') {
+      return new ConversationStartupError(
+        '[GUGU_SUBSCRIPTION_INACTIVE]',
+        'GUGU_SUBSCRIPTION_INACTIVE',
+      )
+    }
+    return null
+  }
+
+  private buildGuguBillingStartupError(
+    detail: string,
+  ): ConversationStartupError | null {
+    const marker = detail.match(/\[(GUGU_QUOTA_EXHAUSTED|GUGU_SUBSCRIPTION_INACTIVE)\]\s*([\s\S]*)/i)
+    if (marker) {
+      const code = marker[1]!.toUpperCase() as 'GUGU_QUOTA_EXHAUSTED' | 'GUGU_SUBSCRIPTION_INACTIVE'
+      const body = marker[2]?.trim()
+      return new ConversationStartupError(
+        body ? `[${code}] ${body}` : `[${code}]`,
+        code,
+      )
+    }
+
+    if (/\bquota[_ -]?exhausted\b|included credits have been used up/i.test(detail)) {
+      return new ConversationStartupError(
+        '[GUGU_QUOTA_EXHAUSTED]',
+        'GUGU_QUOTA_EXHAUSTED',
+      )
+    }
+
+    return null
   }
 
   private buildRuntimeExitMessage(sessionId: string, exitCode: number): string {

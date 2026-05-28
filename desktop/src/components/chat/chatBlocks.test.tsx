@@ -5,10 +5,38 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { ToolCallGroup } from './ToolCallGroup'
 import { ToolResultBlock } from './ToolResultBlock'
 import { PermissionDialog } from './PermissionDialog'
+import { StreamingIndicator } from './StreamingIndicator'
 import { useChatStore } from '../../stores/chatStore'
+import type { PerSessionState } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+
+function makeSessionState(overrides: Partial<PerSessionState> = {}): PerSessionState {
+  return {
+    messages: [],
+    chatState: 'idle',
+    connectionState: 'connected',
+    streamingText: '',
+    streamingToolInput: '',
+    activeToolUseId: null,
+    activeToolName: null,
+    activeThinkingId: null,
+    pendingPermission: null,
+    pendingPermissionQueue: [],
+    pendingComputerUsePermission: null,
+    tokenUsage: { input_tokens: 0, output_tokens: 0 },
+    elapsedSeconds: 0,
+    statusVerb: '',
+    slashCommands: [],
+    agentTaskNotifications: {},
+    elapsedTimer: null,
+    historyLoading: false,
+    historyLoadError: null,
+    composerPrefill: null,
+    ...overrides,
+  }
+}
 
 describe('chat blocks', () => {
   beforeEach(() => {
@@ -24,6 +52,25 @@ describe('chat blocks', () => {
     expect(container.textContent).toContain('正在分析上下文')
     expect(container.querySelector('.thinking-inline-cursor')).toBeTruthy()
     expect(container.querySelector('.thinking-cursor')).toBeNull()
+  })
+
+  it('names the active tool and shows a long-running hint', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    useChatStore.setState({
+      sessions: {
+        'active-tab': makeSessionState({
+          chatState: 'tool_executing',
+          activeToolName: 'Bash',
+          elapsedSeconds: 45,
+        }),
+      },
+    })
+
+    render(<StreamingIndicator sessionId="active-tab" />)
+
+    expect(screen.getByText('Running Bash...')).toBeTruthy()
+    expect(screen.getByText('45s')).toBeTruthy()
+    expect(screen.getByText(/taking longer than usual/i)).toBeTruthy()
   })
 
   it('does not animate inactive historical thinking blocks', () => {

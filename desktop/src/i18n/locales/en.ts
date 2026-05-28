@@ -1011,6 +1011,8 @@
   'chat.guguQuota.title': 'Gugu credits used up',
   'chat.guguQuota.message': 'Purchase or activate a plan, then send the message again.',
   'chat.guguQuota.action': 'Open subscription',
+  'chat.guguSubscription.title': 'Gugu subscription needs attention',
+  'chat.guguSubscription.message': 'Your current subscription is unavailable. Purchase or activate a plan, then send the message again.',
   'chat.historyLoading': 'Loading conversation history...',
   'chat.historyLoadFailedTitle': 'Conversation history did not load',
   'chat.historyLoadFailedBody': 'The local desktop service may still be starting or temporarily disconnected. Your records are still stored locally. Try again after the service reconnects.',
@@ -1180,11 +1182,13 @@
   // ─── Streaming Indicator ──────────────────────────────────────
   'streaming.thinking': 'Thinking',
   'streaming.running': 'Running',
+  'streaming.runningTool': 'Running {toolName}',
   'streaming.working': 'Working',
   'streaming.preparingResponse': 'Preparing reply',
   'streaming.awaitingThinkingHint':
     'Partial reasoning will appear below when the stream starts. Some models or providers do not expose a visible reasoning stream — long waits can still mean the model is working.',
   'streaming.preResponseHint': 'The reasoning phase has handed off to the answer stream; the reply will appear here as soon as text arrives.',
+  'streaming.longRunningHint': 'This task is taking longer than usual. You can keep waiting, or stop it and narrow the request before trying again.',
 
   // ─── Permission Dialog ──────────────────────────────────────
   'permission.allowEditFile': 'Allow Gugu to {toolName} {fileName}?',

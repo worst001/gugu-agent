@@ -237,6 +237,8 @@ export const zh: Record<TranslationKey, string> = {
   'chat.guguQuota.title': 'Gugu 额度已用完',
   'chat.guguQuota.message': '购买或激活套餐后，再重新发送这条消息。',
   'chat.guguQuota.action': '打开订阅',
+  'chat.guguSubscription.title': 'Gugu 订阅需要处理',
+  'chat.guguSubscription.message': '当前订阅不可用，请购买或激活套餐后再重新发送这条消息。',
   'chat.historyLoading': '正在加载会话记录...',
   'chat.historyLoadFailedTitle': '会话记录暂时没有加载出来',
   'chat.historyLoadFailedBody': '本地桌面服务可能还在启动，或刚刚发生过短暂断开。记录仍保存在本地，服务恢复后可以重试加载。',
@@ -1184,11 +1186,13 @@ export const zh: Record<TranslationKey, string> = {
   // ─── Streaming Indicator ──────────────────────────────────────
   'streaming.thinking': '思考中',
   'streaming.running': '运行中',
+  'streaming.runningTool': '正在运行 {toolName}',
   'streaming.working': '工作中',
   'streaming.preparingResponse': '正在组织回复',
   'streaming.awaitingThinkingHint':
     '有思考流时，片段会显示在下方。部分模型或线路不返回可展示的思考内容；若耗时较长，仍可能是在生成回复。',
   'streaming.preResponseHint': '思考阶段已接上回答流，第一段文字到达后会直接显示在这里。',
+  'streaming.longRunningHint': '这轮任务耗时较长，仍在运行。可以继续等待，或停止后缩小任务范围再试。',
 
   // ─── Permission Dialog ──────────────────────────────────────
   'permission.allowEditFile': '允许 Gugu {toolName} {fileName}？',

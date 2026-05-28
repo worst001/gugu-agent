@@ -86,6 +86,22 @@ describe('ensureDesktopCliLauncherInstalled', () => {
     )
   })
 
+  unixOnly('copies the bundled gugu sidecar into the user bin dir', async () => {
+    const sourcePath = join(tempSourceDir, 'gugu-sidecar')
+    await writeFile(sourcePath, '#!/bin/sh\necho gugu-sidecar\n', 'utf8')
+    await chmod(sourcePath, 0o755)
+    process.env.CLAUDE_CLI_PATH = sourcePath
+
+    const status = await ensureDesktopCliLauncherInstalled()
+    const launcherPath = join(tempHome, '.local', 'bin', 'claude-gugu')
+
+    expect(status.supported).toBe(true)
+    expect(status.installed).toBe(true)
+    expect(status.command).toBe('claude-gugu')
+    expect(status.launcherPath).toBe(launcherPath)
+    expect(await readFile(launcherPath, 'utf8')).toContain('gugu-sidecar')
+  })
+
   it('reports unsupported status when the current launcher is not a bundled sidecar', async () => {
     const sourcePath = join(tempSourceDir, 'claude')
     await writeFile(sourcePath, '#!/bin/sh\necho plain-cli\n', 'utf8')

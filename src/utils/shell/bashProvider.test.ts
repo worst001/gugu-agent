@@ -36,6 +36,30 @@ describe('createBashShellProvider', () => {
     )
 
     expect(commandString).toContain('claude() {')
-    expect(commandString).toContain('/tmp/claude-sidecar cli --app-root "$CLAUDE_APP_ROOT" "$@"')
+    expect(commandString).toContain(
+      '/tmp/claude-sidecar cli --app-root "$CLAUDE_APP_ROOT" "$@"',
+    )
+  })
+
+  test('injects a bundled claude wrapper for packaged gugu sidecars', async () => {
+    process.env.CLAUDE_CLI_PATH = '/tmp/gugu-sidecar'
+    process.env.CLAUDE_APP_ROOT = '/Applications/gugu-agent.app/Contents/MacOS'
+
+    const provider = await createBashShellProvider('/bin/bash', {
+      skipSnapshot: true,
+    })
+
+    const { commandString } = await provider.buildExecCommand(
+      'claude plugin install demo@claude-plugins-official --scope user',
+      {
+        id: 'gugu-wrapper-test',
+        useSandbox: false,
+      },
+    )
+
+    expect(commandString).toContain('claude() {')
+    expect(commandString).toContain(
+      '/tmp/gugu-sidecar cli --app-root "$CLAUDE_APP_ROOT" "$@"',
+    )
   })
 })

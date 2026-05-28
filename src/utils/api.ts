@@ -89,6 +89,55 @@ const SWARM_FIELDS_BY_TOOL: Record<string, string[]> = {
   [AGENT_TOOL_NAME]: ['name', 'team_name', 'mode'],
 }
 
+const DEFAULT_FILE_WRITE_API_HISTORY_CONTENT_LIMIT = 20_000
+const FILE_WRITE_API_HISTORY_CONTENT_LIMIT_ENV =
+  'CLAUDE_CODE_FILE_WRITE_CONTENT_API_HISTORY_LIMIT'
+
+function getFileWriteApiHistoryContentLimit(): number | null {
+  const raw = process.env[FILE_WRITE_API_HISTORY_CONTENT_LIMIT_ENV]?.trim()
+  if (!raw) return DEFAULT_FILE_WRITE_API_HISTORY_CONTENT_LIMIT
+
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 0) {
+    return DEFAULT_FILE_WRITE_API_HISTORY_CONTENT_LIMIT
+  }
+  return value === 0 ? null : Math.floor(value)
+}
+
+function countLines(text: string): number {
+  if (text.length === 0) return 0
+  let lines = 1
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) lines += 1
+  }
+  return lines
+}
+
+function formatByteCount(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
+}
+
+export function normalizeFileWriteContentForAPI(
+  filePath: string,
+  content: string,
+): string {
+  const limit = getFileWriteApiHistoryContentLimit()
+  if (limit === null || content.length <= limit) return content
+
+  const bytes = new TextEncoder().encode(content).byteLength
+  const sha256 = createHash('sha256').update(content).digest('hex')
+
+  return [
+    '[Large Write content omitted from API history.]',
+    `File: ${filePath}`,
+    `Original size: ${content.length} chars, ${formatByteCount(bytes)}, ${countLines(content)} lines.`,
+    `SHA256: ${sha256}`,
+    'The file was already written locally. Use the Read tool if you need to inspect it.',
+  ].join('\n')
+}
+
 /**
  * Filter swarm-related fields from a tool's input schema.
  * Called at runtime when isAgentSwarmsEnabled() returns false.
@@ -709,6 +758,28 @@ export function normalizeToolInputForAPI<T extends Tool>(
         const { old_string, new_string, replace_all, ...rest } =
           input as Record<string, unknown>
         return rest as z.infer<T['inputSchema']>
+      }
+      return input
+    }
+    case FileWriteTool.name: {
+      if (input && typeof input === 'object') {
+        const record = input as Record<string, unknown>
+        if (
+          typeof record.file_path === 'string' &&
+          typeof record.content === 'string'
+        ) {
+          const isMarkdown = /\.(md|mdx)$/i.test(record.file_path)
+          const content = isMarkdown
+            ? record.content
+            : stripTrailingWhitespace(record.content)
+          return {
+            ...record,
+            content: normalizeFileWriteContentForAPI(
+              record.file_path,
+              content,
+            ),
+          } as z.infer<T['inputSchema']>
+        }
       }
       return input
     }

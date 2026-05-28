@@ -12,6 +12,7 @@ let originalProxyStreamTimeout: string | undefined
 let originalProxyStreamIdleTimeout: string | undefined
 let originalProxyStreamPingInterval: string | undefined
 let originalGatewayUrl: string | undefined
+let originalGuguManagedMaxRequestBytes: string | undefined
 let originalDisableManagedDefault: string | undefined
 let originalFetch: typeof fetch
 
@@ -22,10 +23,12 @@ async function setup() {
   originalProxyStreamIdleTimeout = process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS
   originalProxyStreamPingInterval = process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS
   originalGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
+  originalGuguManagedMaxRequestBytes = process.env.CC_GUGU_MANAGED_MAX_REQUEST_BYTES
   originalDisableManagedDefault = process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   originalFetch = globalThis.fetch
   process.env.CLAUDE_CONFIG_DIR = tmpDir
   process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = '1'
+  delete process.env.CC_GUGU_MANAGED_MAX_REQUEST_BYTES
 }
 
 async function teardown() {
@@ -49,6 +52,11 @@ async function teardown() {
     delete process.env.CC_GUGU_GATEWAY_URL
   } else {
     process.env.CC_GUGU_GATEWAY_URL = originalGatewayUrl
+  }
+  if (originalGuguManagedMaxRequestBytes === undefined) {
+    delete process.env.CC_GUGU_MANAGED_MAX_REQUEST_BYTES
+  } else {
+    process.env.CC_GUGU_MANAGED_MAX_REQUEST_BYTES = originalGuguManagedMaxRequestBytes
   }
   if (originalDisableManagedDefault === undefined) {
     delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
@@ -624,6 +632,60 @@ describe('ChatGPT provider integration', () => {
       expect(res.headers.get('Content-Type')).toContain('text/event-stream')
       expect(text).toContain('event: error')
       expect(text).toContain('GUGU_DEEPSEEK_API_KEY is not configured')
+    } finally {
+      gateway.stop(true)
+    }
+  })
+
+  test('Gugu Managed rejects oversized requests before forwarding messages to gateway', async () => {
+    const requestedPaths: string[] = []
+    const gateway = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        requestedPaths.push(url.pathname)
+        if (url.pathname === '/v1/devices') {
+          return Response.json({
+            deviceId: 'device-1',
+            deviceToken: 'device-token-1',
+            entitlement: {
+              status: 'active',
+              plan: 'free',
+              creditsTotal: 50,
+              creditsRemaining: 50,
+              isTrial: true,
+            },
+          })
+        }
+        if (url.pathname === '/v1/messages') {
+          return Response.json({ id: 'msg_1', type: 'message', content: [] })
+        }
+        return Response.json({}, { status: 404 })
+      },
+    })
+
+    process.env.CC_GUGU_GATEWAY_URL = `http://127.0.0.1:${gateway.port}`
+    process.env.CC_GUGU_MANAGED_MAX_REQUEST_BYTES = '300'
+
+    try {
+      const req = new Request('http://127.0.0.1:3456/proxy/gugu-managed/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'gugu-managed-main',
+          max_tokens: 64,
+          messages: [{ role: 'user', content: 'x'.repeat(1000) }],
+        }),
+      })
+
+      const res = await handleProxyRequest(req, new URL(req.url))
+      const body = await res.json() as { error: { message: string }; gugu: { error: { code: string } } }
+
+      expect(requestedPaths).toContain('/v1/devices')
+      expect(requestedPaths).not.toContain('/v1/messages')
+      expect(res.status).toBe(413)
+      expect(body.gugu.error.code).toBe('PAYLOAD_TOO_LARGE')
+      expect(body.error.message).toContain('Gugu Managed request is too large')
     } finally {
       gateway.stop(true)
     }

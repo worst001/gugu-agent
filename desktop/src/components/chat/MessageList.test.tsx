@@ -1170,4 +1170,31 @@ describe('MessageList nested tool calls', () => {
       ),
     ).toBeTruthy()
   })
+
+  it('shows a billing card instead of a raw error when Gugu subscription is unavailable', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'error-subscription',
+              type: 'error',
+              code: 'GUGU_SUBSCRIPTION_INACTIVE',
+              message: '[GUGU_SUBSCRIPTION_INACTIVE]',
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Gugu subscription needs attention')).toBeTruthy()
+    expect(
+      screen.getByText('Your current subscription is unavailable. Purchase or activate a plan, then send the message again.'),
+    ).toBeTruthy()
+    expect(screen.getByText('Open subscription')).toBeTruthy()
+    expect(screen.queryByText('Error:')).toBeNull()
+  })
 })

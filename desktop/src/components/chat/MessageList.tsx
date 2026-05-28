@@ -60,24 +60,45 @@ function appendChildToolCall(
 
 function isGuguQuotaError(message: Extract<UIMessage, { type: 'error' }>): boolean {
   return message.code === 'GUGU_QUOTA_EXHAUSTED' ||
+    message.code === 'GUGU_SUBSCRIPTION_INACTIVE' ||
     message.message.includes('[GUGU_QUOTA_EXHAUSTED]') ||
+    message.message.includes('[GUGU_SUBSCRIPTION_INACTIVE]') ||
     message.message.includes('quota_exceeded')
 }
 
-function GuguQuotaCard({ message }: { message: string }) {
+function getGuguBillingMessage(message: string): string {
+  return message
+    .replace('[GUGU_QUOTA_EXHAUSTED]', '')
+    .replace('[GUGU_SUBSCRIPTION_INACTIVE]', '')
+    .trim()
+}
+
+function GuguQuotaCard({
+  code,
+  message,
+}: {
+  code?: string
+  message: string
+}) {
   const t = useTranslation()
   const openBilling = () => {
     useUIStore.getState().setPendingSettingsTab('billing')
     useUIStore.getState().setActiveView('settings')
   }
+  const isSubscriptionInactive =
+    code === 'GUGU_SUBSCRIPTION_INACTIVE' ||
+    message.includes('[GUGU_SUBSCRIPTION_INACTIVE]')
+  const fallbackMessage = isSubscriptionInactive
+    ? t('chat.guguSubscription.message')
+    : t('chat.guguQuota.message')
   return (
     <div className="mb-3 rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)]">
       <div className="mb-1 flex items-center gap-2 font-medium">
         <span className="material-symbols-outlined text-[18px] text-[var(--color-warning)]">workspace_premium</span>
-        {t('chat.guguQuota.title')}
+        {isSubscriptionInactive ? t('chat.guguSubscription.title') : t('chat.guguQuota.title')}
       </div>
       <p className="text-[var(--color-text-secondary)]">
-        {message.replace('[GUGU_QUOTA_EXHAUSTED]', '').trim() || t('chat.guguQuota.message')}
+        {getGuguBillingMessage(message) || fallbackMessage}
       </p>
       <div className="mt-3">
         <Button size="sm" variant="secondary" onClick={openBilling}>
@@ -1215,7 +1236,7 @@ export const MessageBlock = memo(function MessageBlock({
         return <AssistantMessage content={t('chat.unsupportedAttachmentInput')} />
       }
       if (isGuguQuotaError(message)) {
-        return <GuguQuotaCard message={message.message} />
+        return <GuguQuotaCard code={message.code} message={message.message} />
       }
       const errorKey = message.code ? `error.${message.code}` as TranslationKey : null
       const errorText = errorKey ? t(errorKey) : null

@@ -19,6 +19,7 @@ const zhSidebar = [
   {
     text: '快速开始',
     items: [
+      { text: '产品介绍', link: '/guide/product-introduction' },
       { text: '安装与启动', link: '/guide/quick-start' },
       { text: '环境变量', link: '/guide/env-vars' },
       { text: '第三方模型', link: '/guide/third-party-models' },

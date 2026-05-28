@@ -32,6 +32,8 @@ const DEFAULT_PROXY_STREAM_PING_INTERVAL_MS = 15_000
 const DEFAULT_PROXY_REQUEST_TIMEOUT_MS = 300_000
 const PROXY_STREAM_IDLE_MESSAGE = '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。'
 
+const DEFAULT_GUGU_MANAGED_MAX_REQUEST_BYTES = 8 * 1024 * 1024
+
 type UpstreamFetchResult = {
   response: Response
   abort?: () => void
@@ -44,6 +46,28 @@ function getTimeoutMs(envName: string, fallback: number): number | undefined {
   const value = raw === undefined ? fallback : Number(raw)
   if (!Number.isFinite(value) || value < 0) return fallback || undefined
   return value === 0 ? undefined : value
+}
+
+function getByteLimit(envName: string, fallback: number): number | undefined {
+  const raw = process.env[envName]
+  const value = raw === undefined ? fallback : Number(raw)
+  if (!Number.isFinite(value) || value < 0) return fallback || undefined
+  return value === 0 ? undefined : Math.floor(value)
+}
+
+function formatByteCount(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
+}
+
+function getGuguManagedRequestTooLargeMessage(requestBytes: number): string | null {
+  const maxBytes = getByteLimit(
+    'CC_GUGU_MANAGED_MAX_REQUEST_BYTES',
+    DEFAULT_GUGU_MANAGED_MAX_REQUEST_BYTES,
+  )
+  if (!maxBytes || requestBytes <= maxBytes) return null
+  return `Gugu Managed request is too large (${formatByteCount(requestBytes)} > ${formatByteCount(maxBytes)}). Split very large file writes into smaller turns or compact the conversation before retrying.`
 }
 
 async function fetchUpstream(
@@ -117,6 +141,31 @@ function streamAnthropicErrorResponse(
       Connection: 'keep-alive',
     },
   })
+}
+
+function guguManagedRequestTooLargeResponse(
+  message: string,
+  isStream: boolean,
+): Response {
+  if (isStream) {
+    return streamAnthropicErrorResponse(message, 'invalid_request_error')
+  }
+  return Response.json(
+    {
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message,
+      },
+      gugu: {
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message,
+        },
+      },
+    },
+    { status: 413 },
+  )
 }
 
 function getStreamIdleTimeoutMs(): number | undefined {
@@ -416,13 +465,21 @@ async function handleGuguManaged(
   const anthropicBeta = req.headers.get('anthropic-beta')
   if (anthropicBeta) headers['anthropic-beta'] = anthropicBeta
 
+  const upstreamBody = JSON.stringify(body)
+  const tooLargeMessage = getGuguManagedRequestTooLargeMessage(
+    new TextEncoder().encode(upstreamBody).byteLength,
+  )
+  if (tooLargeMessage) {
+    return guguManagedRequestTooLargeResponse(tooLargeMessage, isStream)
+  }
+
   let upstream: Response
   let abortUpstream: (() => void) | undefined
   try {
     const upstreamResult = await fetchUpstream(`${auth.gatewayUrl}/v1/messages`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: upstreamBody,
     }, isStream, { requestTimeoutMs })
     upstream = upstreamResult.response
     abortUpstream = upstreamResult.abort
