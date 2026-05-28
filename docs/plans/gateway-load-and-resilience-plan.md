@@ -268,14 +268,14 @@ Dashboard 先展示关键水位，不追求复杂图表。
 - 备份失败会告警。
 - dashboard 查询不会明显影响 message 转发。
 
-## Phase 4：GLM 任务队列
+## Phase 4：附件解析任务队列
 
-当附件解析开始明显影响在线请求时，再把 GLM 解析拆成异步任务。
+当附件解析开始明显影响在线请求时，再把附件解析拆成异步任务。当前上游仍是 GLM；后续 DeepSeek V4 多模态上线后，这一层必须平滑切到 DeepSeek V4 识图，所以协议命名要保持 provider-neutral，不能把客户端协议绑死到 GLM。
 
 形态：
 
 - 主请求创建任务并扣点或冻结额度。
-- worker 执行 GLM。
+- worker 执行当前 provider 的解析逻辑。
 - 客户端轮询任务状态。
 - 失败时退款。
 - 文件走 OSS 临时对象，设置生命周期自动删除。
@@ -286,7 +286,9 @@ Dashboard 先展示关键水位，不追求复杂图表。
 
 - managed GLM file_parser 已补 `file_type` 并支持 `task_id` 追结果，避免 GLM 先返回任务号时客户端拿不到正文。
 - 桌面附件解析阶段已补 15 秒一次的状态心跳；附件解析发生在 CLI turn monitor 启动前时，用户也会看到“正在解析附件，已等待 N 秒”。
-- 正式异步任务队列仍未落地；任务创建、状态查询、结果回取、Redis lease 和失败重试仍是后续工作。
+- 已补第一阶段异步协议代码，默认关闭：`POST /v1/attachments/tasks` 创建任务，`GET /v1/attachments/tasks/:id` 查询状态；响应里有 `task.provider`，当前值为 `glm`，后续可切到 `deepseek-v4` 而不改客户端协议。
+- 桌面端 managed 附件解析会先尝试异步 task；如果 gateway 旧版本、未开启或返回 `ATTACHMENT_TASKS_DISABLED`，自动回退到原 `/v1/attachments/parse` 同步路径。
+- 第一阶段实现仍是进程内任务表和 worker，不能直接当作多实例正式队列；Redis lease、文件落盘/OSS 临时对象、失败重试、失败退款和生产灰度开关仍是后续工作。
 
 ## 数据库与缓存平滑迁移
 

@@ -358,6 +358,88 @@ describe('AttachmentParserService', () => {
     }])).rejects.toThrow('not a supported managed image format')
   })
 
+  test('uses managed attachment task polling when the gateway supports async tasks', async () => {
+    const calls: Array<{ url: string; method?: string; body?: unknown }> = []
+    const creditUpdates: string[] = []
+    let pollCount = 0
+    const service = new AttachmentParserService(async (url, init) => {
+      const target = String(url)
+      calls.push({ url: target, method: init?.method, body: init?.body })
+      if (target.endsWith('/v1/attachments/tasks')) {
+        return jsonResponse({
+          task: { id: 'task-1', status: 'queued', provider: 'glm' },
+        }, {
+          status: 202,
+          headers: { 'x-gugu-credits-remaining': '9' },
+        })
+      }
+      if (target.endsWith('/v1/attachments/tasks/task-1')) {
+        pollCount += 1
+        if (pollCount === 1) {
+          return jsonResponse({
+            task: { id: 'task-1', status: 'running', provider: 'glm' },
+          }, {
+            headers: { 'retry-after': '0' },
+          })
+        }
+        return jsonResponse({
+          task: { id: 'task-1', status: 'succeeded', provider: 'glm' },
+          result: { choices: [{ message: { content: '# Async Image' } }] },
+        }, {
+          headers: { 'x-gugu-credits-remaining': '8' },
+        })
+      }
+      throw new Error(`Unexpected request: ${target}`)
+    }, fakeManagedBilling(creditUpdates))
+
+    const result = await service.prepareMessageContent('what is this?', 'session-1', [{
+      type: 'image',
+      name: 'screen.png',
+      data: Buffer.from('image').toString('base64'),
+      mimeType: 'image/png',
+    }])
+
+    expect(result.content).toContain('# Async Image')
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://gateway.example.com/v1/attachments/tasks',
+      'https://gateway.example.com/v1/attachments/tasks/task-1',
+      'https://gateway.example.com/v1/attachments/tasks/task-1',
+    ])
+    expect(creditUpdates).toEqual(['9', '8'])
+  })
+
+  test('falls back to sync managed attachment parsing when task API is unavailable', async () => {
+    const calls: Array<{ url: string; method?: string }> = []
+    const service = new AttachmentParserService(async (url, init) => {
+      const target = String(url)
+      calls.push({ url: target, method: init?.method })
+      if (target.endsWith('/v1/attachments/tasks')) {
+        return jsonResponse({
+          error: { code: 'ATTACHMENT_TASKS_DISABLED', message: 'attachment tasks are disabled' },
+        }, { status: 404 })
+      }
+      if (target.endsWith('/v1/attachments/parse')) {
+        return jsonResponse({
+          choices: [{ message: { content: '# Sync Image' } }],
+        })
+      }
+      throw new Error(`Unexpected request: ${target}`)
+    }, fakeManagedBilling())
+
+    const result = await service.prepareMessageContent('what is this?', 'session-1', [{
+      type: 'image',
+      name: 'screen.png',
+      data: Buffer.from('image').toString('base64'),
+      mimeType: 'image/png',
+    }])
+
+    expect(result.content).toContain('# Sync Image')
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://gateway.example.com/v1/attachments/tasks',
+      'https://gateway.example.com/v1/attachments/parse',
+    ])
+  })
+
   test('summarizes very long parsed results with glm-5.1', async () => {
     const calls: Array<{ url: string; body: unknown }> = []
     const service = new AttachmentParserService(async (url, init) => {
@@ -404,11 +486,30 @@ function mockFetchText(text: string): typeof fetch {
   return async () => jsonResponse({ choices: [{ message: { content: text } }] })
 }
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers)
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
+    ...init,
+    headers,
   })
+}
+
+function fakeManagedBilling(creditUpdates: string[] = []) {
+  return {
+    async ensureGatewayDevice() {
+      return {
+        gatewayUrl: 'https://gateway.example.com',
+        deviceId: 'device-1',
+        deviceToken: 'token-1',
+        entitlement: { status: 'active' as const },
+      }
+    },
+    async updateGatewayCreditsFromHeaders(headers: Headers) {
+      const remaining = headers.get('x-gugu-credits-remaining')
+      if (remaining) creditUpdates.push(remaining)
+    },
+  }
 }
 
 function createStoredZip(files: Record<string, string>): Buffer {

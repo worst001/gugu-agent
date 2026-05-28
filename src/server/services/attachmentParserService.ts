@@ -3,7 +3,7 @@ import * as path from 'path'
 import * as os from 'os'
 import { setTimeout as delay } from 'timers/promises'
 import { ApiError } from '../middleware/errorHandler.js'
-import { billingService } from './billingService.js'
+import { billingService, type GatewayDeviceAuth } from './billingService.js'
 import {
   extractLocalArchive,
   isLocallyExtractableArchiveName,
@@ -25,6 +25,8 @@ const MAX_LOCAL_ARCHIVE_TOTAL_BYTES = 512 * 1024 * 1024
 const MAX_MANAGED_REMOTE_ATTACHMENT_BYTES = 8 * 1024 * 1024
 const MAX_MANAGED_REMOTE_IMAGE_BYTES = 5 * 1024 * 1024
 const MAX_MANAGED_REMOTE_ATTACHMENT_TOTAL_BYTES = 12 * 1024 * 1024
+const MANAGED_ATTACHMENT_TASK_TIMEOUT_MS = 10 * 60_000
+const MANAGED_ATTACHMENT_TASK_POLL_MS = 1_000
 const ARCHIVE_ATTACHMENT_EXTENSIONS = new Set([
   '7z',
   'bz2',
@@ -150,6 +152,26 @@ type ParsedAttachmentMethod = 'vision' | 'ocr' | 'file-parser' | 'local-text' | 
 
 type FetchLike = typeof fetch
 
+export type ManagedAttachmentBillingClient = {
+  ensureGatewayDevice(): Promise<GatewayDeviceAuth>
+  updateGatewayCreditsFromHeaders(headers: Headers): Promise<void>
+}
+
+type ManagedAttachmentTaskEnvelope = {
+  task?: {
+    id?: unknown
+    status?: unknown
+    provider?: unknown
+    responseStatus?: unknown
+  }
+  result?: unknown
+  error?: {
+    code?: unknown
+    message?: unknown
+  }
+  message?: unknown
+}
+
 const DEFAULT_CONFIG: AttachmentParserConfig = {
   enabled: true,
   mode: 'managed',
@@ -168,7 +190,10 @@ export class AttachmentParserError extends Error {
 }
 
 export class AttachmentParserService {
-  constructor(private fetchFn: FetchLike = fetch) {}
+  constructor(
+    private fetchFn: FetchLike = fetch,
+    private readonly managedBilling: ManagedAttachmentBillingClient = billingService,
+  ) {}
 
   private getConfigDir(): string {
     return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
@@ -771,8 +796,18 @@ export class AttachmentParserService {
   }
 
   private async postManagedAttachment(body: unknown): Promise<unknown> {
-    const auth = await billingService.ensureGatewayDevice()
-    const response = await this.fetchFn(`${auth.gatewayUrl}/v1/attachments/parse`, {
+    const auth = await this.managedBilling.ensureGatewayDevice()
+    const taskResult = await this.postManagedAttachmentTask(auth, body)
+    if (taskResult !== null) return taskResult
+
+    return this.postManagedAttachmentSync(auth, body)
+  }
+
+  private async postManagedAttachmentSync(
+    auth: GatewayDeviceAuth,
+    body: unknown,
+  ): Promise<unknown> {
+    const response = await this.fetchFn(`${trimBaseUrl(auth.gatewayUrl)}/v1/attachments/parse`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -794,8 +829,77 @@ export class AttachmentParserService {
       throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
     }
 
-    await billingService.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
+    await this.managedBilling.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
     return parsed
+  }
+
+  private async postManagedAttachmentTask(
+    auth: GatewayDeviceAuth,
+    body: unknown,
+  ): Promise<unknown | null> {
+    const response = await this.fetchFn(`${trimBaseUrl(auth.gatewayUrl)}/v1/attachments/tasks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${auth.deviceToken}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000),
+    })
+    const parsed = await parseResponseBody(response)
+    if (shouldFallbackManagedAttachmentTask(response, parsed)) return null
+
+    if (!response.ok) {
+      throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
+    }
+
+    await this.managedBilling.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
+    const taskId = extractManagedAttachmentTaskId(parsed)
+    if (!taskId) {
+      throw new AttachmentParserError('Gugu managed attachment parser did not return a task id.')
+    }
+
+    return this.pollManagedAttachmentTask(auth, taskId)
+  }
+
+  private async pollManagedAttachmentTask(
+    auth: GatewayDeviceAuth,
+    taskId: string,
+  ): Promise<unknown> {
+    const startedAt = Date.now()
+    let lastBody: unknown = null
+
+    while (Date.now() - startedAt <= MANAGED_ATTACHMENT_TASK_TIMEOUT_MS) {
+      const response = await this.fetchFn(`${trimBaseUrl(auth.gatewayUrl)}/v1/attachments/tasks/${encodeURIComponent(taskId)}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${auth.deviceToken}`,
+        },
+        signal: AbortSignal.timeout(20_000),
+      })
+      const parsed = await parseResponseBody(response)
+      lastBody = parsed
+      await this.managedBilling.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
+
+      if (!response.ok) {
+        throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
+      }
+
+      const status = extractManagedAttachmentTaskStatus(parsed)
+      if (status === 'succeeded') {
+        return (parsed as ManagedAttachmentTaskEnvelope).result
+      }
+      if (status === 'failed' || status === 'cancelled' || status === 'expired') {
+        throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
+      }
+      if (!status || !['queued', 'running'].includes(status)) {
+        throw new AttachmentParserError(`Gugu managed attachment parser returned an unknown task status: ${status || 'unknown'}.`)
+      }
+
+      await delay(readRetryAfterMs(response.headers) ?? MANAGED_ATTACHMENT_TASK_POLL_MS)
+    }
+
+    throw new AttachmentParserError(`Gugu managed attachment parser is still running after ${Math.round(MANAGED_ATTACHMENT_TASK_TIMEOUT_MS / 1000)} seconds. Please try again later. Last response: ${extractErrorMessage(lastBody)}`)
   }
 }
 
@@ -1180,6 +1284,49 @@ function assertParsedText(text: string, name: string): string {
   return trimmed
 }
 
+async function parseResponseBody(response: Response): Promise<unknown> {
+  const raw = await response.text()
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
+
+function shouldFallbackManagedAttachmentTask(response: Response, body: unknown): boolean {
+  if (response.status === 404 || response.status === 405) return true
+  const code = extractErrorCode(body)
+  return code === 'ATTACHMENT_TASKS_DISABLED'
+}
+
+function extractManagedAttachmentTaskId(body: unknown): string {
+  const envelope = asManagedAttachmentTaskEnvelope(body)
+  const id = envelope?.task?.id
+  return typeof id === 'string' && id.trim() ? id : ''
+}
+
+function extractManagedAttachmentTaskStatus(body: unknown): string {
+  const envelope = asManagedAttachmentTaskEnvelope(body)
+  const status = envelope?.task?.status
+  return typeof status === 'string' ? status.toLowerCase() : ''
+}
+
+function asManagedAttachmentTaskEnvelope(body: unknown): ManagedAttachmentTaskEnvelope | null {
+  return body && typeof body === 'object' ? body as ManagedAttachmentTaskEnvelope : null
+}
+
+function extractErrorCode(body: unknown): string {
+  if (!body || typeof body !== 'object') return ''
+  const record = body as Record<string, unknown>
+  if (record.error && typeof record.error === 'object') {
+    const code = (record.error as Record<string, unknown>).code
+    if (typeof code === 'string') return code
+  }
+  if (typeof record.code === 'string') return record.code
+  return ''
+}
+
 function extractErrorMessage(body: unknown): string {
   if (typeof body === 'string' && body.trim()) return body.slice(0, 300)
   if (!body || typeof body !== 'object') return 'Unknown error'
@@ -1190,6 +1337,16 @@ function extractErrorMessage(body: unknown): string {
   }
   if (typeof record.message === 'string') return record.message
   return JSON.stringify(body).slice(0, 300)
+}
+
+function readRetryAfterMs(headers: Headers): number | null {
+  const raw = headers.get('retry-after')
+  if (!raw) return null
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds)) return Math.max(0, Math.round(seconds * 1000))
+  const dateMs = Date.parse(raw)
+  if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now())
+  return null
 }
 
 function limitText(text: string, maxChars: number): string {
