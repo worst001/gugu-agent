@@ -474,6 +474,28 @@ The first production run after the 2026-05-28 cutover returned `ok=true` and
 `issues=[]` with one fulfilled WeChat order and one fulfilled Alipay order in
 the 24-hour window.
 
+For the normalized `/opt/gugu-gateway` layout, install the recurring monitor
+timer:
+
+```bash
+sudo cp gateway/deploy/systemd/gugu-gateway-monitor.service /etc/systemd/system/
+sudo cp gateway/deploy/systemd/gugu-gateway-monitor.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gugu-gateway-monitor.timer
+systemctl list-timers gugu-gateway-monitor.timer --no-pager
+```
+
+Before relying on the timer, run the service once manually:
+
+```bash
+sudo systemctl start gugu-gateway-monitor.service
+journalctl -u gugu-gateway-monitor.service -n 100 --no-pager
+```
+
+Current production note: because the live gateway still uses `/root/opt/gugu`,
+production has an adapted `gugu-gateway-monitor.service` installed directly
+under `/etc/systemd/system`.
+
 ## MySQL Backups After Cutover
 
 After production switches to `GUGU_STORE_DRIVER=mysql`, the SQLite backup timer
