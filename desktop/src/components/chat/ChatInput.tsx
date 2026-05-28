@@ -7,7 +7,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
-import { sessionsApi } from '../../api/sessions'
+import { sessionsApi, type SessionContextSnapshot } from '../../api/sessions'
 import { filesystemApi } from '../../api/filesystem'
 import { promptOptimizeApi } from '../../api/promptOptimize'
 import { AgentRunModeControl } from '../controls/AgentRunModeControl'
@@ -20,6 +20,7 @@ import { ProjectContextChip } from '../shared/ProjectContextChip'
 import { DirectoryPicker } from '../shared/DirectoryPicker'
 import { FileSearchMenu, type FileSearchMenuHandle } from './FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from './LocalSlashCommandPanel'
+import { ContextUsageIndicator } from './ContextUsageIndicator'
 import {
   appendVoiceTranscript,
   getSpeechRecognitionConstructor,
@@ -375,6 +376,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     () => mergeSlashCommands(slashCommands, FALLBACK_SLASH_COMMANDS),
     [slashCommands],
   )
+  const autoCompactSupported = allSlashCommands.some((command) => command.name === 'compact')
 
   const filteredCommands = useMemo(() => {
     const source = allSlashCommands
@@ -633,6 +635,27 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     if (!promptOptimizePreview) return
     handleSubmit(promptOptimizePreview.optimizedText)
   }
+
+  const openContextPanel = useCallback(() => {
+    setLocalSlashPanel('context')
+    setPlusMenuOpen(false)
+    setSlashMenuOpen(false)
+    setFileSearchOpen(false)
+  }, [])
+
+  const handleAutoCompact = useCallback((context: SessionContextSnapshot) => {
+    if (!activeTabId || isMemberSession || isActive || isWorkspaceMissing) return
+    useUIStore.getState().addToast({
+      type: 'info',
+      message: t('chat.contextIndicator.autoCompactStarted', {
+        percent: Math.round(context.percentage),
+      }),
+      duration: 6000,
+    })
+    sendMessage(activeTabId, '/compact', undefined, {
+      displayContent: t('chat.contextIndicator.autoCompactDisplay'),
+    })
+  }, [activeTabId, isActive, isMemberSession, isWorkspaceMissing, sendMessage, t])
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     // Ignore key events during IME composition (e.g. Chinese input method)
@@ -1384,6 +1407,14 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   <PermissionModeSelector
                     disabled={isActive}
                     disabledReason={t('chat.runtimeControlsLocked')}
+                  />
+                  <ContextUsageIndicator
+                    sessionId={activeTabId ?? undefined}
+                    chatState={chatState}
+                    disabled={isWorkspaceMissing}
+                    autoCompactSupported={autoCompactSupported}
+                    onOpen={openContextPanel}
+                    onAutoCompact={handleAutoCompact}
                   />
                 </>
               )}

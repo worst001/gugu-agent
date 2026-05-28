@@ -895,6 +895,21 @@ describe('WebSocket Chat Integration', () => {
     const basicBody = await basicRes.json() as any
     expect(basicBody.usage.source).toBe('current_process')
     expect(basicBody.context).toBeUndefined()
+
+    const estimateOnlyRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/inspection?contextEstimateOnly=1`)
+    expect(estimateOnlyRes.status).toBe(200)
+    const estimateOnlyBody = await estimateOnlyRes.json() as any
+    expect(estimateOnlyBody.active).toBe(true)
+    expect(estimateOnlyBody.status.sessionId).toBe(sessionId)
+    if (estimateOnlyBody.contextEstimate) {
+      expect(estimateOnlyBody.contextEstimate.totalTokens).toBeGreaterThan(0)
+      expect(estimateOnlyBody.contextEstimate.rawMaxTokens).toBeGreaterThan(0)
+      expect(estimateOnlyBody.errors).toEqual({})
+    } else {
+      expect(estimateOnlyBody.errors.context).toContain('unavailable')
+    }
+    expect(estimateOnlyBody.context).toBeUndefined()
+    expect(estimateOnlyBody.usage).toBeUndefined()
   })
 
   it('should complete the client turn when the CLI exits after startup', async () => {

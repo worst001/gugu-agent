@@ -612,6 +612,7 @@ function StatusTab({
 }
 
 function SessionInspectorShell({
+  title,
   selectedTab,
   tabs,
   onSelectTab,
@@ -619,6 +620,7 @@ function SessionInspectorShell({
   children,
   t,
 }: {
+  title?: string
   selectedTab: SessionInspectorTab
   tabs: Array<{ id: SessionInspectorTab; label: string }>
   onSelectTab: (tab: SessionInspectorTab) => void
@@ -632,22 +634,26 @@ function SessionInspectorShell({
       style={{ borderColor: inspector.line, color: inspector.ink }}
     >
       <div className="grid min-h-[64px] grid-cols-[1fr_auto_1fr] items-center border-b border-[#d8b3a8] bg-[#fbfaf6] px-6">
-        <div className="font-mono text-[16px] font-semibold uppercase text-[#8f3217]">{t('slash.inspector.title')}</div>
-        <div className="flex items-center gap-8">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onSelectTab(tab.id)}
-              className={`relative h-10 px-0 font-sans text-sm transition-colors ${
-                selectedTab === tab.id ? 'text-[#8f3217]' : 'text-[#5f514c] hover:text-[#8f3217]'
-              }`}
-            >
-              {tab.label}
-              {selectedTab === tab.id && <span className="absolute bottom-1 left-0 right-0 h-[2px] bg-[#8f3217]" />}
-            </button>
-          ))}
-        </div>
+        <div className="font-mono text-[16px] font-semibold uppercase text-[#8f3217]">{title ?? t('slash.inspector.title')}</div>
+        {tabs.length > 1 ? (
+          <div className="flex items-center gap-8">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onSelectTab(tab.id)}
+                className={`relative h-10 px-0 font-sans text-sm transition-colors ${
+                  selectedTab === tab.id ? 'text-[#8f3217]' : 'text-[#5f514c] hover:text-[#8f3217]'
+                }`}
+              >
+                {tab.label}
+                {selectedTab === tab.id && <span className="absolute bottom-1 left-0 right-0 h-[2px] bg-[#8f3217]" />}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div />
+        )}
         <div className="flex justify-end">
           <button
             type="button"
@@ -745,14 +751,23 @@ function SessionInspectorPanel({
     }
   }, [data, selectedTab, sessionId, t])
 
-  const tabs: Array<{ id: SessionInspectorTab; label: string }> = [
-    { id: 'status', label: t('slash.inspector.tab.status') },
-    { id: 'usage', label: t('slash.inspector.tab.usage') },
-    { id: 'context', label: t('slash.inspector.tab.context') },
-  ]
+  const tabs: Array<{ id: SessionInspectorTab; label: string }> = command === 'context'
+    ? [{ id: 'context', label: t('slash.inspector.tab.context') }]
+    : [
+        { id: 'status', label: t('slash.inspector.tab.status') },
+        { id: 'usage', label: t('slash.inspector.tab.usage') },
+        { id: 'context', label: t('slash.inspector.tab.context') },
+      ]
 
   return (
-    <SessionInspectorShell selectedTab={selectedTab} tabs={tabs} onSelectTab={setSelectedTab} onClose={onClose} t={t}>
+    <SessionInspectorShell
+      title={command === 'context' ? t('slash.inspector.context.title') : undefined}
+      selectedTab={selectedTab}
+      tabs={tabs}
+      onSelectTab={setSelectedTab}
+      onClose={onClose}
+      t={t}
+    >
       {error ? (
         <ErrorState message={error} />
       ) : data === null ? (

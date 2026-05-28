@@ -239,12 +239,27 @@ async function getSessionSlashCommands(sessionId: string): Promise<Response> {
 
 async function getSessionInspection(sessionId: string, url: URL): Promise<Response> {
   const includeContext = url.searchParams.get('includeContext') !== '0'
+  const contextEstimateOnly = url.searchParams.get('contextEstimateOnly') === '1'
   const workDir =
     conversationService.getSessionWorkDir(sessionId) ||
     await sessionService.getSessionWorkDir(sessionId)
 
   if (!workDir) {
     throw ApiError.notFound(`Session not found: ${sessionId}`)
+  }
+
+  if (contextEstimateOnly) {
+    const transcriptContextEstimate = await sessionService.getTranscriptContextEstimate(sessionId)
+    return Response.json({
+      active: conversationService.hasSession(sessionId),
+      status: {
+        sessionId,
+        workDir,
+        permissionMode: conversationService.getSessionPermissionMode(sessionId),
+      },
+      ...(transcriptContextEstimate ? { contextEstimate: transcriptContextEstimate } : {}),
+      errors: transcriptContextEstimate ? {} : { context: 'Context estimate is unavailable' },
+    })
   }
 
   const active = conversationService.hasSession(sessionId)

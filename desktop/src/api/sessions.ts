@@ -199,12 +199,28 @@ export const sessionsApi = {
     return api.get<{ commands: Array<{ name: string; description: string }> }>(`/api/sessions/${sessionId}/slash-commands`)
   },
 
-  getInspection(sessionId: string, options?: { includeContext?: boolean; timeout?: number }) {
-    const query = options?.includeContext === undefined
-      ? ''
-      : `?includeContext=${options.includeContext ? '1' : '0'}`
-    return api.get<SessionInspectionResponse>(`/api/sessions/${sessionId}/inspection${query}`, {
-      timeout: options?.timeout ?? (options?.includeContext ? 45_000 : 25_000),
+  getInspection(
+    sessionId: string,
+    options?: {
+      includeContext?: boolean
+      contextEstimateOnly?: boolean
+      timeout?: number
+    },
+  ) {
+    const query = new URLSearchParams()
+    if (options?.includeContext !== undefined) {
+      query.set('includeContext', options.includeContext ? '1' : '0')
+    }
+    if (options?.contextEstimateOnly) {
+      query.set('contextEstimateOnly', '1')
+    }
+    const qs = query.toString()
+    return api.get<SessionInspectionResponse>(`/api/sessions/${sessionId}/inspection${qs ? `?${qs}` : ''}`, {
+      timeout: options?.timeout ?? (options?.contextEstimateOnly
+        ? 12_000
+        : options?.includeContext
+          ? 45_000
+          : 25_000),
     })
   },
 
