@@ -316,7 +316,7 @@ describe('Settings > Providers tab', () => {
     expect(MOCK_DELETE_PROVIDER).toHaveBeenCalledWith('provider-1')
   })
 
-  it('uses the shared dropdown for API format in the provider form', () => {
+  it('uses the shared dropdown for custom interface protocols', () => {
     providerStoreState.presets = [
       {
         id: 'custom',
@@ -336,16 +336,18 @@ describe('Settings > Providers tab', () => {
 
     render(<Settings />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Add Provider/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Add Custom Endpoint/i }))
 
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument()
 
-    fireEvent.click(within(dialog).getByRole('button', { name: /Anthropic Messages \(native\)/i }))
-    fireEvent.click(within(dialog).getByRole('button', { name: /OpenAI Responses API \(proxy\)/i }))
+    fireEvent.click(within(dialog).getByRole('button', { name: /Anthropic Messages compatible/i }))
+    expect(within(dialog).queryByText('Gugu Managed (domestic built-in)')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText('ChatGPT Codex (web auth)')).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: /OpenAI Responses compatible/i }))
 
-    expect(within(dialog).getByRole('button', { name: /OpenAI Responses API \(proxy\)/i })).toBeInTheDocument()
-    expect(within(dialog).getByText('Requests will be translated via the local proxy')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /OpenAI Responses compatible/i })).toBeInTheDocument()
+    expect(within(dialog).getByText('Requests will be translated by the local proxy. Use your own compatible endpoint and account.')).toBeInTheDocument()
     expect(within(dialog).getByText('Resolved endpoint: https://api.example.com/anthropic/v1/responses')).toBeInTheDocument()
   })
 
@@ -370,13 +372,13 @@ describe('Settings > Providers tab', () => {
 
     render(<Settings />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Add Provider/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Add Custom Endpoint/i }))
 
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('Use the base URL before /chat/completions. The local proxy appends the chat endpoint automatically.')).toBeInTheDocument()
   })
 
-  it('shows provider preset protocol and fast/pro routing metadata', () => {
+  it('only offers Custom as an add-provider preset', () => {
     providerStoreState.presets = [
       {
         id: 'deepseek',
@@ -441,20 +443,15 @@ describe('Settings > Providers tab', () => {
 
     render(<Settings />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Add Provider/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Add Custom Endpoint/i }))
 
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText('Domestic')).toBeInTheDocument()
-    expect(within(dialog).getByText('Anthropic-compatible')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Custom' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'DeepSeek' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Qwen / DashScope' })).not.toBeInTheDocument()
+    expect(within(dialog).getAllByText('Custom').length).toBeGreaterThan(0)
+    expect(within(dialog).getAllByText('Anthropic Messages compatible').length).toBeGreaterThan(0)
     expect(within(dialog).getByText('Agent ready')).toBeInTheDocument()
-    expect(within(dialog).getByText('Fast: deepseek-v4-flash · Balanced: deepseek-v4-pro · Pro: deepseek-v4-pro')).toBeInTheDocument()
-
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Qwen / DashScope' }))
-
-    expect(within(dialog).getByText('OpenAI chat via proxy')).toBeInTheDocument()
-    expect(within(dialog).getByText('Agent ready via proxy')).toBeInTheDocument()
-    expect(within(dialog).getByText('Fast: qwen3.6-flash · Balanced: qwen3.6-plus · Pro: qwen3.6-max-preview')).toBeInTheDocument()
-    expect(within(dialog).getByText('Resolved endpoint: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions')).toBeInTheDocument()
   })
 
   it('hides the API key by default and reveals it from the eye button', () => {
@@ -477,7 +474,7 @@ describe('Settings > Providers tab', () => {
 
     render(<Settings />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Add Provider/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Add Custom Endpoint/i }))
 
     const dialog = screen.getByRole('dialog')
     const apiKeyInput = within(dialog).getByPlaceholderText('sk-...')

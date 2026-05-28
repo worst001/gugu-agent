@@ -68,6 +68,23 @@ const GUGU_MANAGED_PROVIDER_MODELS = {
   opus: 'gugu-managed-strong',
 }
 
+const LEGACY_PRESET_DEFAULT_ENV: Record<string, Record<string, string>> = {
+  jiekouai: {
+    ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES: 'none',
+  },
+  shengsuanyun: {
+    API_TIMEOUT_MS: '3000000',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+    ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES: 'none',
+  },
+  lmstudio: {
+    ANTHROPIC_AUTH_TOKEN: 'lmstudio',
+  },
+  ollama: {
+    ANTHROPIC_AUTH_TOKEN: 'ollama',
+  },
+}
+
 export function getProviderModelIds(provider: Pick<SavedProvider, 'models'>): string[] {
   return [
     provider.models.main,
@@ -115,13 +132,20 @@ function isChatGPTConnectProvider(provider: Pick<SavedProvider, 'presetId' | 'ap
 }
 
 function getPresetDefaultEnv(presetId: string): Record<string, string> {
-  return PROVIDER_PRESETS.find((preset) => preset.id === presetId)?.defaultEnv ?? {}
+  return PROVIDER_PRESETS.find((preset) => preset.id === presetId)?.defaultEnv ??
+    LEGACY_PRESET_DEFAULT_ENV[presetId] ??
+    {}
 }
 
 function getManagedEnvKeys(): string[] {
   const keys = new Set<string>(MANAGED_ENV_KEYS)
   for (const preset of PROVIDER_PRESETS) {
     for (const key of Object.keys(preset.defaultEnv ?? {})) {
+      keys.add(key)
+    }
+  }
+  for (const env of Object.values(LEGACY_PRESET_DEFAULT_ENV)) {
+    for (const key of Object.keys(env)) {
       keys.add(key)
     }
   }

@@ -49,125 +49,54 @@ describe('provider presets API', () => {
     expect(await response.json()).toEqual({ presets: PROVIDER_PRESETS })
   })
 
-  test('configured presets include built-in official and custom entries', () => {
-    expect(PROVIDER_PRESETS.some((preset) => preset.id === 'official')).toBe(true)
-    expect(PROVIDER_PRESETS.some((preset) => preset.id === 'custom')).toBe(true)
+  test('configured presets only expose Gugu Managed and Custom', () => {
+    expect(PROVIDER_PRESETS.map((preset) => preset.id)).toEqual(['gugu-managed', 'custom'])
   })
 
-  test('local Anthropic-compatible presets appear immediately before custom', () => {
-    expect(PROVIDER_PRESETS.at(-3)?.id).toBe('lmstudio')
-    expect(PROVIDER_PRESETS.at(-2)?.id).toBe('ollama')
-    expect(PROVIDER_PRESETS.at(-1)?.id).toBe('custom')
+  test('Gugu Managed is the only built-in managed preset', () => {
+    const gugu = PROVIDER_PRESETS.find((preset) => preset.id === 'gugu-managed')
+
+    expect(gugu).toMatchObject({
+      name: 'Gugu Managed',
+      baseUrl: 'gugu://managed',
+      apiFormat: 'gugu_managed',
+      needsApiKey: false,
+      category: 'official',
+      protocol: 'gugu_managed',
+      agentCompatible: true,
+      routingHint: {
+        fast: 'haiku',
+        balanced: 'main',
+        pro: 'opus',
+      },
+    })
+    expect(gugu?.defaultModels).toEqual({
+      main: 'gugu-managed-main',
+      haiku: 'gugu-managed-fast',
+      sonnet: 'gugu-managed-main',
+      opus: 'gugu-managed-strong',
+    })
   })
 
-  test('configured presets keep current default model ids aligned with official provider docs', () => {
-    const lmstudio = PROVIDER_PRESETS.find((preset) => preset.id === 'lmstudio')
-    const ollama = PROVIDER_PRESETS.find((preset) => preset.id === 'ollama')
-    const deepseek = PROVIDER_PRESETS.find((preset) => preset.id === 'deepseek')
-    const zhipu = PROVIDER_PRESETS.find((preset) => preset.id === 'zhipuglm')
-    const kimi = PROVIDER_PRESETS.find((preset) => preset.id === 'kimi')
-    const minimax = PROVIDER_PRESETS.find((preset) => preset.id === 'minimax')
-    const qwen = PROVIDER_PRESETS.find((preset) => preset.id === 'qwen-dashscope')
-    const doubao = PROVIDER_PRESETS.find((preset) => preset.id === 'doubao-ark')
-    const jiekouai = PROVIDER_PRESETS.find((preset) => preset.id === 'jiekouai')
-    const shengsuanyun = PROVIDER_PRESETS.find((preset) => preset.id === 'shengsuanyun')
-
-    expect(lmstudio?.baseUrl).toBe('http://localhost:1234')
-    expect(lmstudio?.apiFormat).toBe('anthropic')
-    expect(lmstudio?.defaultModels.main).toBe('qwen/qwen3.6-27b')
-    expect(ollama?.baseUrl).toBe('http://localhost:11434')
-    expect(ollama?.apiFormat).toBe('anthropic')
-    expect(ollama?.defaultModels.main).toBe('qwen3.6:27b')
-    expect(deepseek?.defaultModels.main).toBe('deepseek-v4-pro')
-    expect(deepseek?.defaultModels.haiku).toBe('deepseek-v4-flash')
-    expect(deepseek?.defaultModels.sonnet).toBe('deepseek-v4-pro')
-    expect(deepseek?.defaultModels.opus).toBe('deepseek-v4-pro')
-    expect(zhipu?.defaultModels.main).toBe('glm-5.1')
-    expect(zhipu?.defaultModels.haiku).toBe('glm-4.5-air')
-    expect(zhipu?.defaultModels.sonnet).toBe('glm-5-turbo')
-    expect(zhipu?.defaultModels.opus).toBe('glm-5.1')
-    expect(kimi?.baseUrl).toBe('https://api.kimi.com/coding')
-    expect(kimi?.defaultModels.main).toBe('kimi-k2.6')
-    expect(minimax?.defaultModels.main).toBe('MiniMax-M2.7')
-    expect(qwen?.baseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
-    expect(qwen?.apiFormat).toBe('openai_chat')
-    expect(qwen?.defaultModels.haiku).toBe('qwen3.6-flash')
-    expect(qwen?.defaultModels.opus).toBe('qwen3.6-max-preview')
-    expect(doubao?.baseUrl).toBe('https://ark.cn-beijing.volces.com/api/v3')
-    expect(doubao?.apiFormat).toBe('openai_chat')
-    expect(doubao?.defaultModels.haiku).toBe('doubao-seed-1-6-flash-250615')
-    expect(doubao?.defaultModels.opus).toBe('doubao-seed-1-6-thinking-250615')
-    expect(jiekouai?.baseUrl).toBe('https://api.jiekou.ai/anthropic')
-    expect(jiekouai?.defaultModels.main).toBe('claude-sonnet-4-6')
-    expect(jiekouai?.defaultModels.opus).toBe('claude-opus-4-7')
-    expect(jiekouai?.defaultEnv?.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES).toBe('none')
-    expect(shengsuanyun?.baseUrl).toBe('https://router.shengsuanyun.com/api')
-    expect(shengsuanyun?.defaultModels.main).toBe('anthropic/claude-sonnet-4.6')
-    expect(shengsuanyun?.defaultModels.haiku).toBe('anthropic/claude-haiku-4.5:thinking')
-  })
-
-  test('configured presets can expose optional API key and promo metadata', () => {
-    const lmstudio = PROVIDER_PRESETS.find((preset) => preset.id === 'lmstudio')
-    const ollama = PROVIDER_PRESETS.find((preset) => preset.id === 'ollama')
-    const deepseek = PROVIDER_PRESETS.find((preset) => preset.id === 'deepseek')
-    const zhipu = PROVIDER_PRESETS.find((preset) => preset.id === 'zhipuglm')
-    const kimi = PROVIDER_PRESETS.find((preset) => preset.id === 'kimi')
-    const minimax = PROVIDER_PRESETS.find((preset) => preset.id === 'minimax')
-    const qwen = PROVIDER_PRESETS.find((preset) => preset.id === 'qwen-dashscope')
-    const doubao = PROVIDER_PRESETS.find((preset) => preset.id === 'doubao-ark')
-    const jiekouai = PROVIDER_PRESETS.find((preset) => preset.id === 'jiekouai')
-    const shengsuanyun = PROVIDER_PRESETS.find((preset) => preset.id === 'shengsuanyun')
+  test('Custom remains available for users who bring their own endpoint', () => {
     const custom = PROVIDER_PRESETS.find((preset) => preset.id === 'custom')
 
-    expect(lmstudio?.needsApiKey).toBe(false)
-    expect(lmstudio?.promoText).toContain('http://localhost:1234')
-    expect(lmstudio?.promoText).toContain('200K')
-    expect(lmstudio?.defaultEnv).toEqual({ ANTHROPIC_AUTH_TOKEN: 'lmstudio' })
-    expect(ollama?.needsApiKey).toBe(false)
-    expect(ollama?.promoText).toContain('http://localhost:11434')
-    expect(ollama?.promoText).toContain('200K')
-    expect(ollama?.defaultEnv).toEqual({ ANTHROPIC_AUTH_TOKEN: 'ollama' })
-    expect(deepseek?.apiKeyUrl).toBe('https://platform.deepseek.com/api_keys')
-    expect(zhipu?.apiKeyUrl).toBe('https://www.bigmodel.cn/invite?icode=d41B2qi8Z5xNwTGLNPPF3OZLO2QH3C0EBTSr%2BArzMw4%3D')
-    expect(zhipu?.promoText).toContain('cc-haha')
-    expect(kimi?.apiKeyUrl).toBe('https://platform.kimi.com/console/api-keys')
-    expect(minimax?.apiKeyUrl).toBe('https://platform.minimaxi.com/subscribe/token-plan?code=1TG2Cseab2&source=link')
-    expect(qwen?.apiKeyUrl).toBe('https://bailian.console.aliyun.com/?apiKey=1#/api-key')
-    expect(doubao?.apiKeyUrl).toBe('https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey')
-    expect(jiekouai?.apiKeyUrl).toBe('https://jiekou.ai/referral?invited_code=OBNU3K')
-    expect(jiekouai?.promoText).toContain('官方 8 折')
-    expect(jiekouai?.featured).toBe(true)
-    expect(shengsuanyun?.apiKeyUrl).toBe('https://www.shengsuanyun.com/?from=CH_LEJ88KWR')
-    expect(shengsuanyun?.promoText).toContain('首充 10%')
-    expect(shengsuanyun?.featured).toBe(true)
-    expect(shengsuanyun?.defaultEnv).toEqual({
-      API_TIMEOUT_MS: '3000000',
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-      ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES: 'none',
+    expect(custom).toMatchObject({
+      name: 'Custom',
+      baseUrl: '',
+      apiFormat: 'anthropic',
+      needsApiKey: true,
+      websiteUrl: '',
+      category: 'custom',
+      defaultModels: {
+        main: '',
+        haiku: '',
+        sonnet: '',
+        opus: '',
+      },
     })
+    expect(custom?.apiKeyUrl).toBeUndefined()
     expect(custom?.promoText).toBeUndefined()
-  })
-
-  test('domestic presets expose protocol and routing metadata for the desktop UI', () => {
-    const deepseek = PROVIDER_PRESETS.find((preset) => preset.id === 'deepseek')
-    const qwen = PROVIDER_PRESETS.find((preset) => preset.id === 'qwen-dashscope')
-    const doubao = PROVIDER_PRESETS.find((preset) => preset.id === 'doubao-ark')
-    const lmstudio = PROVIDER_PRESETS.find((preset) => preset.id === 'lmstudio')
-
-    expect(deepseek?.category).toBe('domestic')
-    expect(deepseek?.protocol).toBe('anthropic_compatible')
-    expect(deepseek?.agentCompatible).toBe(true)
-    expect(deepseek?.routingHint).toEqual({ fast: 'haiku', balanced: 'main', pro: 'sonnet' })
-    expect(qwen?.category).toBe('domestic')
-    expect(qwen?.protocol).toBe('openai_chat_proxy')
-    expect(qwen?.agentCompatible).toBe(true)
-    expect(qwen?.routingHint?.fast).toBe('haiku')
-    expect(qwen?.routingHint?.pro).toBe('opus')
-    expect(doubao?.category).toBe('domestic')
-    expect(doubao?.protocol).toBe('openai_chat_proxy')
-    expect(doubao?.routingHint?.balanced).toBe('sonnet')
-    expect(lmstudio?.category).toBe('local')
-    expect(lmstudio?.protocol).toBe('anthropic_compatible')
   })
 
   test('GET and PUT /api/providers/settings read and write cc-haha settings.json', async () => {
@@ -190,9 +119,9 @@ describe('provider presets API', () => {
     expect(await getRes.json()).toEqual(initial)
 
     const updateBody = {
-      model: 'kimi-k2.6',
+      model: 'custom-main',
       env: {
-        ANTHROPIC_MODEL: 'kimi-k2.6',
+        ANTHROPIC_MODEL: 'custom-main',
       },
     }
     const putReq = makeRequest('PUT', '/api/providers/settings', updateBody)

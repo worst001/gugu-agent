@@ -35,7 +35,13 @@ import { ConfigBackupSettings } from './ConfigBackupSettings'
 import { useBillingStore } from '../stores/billingStore'
 import type { BillingStatus } from '../types/billing'
 
-const HIDDEN_PROVIDER_PRESET_IDS = new Set(['official', 'chatgpt'])
+const SELF_CONFIG_PROVIDER_PRESET_ID = 'custom'
+const MANAGED_PROVIDER_PRESET_ID = 'gugu-managed'
+const USER_CONFIGURABLE_API_FORMATS = new Set<ApiFormat>([
+  'anthropic',
+  'openai_chat',
+  'openai_responses',
+])
 
 export function Settings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
@@ -811,7 +817,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
   const t = useTranslation()
 
-  const availablePresets = presets.filter((p) => !HIDDEN_PROVIDER_PRESET_IDS.has(p.id))
+  const availablePresets = presets.filter((p) => p.id === SELF_CONFIG_PROVIDER_PRESET_ID)
   const regularPresets = availablePresets.filter((p) => !p.featured)
   const featuredPresets = availablePresets.filter((p) => p.featured)
   const presetDefaultEnvKeys = useMemo(
@@ -820,7 +826,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   )
   const fallbackPreset = provider
     ? buildFallbackPreset(provider)
-    : requirePreset(availablePresets[availablePresets.length - 1])
+    : requirePreset(availablePresets.find((p) => p.id === SELF_CONFIG_PROVIDER_PRESET_ID))
   const initialPreset = requirePreset(
     provider
       ? availablePresets.find((p) => p.id === provider.presetId) ?? fallbackPreset
@@ -890,7 +896,11 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
     setTestResult(null)
   }
 
-  const isCustom = selectedPreset.id === 'custom'
+  const isCustom = selectedPreset.id === SELF_CONFIG_PROVIDER_PRESET_ID
+  const isManagedBuiltIn = selectedPreset.id === MANAGED_PROVIDER_PRESET_ID || isGuguManagedApi(apiFormat)
+  const canEditApiFormat = !isManagedBuiltIn &&
+    USER_CONFIGURABLE_API_FORMATS.has(apiFormat) &&
+    (isCustom || mode === 'edit')
   const requiresApiKey = selectedPreset.needsApiKey !== false && apiFormat !== 'chatgpt_codex' && apiFormat !== 'gugu_managed'
   const canSubmit = name.trim() && baseUrl.trim() && (mode === 'edit' || !requiresApiKey || apiKey.trim()) && models.main.trim() && !settingsJsonError
   const apiKeyUrl = selectedPreset.apiKeyUrl?.trim()
@@ -913,16 +923,6 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
       value: 'openai_responses' as const,
       label: t('settings.providers.apiFormatOpenaiResponses'),
       icon: <span className="material-symbols-outlined text-[17px]">route</span>,
-    },
-    {
-      value: 'chatgpt_codex' as const,
-      label: t('settings.providers.apiFormatChatgptCodex'),
-      icon: <span className="material-symbols-outlined text-[17px]">smart_toy</span>,
-    },
-    {
-      value: 'gugu_managed' as const,
-      label: t('settings.providers.apiFormatGuguManaged'),
-      icon: <span className="material-symbols-outlined text-[17px]">workspace_premium</span>,
     },
   ]
   const selectedApiFormatLabel = apiFormatItems.find((item) => item.value === apiFormat)?.label ?? t('settings.providers.apiFormatAnthropic')
@@ -1101,7 +1101,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
         </div>
 
         {/* API Format */}
-        {(isCustom || mode === 'edit') ? (
+        {canEditApiFormat ? (
           <div>
             <label className="text-sm font-medium text-[var(--color-text-primary)] mb-1 block">{t('settings.providers.apiFormat')}</label>
             <Dropdown<ApiFormat>
