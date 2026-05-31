@@ -1046,6 +1046,8 @@
   'chat.voice.transcribing': 'Transcribing audio...',
   'chat.voice.unavailable': 'Voice input is not available in this environment',
   'chat.voice.failed': 'Could not start voice input.',
+  'chat.voice.cloudUnavailable': 'Voice transcription is temporarily unavailable. Please try again later.',
+  'chat.voice.transcriptionFailed': 'Could not transcribe the audio. Please try again later.',
   'chat.voice.permissionDenied': 'Microphone permission was denied. Allow microphone access in system or browser settings.',
   'chat.longPasteConverted': 'Long pasted text was added as a .txt attachment.',
   'chat.attachmentRejectedArchive': 'Compressed archives are not parsed directly. Unzip {name} and upload the key files instead.',

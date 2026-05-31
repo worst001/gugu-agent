@@ -45,6 +45,7 @@ vi.mock('../api/promptOptimize', () => ({
 
 vi.mock('../api/audioTranscription', () => ({
   audioTranscriptionApi: {
+    status: vi.fn(),
     transcribe: vi.fn(),
   },
 }))
@@ -636,6 +637,7 @@ function resetPromptOptimizeSession() {
   useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
   useChatStore.setState({ sessions: {} })
   vi.mocked(promptOptimizeApi.optimize).mockReset()
+  vi.mocked(audioTranscriptionApi.status).mockReset()
   vi.mocked(audioTranscriptionApi.transcribe).mockReset()
 }
 
@@ -895,6 +897,11 @@ describe('Voice input composer action', () => {
         })),
       },
     })
+    vi.mocked(audioTranscriptionApi.status).mockResolvedValueOnce({
+      available: true,
+      model: 'qwen3-asr-flash',
+      provider: 'dashscope',
+    })
     vi.mocked(audioTranscriptionApi.transcribe).mockResolvedValueOnce({
       text: '语音转文字结果',
       model: 'qwen3-asr-flash',
@@ -935,6 +942,55 @@ describe('Voice input composer action', () => {
     }))
     expect(trackStop).toHaveBeenCalled()
     expect(FakeAudioContext.current?.close).toHaveBeenCalled()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('does not start recording when cloud transcription is unavailable', async () => {
+    const getUserMedia = vi.fn(async () => ({
+      getTracks: () => [],
+    }))
+
+    class FakeAudioContext {
+      state = 'running'
+      destination = {}
+      createMediaStreamSource = vi.fn()
+      createScriptProcessor = vi.fn()
+      close = vi.fn()
+    }
+
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: FakeAudioContext,
+    })
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    })
+    vi.mocked(audioTranscriptionApi.status).mockResolvedValueOnce({
+      available: false,
+      model: 'qwen3-asr-flash',
+      provider: 'dashscope',
+      reason: 'missing_api_key',
+    })
+    useUIStore.setState({ toasts: [] })
+    seedPromptOptimizeSession('voice-cloud-unavailable')
+
+    render(<ActiveSession />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start voice input' })).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start voice input' }))
+
+    await waitFor(() => {
+      expect(audioTranscriptionApi.status).toHaveBeenCalled()
+    })
+    expect(getUserMedia).not.toHaveBeenCalled()
+    expect(audioTranscriptionApi.transcribe).not.toHaveBeenCalled()
+    expect(useUIStore.getState().toasts.some((toast) =>
+      toast.message === 'Voice transcription is temporarily unavailable. Please try again later.',
+    )).toBe(true)
 
     resetPromptOptimizeSession()
   })

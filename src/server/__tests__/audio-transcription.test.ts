@@ -9,6 +9,7 @@ let tmpDir: string
 let originalConfigDir: string | undefined
 let originalDashScopeKey: string | undefined
 let originalBailianKey: string | undefined
+let originalDashScopeAsrModel: string | undefined
 let originalFetch: typeof fetch
 
 beforeEach(async () => {
@@ -16,10 +17,12 @@ beforeEach(async () => {
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   originalDashScopeKey = process.env.DASHSCOPE_API_KEY
   originalBailianKey = process.env.BAILIAN_API_KEY
+  originalDashScopeAsrModel = process.env.DASHSCOPE_ASR_MODEL
   originalFetch = globalThis.fetch
   process.env.CLAUDE_CONFIG_DIR = tmpDir
   delete process.env.DASHSCOPE_API_KEY
   delete process.env.BAILIAN_API_KEY
+  delete process.env.DASHSCOPE_ASR_MODEL
 })
 
 afterEach(async () => {
@@ -38,24 +41,66 @@ afterEach(async () => {
   } else {
     delete process.env.BAILIAN_API_KEY
   }
+  if (originalDashScopeAsrModel !== undefined) {
+    process.env.DASHSCOPE_ASR_MODEL = originalDashScopeAsrModel
+  } else {
+    delete process.env.DASHSCOPE_ASR_MODEL
+  }
   globalThis.fetch = originalFetch
   await fs.rm(tmpDir, { recursive: true, force: true })
 })
 
-function makeRequest(body: Record<string, unknown>) {
-  const url = new URL('http://localhost:3456/api/audio-transcription')
+function makeRequest(
+  body: Record<string, unknown> | undefined,
+  options?: { method?: string; path?: string },
+) {
+  const url = new URL(`http://localhost:3456${options?.path ?? '/api/audio-transcription'}`)
   return {
     req: new Request(url, {
-      method: 'POST',
+      method: options?.method ?? 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      ...(body !== undefined && { body: JSON.stringify(body) }),
     }),
     url,
-    segments: ['api', 'audio-transcription'],
+    segments: url.pathname.split('/').filter(Boolean),
   }
 }
 
 describe('audio transcription API', () => {
+  test('reports status when DashScope ASR is configured', async () => {
+    process.env.DASHSCOPE_API_KEY = 'test-key'
+    process.env.DASHSCOPE_ASR_MODEL = 'qwen3-asr-custom'
+
+    const { req, url, segments } = makeRequest(undefined, {
+      method: 'GET',
+      path: '/api/audio-transcription/status',
+    })
+    const response = await handleAudioTranscriptionApi(req, url, segments)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      available: true,
+      model: 'qwen3-asr-custom',
+      provider: 'dashscope',
+    })
+  })
+
+  test('reports unavailable status without exposing missing key errors', async () => {
+    const { req, url, segments } = makeRequest(undefined, {
+      method: 'GET',
+      path: '/api/audio-transcription/status',
+    })
+    const response = await handleAudioTranscriptionApi(req, url, segments)
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      available: false,
+      model: 'qwen3-asr-flash',
+      provider: 'dashscope',
+      reason: 'missing_api_key',
+    })
+  })
+
   test('transcribes Base64 audio through DashScope ASR', async () => {
     process.env.DASHSCOPE_API_KEY = 'test-key'
     const calls: Array<{ url: string; init?: RequestInit }> = []

@@ -43,6 +43,13 @@ export type AudioTranscriptionResult = {
   usage?: unknown
 }
 
+export type AudioTranscriptionStatus = {
+  available: boolean
+  model: string
+  provider: 'dashscope'
+  reason?: 'missing_api_key'
+}
+
 type DashScopeAsrConfig = {
   apiKey: string
   baseUrl: string
@@ -51,6 +58,27 @@ type DashScopeAsrConfig = {
 
 export class AudioTranscriptionService {
   constructor(private readonly providerService = new ProviderService()) {}
+
+  async getStatus(): Promise<AudioTranscriptionStatus> {
+    try {
+      const config = await this.resolveConfig()
+      return {
+        available: true,
+        model: config.model,
+        provider: 'dashscope',
+      }
+    } catch (error) {
+      if (isMissingAsrApiKeyError(error)) {
+        return {
+          available: false,
+          model: DEFAULT_DASHSCOPE_ASR_MODEL,
+          provider: 'dashscope',
+          reason: 'missing_api_key',
+        }
+      }
+      throw error
+    }
+  }
 
   async transcribe(input: AudioTranscriptionInput): Promise<AudioTranscriptionResult> {
     const audio = validateAudioDataUrl(input.audio)
@@ -252,4 +280,11 @@ async function readErrorMessage(response: Response): Promise<string> {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isMissingAsrApiKeyError(error: unknown): boolean {
+  return error instanceof ApiError &&
+    error.statusCode === 400 &&
+    error.code === 'BAD_REQUEST' &&
+    error.message.includes('DashScope API key')
 }

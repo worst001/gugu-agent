@@ -1050,6 +1050,8 @@ export const zh: Record<TranslationKey, string> = {
   'chat.voice.transcribing': '正在识别音频...',
   'chat.voice.unavailable': '当前环境不支持语音输入',
   'chat.voice.failed': '语音输入启动失败。',
+  'chat.voice.cloudUnavailable': '语音识别服务暂不可用，请稍后重试。',
+  'chat.voice.transcriptionFailed': '音频识别失败，请稍后重试。',
   'chat.voice.permissionDenied': '麦克风权限被拒绝，请在系统或浏览器设置中允许访问。',
   'chat.longPasteConverted': '已将长文本粘贴转换为 .txt 附件。',
   'chat.attachmentRejectedArchive': '暂不直接解析压缩包。请先解压 {name}，再上传其中关键文件。',

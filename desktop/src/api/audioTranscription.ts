@@ -15,7 +15,20 @@ export type AudioTranscriptionResponse = {
   usage?: unknown
 }
 
+export type AudioTranscriptionStatus = {
+  available: boolean
+  model: string
+  provider: 'dashscope'
+  reason?: 'missing_api_key'
+}
+
 export const audioTranscriptionApi = {
+  status() {
+    return api.get<AudioTranscriptionStatus>('/api/audio-transcription/status', {
+      timeout: 10_000,
+    })
+  },
+
   transcribe(input: AudioTranscriptionRequest) {
     return api.post<AudioTranscriptionResponse>('/api/audio-transcription', input, {
       timeout: 120_000,

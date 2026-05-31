@@ -16,6 +16,16 @@ export async function handleAudioTranscriptionApi(
   segments: string[],
 ): Promise<Response> {
   try {
+    if (segments.length === 3 && segments[2] === 'status') {
+      if (req.method !== 'GET') {
+        return Response.json(
+          { error: 'METHOD_NOT_ALLOWED', message: `Method ${req.method} not allowed` },
+          { status: 405 },
+        )
+      }
+      return Response.json(await audioTranscriptionService.getStatus())
+    }
+
     if (segments.length !== 2) {
       throw ApiError.notFound(`Unknown audio transcription endpoint: ${url.pathname}`)
     }

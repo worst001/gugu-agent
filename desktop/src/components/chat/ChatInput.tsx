@@ -1047,9 +1047,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       })
       setInput(appendVoiceTranscript(inputRef.current, result.text))
     } catch (error) {
+      console.warn('[VoiceInput] Audio transcription failed', error)
       useUIStore.getState().addToast({
         type: 'error',
-        message: error instanceof Error ? error.message : t('chat.voice.failed'),
+        message: t('chat.voice.transcriptionFailed'),
       })
     } finally {
       setIsVoiceTranscribing(false)
@@ -1070,46 +1071,17 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
-  const handleVoiceInput = () => {
-    if (isVoiceRecording) {
-      stopVoiceInput()
-      return
-    }
-
-    if (!canStartVoiceInput) return
-
-    if (isCloudVoiceInputAvailable()) {
-      void (async () => {
-        try {
-          voiceBaseInputRef.current = input
-          const recorder = await startCloudVoiceRecorder()
-          voiceRecorderRef.current = recorder
-          setIsVoiceRecording(true)
-          voiceAutoStopTimerRef.current = window.setTimeout(() => {
-            void stopCloudVoiceInput()
-          }, CLOUD_VOICE_RECORDING_MAX_MS)
-        } catch (error) {
-          voiceRecorderRef.current = null
-          setIsVoiceRecording(false)
-          const message = error instanceof DOMException && error.name === 'NotAllowedError'
-            ? t('chat.voice.permissionDenied')
-            : error instanceof Error
-              ? error.message
-              : t('chat.voice.failed')
-          useUIStore.getState().addToast({ type: 'error', message })
-        }
-      })()
-      return
-    }
-
+  const startBrowserVoiceInput = (options?: { showUnavailable?: boolean }): boolean => {
     const SpeechRecognition = getSpeechRecognitionConstructor()
     if (!SpeechRecognition) {
-      useUIStore.getState().addToast({
-        type: 'info',
-        message: t('chat.voice.unavailable'),
-      })
+      if (options?.showUnavailable !== false) {
+        useUIStore.getState().addToast({
+          type: 'info',
+          message: t('chat.voice.unavailable'),
+        })
+      }
       setVoiceSupported(false)
-      return
+      return false
     }
 
     try {
@@ -1142,6 +1114,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       speechRecognitionRef.current = recognition
       setIsVoiceRecording(true)
       recognition.start()
+      return true
     } catch {
       speechRecognitionRef.current = null
       setIsVoiceRecording(false)
@@ -1149,7 +1122,52 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
         type: 'error',
         message: t('chat.voice.failed'),
       })
+      return false
     }
+  }
+
+  const handleVoiceInput = () => {
+    if (isVoiceRecording) {
+      stopVoiceInput()
+      return
+    }
+
+    if (!canStartVoiceInput) return
+
+    if (isCloudVoiceInputAvailable()) {
+      void (async () => {
+        try {
+          const status = await audioTranscriptionApi.status()
+          if (!status.available) {
+            if (startBrowserVoiceInput({ showUnavailable: false })) return
+            useUIStore.getState().addToast({
+              type: 'info',
+              message: t('chat.voice.cloudUnavailable'),
+            })
+            return
+          }
+
+          voiceBaseInputRef.current = input
+          const recorder = await startCloudVoiceRecorder()
+          voiceRecorderRef.current = recorder
+          setIsVoiceRecording(true)
+          voiceAutoStopTimerRef.current = window.setTimeout(() => {
+            void stopCloudVoiceInput()
+          }, CLOUD_VOICE_RECORDING_MAX_MS)
+        } catch (error) {
+          console.warn('[VoiceInput] Could not start cloud voice input', error)
+          voiceRecorderRef.current = null
+          setIsVoiceRecording(false)
+          const message = error instanceof DOMException && error.name === 'NotAllowedError'
+            ? t('chat.voice.permissionDenied')
+            : t('chat.voice.failed')
+          useUIStore.getState().addToast({ type: 'error', message })
+        }
+      })()
+      return
+    }
+
+    startBrowserVoiceInput()
   }
 
   const composerPlaceholder =
