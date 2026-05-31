@@ -5,6 +5,7 @@ import '@testing-library/jest-dom'
 import { skillsApi } from '../api/skills'
 import { mcpApi } from '../api/mcp'
 import { promptOptimizeApi } from '../api/promptOptimize'
+import { audioTranscriptionApi } from '../api/audioTranscription'
 import { useUIStore } from '../stores/uiStore'
 
 vi.mock('../api/skills', () => ({
@@ -42,6 +43,12 @@ vi.mock('../api/promptOptimize', () => ({
   },
 }))
 
+vi.mock('../api/audioTranscription', () => ({
+  audioTranscriptionApi: {
+    transcribe: vi.fn(),
+  },
+}))
+
 vi.mock('../components/layout/CapabilityBar', () => ({
   CapabilityBar: () => <div data-testid="capability-bar" />,
 }))
@@ -71,6 +78,9 @@ afterEach(() => {
   vi.useRealTimers()
   Object.defineProperty(window, 'SpeechRecognition', { configurable: true, value: undefined })
   Object.defineProperty(window, 'webkitSpeechRecognition', { configurable: true, value: undefined })
+  Object.defineProperty(window, 'AudioContext', { configurable: true, value: undefined })
+  Object.defineProperty(window, 'webkitAudioContext', { configurable: true, value: undefined })
+  Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: undefined })
 })
 
 /**
@@ -626,6 +636,7 @@ function resetPromptOptimizeSession() {
   useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
   useChatStore.setState({ sessions: {} })
   vi.mocked(promptOptimizeApi.optimize).mockReset()
+  vi.mocked(audioTranscriptionApi.transcribe).mockReset()
 }
 
 describe('Prompt optimization composer action', () => {
@@ -847,6 +858,83 @@ describe('Voice input composer action', () => {
     render(<ActiveSession />)
 
     expect(screen.getByRole('button', { name: 'Start voice input' })).toBeDisabled()
+
+    resetPromptOptimizeSession()
+  })
+
+  it('records audio and writes Bailian transcription into the composer', async () => {
+    const trackStop = vi.fn()
+    const source = { connect: vi.fn(), disconnect: vi.fn() }
+    const processor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null as null | ((event: any) => void) }
+
+    class FakeAudioContext {
+      static current: FakeAudioContext | null = null
+      sampleRate = 16000
+      state = 'running'
+      destination = {}
+      createMediaStreamSource = vi.fn(() => source)
+      createScriptProcessor = vi.fn(() => processor)
+      close = vi.fn(async () => {
+        this.state = 'closed'
+      })
+
+      constructor() {
+        FakeAudioContext.current = this
+      }
+    }
+
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: FakeAudioContext,
+    })
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn(async () => ({
+          getTracks: () => [{ stop: trackStop }],
+        })),
+      },
+    })
+    vi.mocked(audioTranscriptionApi.transcribe).mockResolvedValueOnce({
+      text: '语音转文字结果',
+      model: 'qwen3-asr-flash',
+    })
+    seedPromptOptimizeSession('voice-bailian')
+
+    render(<ActiveSession />)
+
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, {
+      target: { value: 'existing prompt', selectionStart: 15 },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start voice input' })).not.toBeDisabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start voice input' }))
+
+    await waitFor(() => {
+      expect(processor.onaudioprocess).toBeTypeOf('function')
+    })
+    act(() => {
+      processor.onaudioprocess?.({
+        inputBuffer: {
+          getChannelData: () => Float32Array.from([0, 0.25, -0.25]),
+        },
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop voice input' }))
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue('existing prompt\n语音转文字结果')
+    })
+    expect(audioTranscriptionApi.transcribe).toHaveBeenCalledWith(expect.objectContaining({
+      audio: expect.stringMatching(/^data:audio\/wav;base64,/),
+      enableItn: true,
+    }))
+    expect(trackStop).toHaveBeenCalled()
+    expect(FakeAudioContext.current?.close).toHaveBeenCalled()
 
     resetPromptOptimizeSession()
   })

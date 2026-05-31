@@ -24,6 +24,7 @@ import { handlePromptOptimizeApi } from './api/prompt-optimize.js'
 import { handleAttachmentParserApi } from './api/attachment-parser.js'
 import { handleConfigBackupApi } from './api/config-backup.js'
 import { handleBillingApi } from './api/billing.js'
+import { handleAudioTranscriptionApi } from './api/audio-transcription.js'
 
 export async function handleApiRequest(req: Request, url: URL): Promise<Response> {
   const path = url.pathname
@@ -97,6 +98,9 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
 
     case 'prompt-optimize':
       return handlePromptOptimizeApi(req, url, segments)
+
+    case 'audio-transcription':
+      return handleAudioTranscriptionApi(req, url, segments)
 
     case 'attachment-parser':
       return handleAttachmentParserApi(req, url, segments)

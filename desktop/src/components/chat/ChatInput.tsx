@@ -10,6 +10,7 @@ import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi, type SessionContextSnapshot } from '../../api/sessions'
 import { filesystemApi } from '../../api/filesystem'
 import { promptOptimizeApi } from '../../api/promptOptimize'
+import { audioTranscriptionApi } from '../../api/audioTranscription'
 import { AgentRunModeControl } from '../controls/AgentRunModeControl'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
 import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage } from '../../constants/agentRunModes'
@@ -24,9 +25,13 @@ import { ContextUsageIndicator } from './ContextUsageIndicator'
 import {
   appendVoiceTranscript,
   getSpeechRecognitionConstructor,
+  isCloudVoiceInputAvailable,
   isSpeechRecognitionAvailable,
+  resolveAsrLanguage,
+  startCloudVoiceRecorder,
   type BrowserSpeechRecognition,
   type BrowserSpeechRecognitionEvent,
+  type VoiceAudioRecorder,
 } from './speechRecognition'
 import {
   FALLBACK_SLASH_COMMANDS,
@@ -73,6 +78,7 @@ const PROMPT_OPTIMIZE_PROGRESS_TICK_MS = 500
 const PROMPT_OPTIMIZE_SLOW_NOTICE_MS = 60_000
 const COMPOSER_DRAFT_SAVE_DELAY_MS = 250
 const LONG_PASTE_TEXT_THRESHOLD = 12_000
+const CLOUD_VOICE_RECORDING_MAX_MS = 60_000
 
 export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const t = useTranslation()
@@ -99,6 +105,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   } | null>(null)
   const [voiceSupported, setVoiceSupported] = useState(false)
   const [isVoiceRecording, setIsVoiceRecording] = useState(false)
+  const [isVoiceTranscribing, setIsVoiceTranscribing] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -106,6 +113,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const nativeFileDropAvailableRef = useRef(false)
   const promptOptimizeAbortRef = useRef<AbortController | null>(null)
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
+  const voiceRecorderRef = useRef<VoiceAudioRecorder | null>(null)
+  const voiceAutoStopTimerRef = useRef<number | null>(null)
   const voiceBaseInputRef = useRef('')
   const plusMenuRef = useRef<HTMLDivElement>(null)
   const slashMenuRef = useRef<HTMLDivElement>(null)
@@ -142,6 +151,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     !isMemberSession &&
     !isWorkspaceMissing &&
     !isActive &&
+    !isVoiceTranscribing &&
     voiceSupported,
   )
   const isHeroComposer = variant === 'hero' && !isMemberSession
@@ -173,14 +183,21 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   }, [isActive])
 
   useEffect(() => {
-    setVoiceSupported(isSpeechRecognitionAvailable())
+    setVoiceSupported(isCloudVoiceInputAvailable() || isSpeechRecognitionAvailable())
   }, [])
 
   useEffect(() => {
     return () => {
       speechRecognitionRef.current?.abort()
       speechRecognitionRef.current = null
+      void voiceRecorderRef.current?.abort()
+      voiceRecorderRef.current = null
+      if (voiceAutoStopTimerRef.current !== null) {
+        window.clearTimeout(voiceAutoStopTimerRef.current)
+        voiceAutoStopTimerRef.current = null
+      }
       setIsVoiceRecording(false)
+      setIsVoiceTranscribing(false)
     }
   }, [activeTabId])
 
@@ -1006,7 +1023,46 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     })
   }
 
+  const clearVoiceAutoStopTimer = () => {
+    if (voiceAutoStopTimerRef.current !== null) {
+      window.clearTimeout(voiceAutoStopTimerRef.current)
+      voiceAutoStopTimerRef.current = null
+    }
+  }
+
+  const stopCloudVoiceInput = async () => {
+    const recorder = voiceRecorderRef.current
+    if (!recorder) return
+
+    clearVoiceAutoStopTimer()
+    voiceRecorderRef.current = null
+    setIsVoiceRecording(false)
+    setIsVoiceTranscribing(true)
+    try {
+      const audio = await recorder.stop()
+      const result = await audioTranscriptionApi.transcribe({
+        audio,
+        language: resolveAsrLanguage(window.navigator.language),
+        enableItn: true,
+      })
+      setInput(appendVoiceTranscript(inputRef.current, result.text))
+    } catch (error) {
+      useUIStore.getState().addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : t('chat.voice.failed'),
+      })
+    } finally {
+      setIsVoiceTranscribing(false)
+      requestAnimationFrame(() => textareaRef.current?.focus())
+    }
+  }
+
   const stopVoiceInput = () => {
+    if (voiceRecorderRef.current) {
+      void stopCloudVoiceInput()
+      return
+    }
+
     const recognition = speechRecognitionRef.current
     speechRecognitionRef.current = null
     recognition?.stop()
@@ -1020,6 +1076,32 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       return
     }
 
+    if (!canStartVoiceInput) return
+
+    if (isCloudVoiceInputAvailable()) {
+      void (async () => {
+        try {
+          voiceBaseInputRef.current = input
+          const recorder = await startCloudVoiceRecorder()
+          voiceRecorderRef.current = recorder
+          setIsVoiceRecording(true)
+          voiceAutoStopTimerRef.current = window.setTimeout(() => {
+            void stopCloudVoiceInput()
+          }, CLOUD_VOICE_RECORDING_MAX_MS)
+        } catch (error) {
+          voiceRecorderRef.current = null
+          setIsVoiceRecording(false)
+          const message = error instanceof DOMException && error.name === 'NotAllowedError'
+            ? t('chat.voice.permissionDenied')
+            : error instanceof Error
+              ? error.message
+              : t('chat.voice.failed')
+          useUIStore.getState().addToast({ type: 'error', message })
+        }
+      })()
+      return
+    }
+
     const SpeechRecognition = getSpeechRecognitionConstructor()
     if (!SpeechRecognition) {
       useUIStore.getState().addToast({
@@ -1029,8 +1111,6 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       setVoiceSupported(false)
       return
     }
-
-    if (!canStartVoiceInput) return
 
     try {
       const recognition = new SpeechRecognition()
@@ -1083,6 +1163,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
   const voiceButtonTitle = !voiceSupported
     ? t('chat.voice.unavailable')
+    : isVoiceTranscribing
+      ? t('chat.voice.transcribing')
     : isVoiceRecording
       ? t('chat.voice.stop')
       : t('chat.voice.start')
@@ -1191,10 +1273,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             )
           )}
 
-          {!isMemberSession && isVoiceRecording && (
+          {!isMemberSession && (isVoiceRecording || isVoiceTranscribing) && (
             <div className={isHeroComposer ? 'flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]' : 'mx-1 mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]'}>
               <Mic className="h-4 w-4 animate-pulse text-[var(--color-text-accent)]" />
-              <span>{t('chat.voice.listening')}</span>
+              <span>{isVoiceTranscribing ? t('chat.voice.transcribing') : t('chat.voice.listening')}</span>
             </div>
           )}
 
@@ -1399,7 +1481,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   <button
                     type="button"
                     onClick={handleVoiceInput}
-                    disabled={!isVoiceRecording && !canStartVoiceInput}
+                    disabled={isVoiceTranscribing || (!isVoiceRecording && !canStartVoiceInput)}
                     title={voiceButtonTitle}
                     aria-label={isVoiceRecording ? t('chat.voice.stop') : t('chat.voice.start')}
                     aria-pressed={isVoiceRecording}

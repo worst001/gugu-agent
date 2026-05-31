@@ -269,7 +269,7 @@ describe('Settings > Providers tab', () => {
           main: 'gugu-managed-main',
           haiku: 'gugu-managed-fast',
           sonnet: 'gugu-managed-main',
-          opus: 'gugu-managed-strong',
+          opus: 'gugu-managed-main',
         },
         notes: '',
       },

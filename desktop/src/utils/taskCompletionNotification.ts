@@ -22,8 +22,9 @@ export async function notifyChatTaskComplete({
   lastNotificationBySession.set(sessionId, now)
 
   try {
+    const pluginName = '@tauri-apps/plugin-notification'
     const { isPermissionGranted, requestPermission, sendNotification } = await import(
-      /* @vite-ignore */ '@tauri-apps/plugin-notification'
+      /* @vite-ignore */ pluginName
     )
 
     let granted = await isPermissionGranted()

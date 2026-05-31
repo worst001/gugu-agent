@@ -65,7 +65,7 @@ const GUGU_MANAGED_PROVIDER_MODELS = {
   main: 'gugu-managed-main',
   haiku: 'gugu-managed-fast',
   sonnet: 'gugu-managed-main',
-  opus: 'gugu-managed-strong',
+  opus: 'gugu-managed-main',
 }
 
 const LEGACY_PRESET_DEFAULT_ENV: Record<string, Record<string, string>> = {
@@ -269,10 +269,7 @@ export class ProviderService {
         baseUrl: GUGU_MANAGED_PROVIDER_BASE_URL,
         apiFormat: 'gugu_managed',
         authKind: 'gugu_managed',
-        models: {
-          ...GUGU_MANAGED_PROVIDER_MODELS,
-          ...provider.models,
-        },
+        models: { ...GUGU_MANAGED_PROVIDER_MODELS },
       }
       if (JSON.stringify(normalized) !== JSON.stringify(provider)) {
         const idx = index.providers.findIndex((p) => p.id === provider!.id)

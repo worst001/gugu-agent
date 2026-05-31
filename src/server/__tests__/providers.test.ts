@@ -110,6 +110,49 @@ describe('ProviderService', () => {
       })
     })
 
+    test('should normalize existing Gugu Managed model slots to canonical mapping', async () => {
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      await fs.mkdir(path.join(tmpDir, 'cc-haha'), { recursive: true })
+      await fs.writeFile(
+        path.join(tmpDir, 'cc-haha', 'providers.json'),
+        JSON.stringify({
+          activeId: 'gugu-managed',
+          providers: [
+            {
+              id: 'gugu-managed',
+              presetId: 'gugu-managed',
+              name: 'Gugu Managed',
+              apiKey: '',
+              baseUrl: 'gugu://managed',
+              apiFormat: 'gugu_managed',
+              authKind: 'gugu_managed',
+              models: {
+                main: 'gugu-managed-main',
+                haiku: 'gugu-managed-fast',
+                sonnet: 'gugu-managed-main',
+                opus: 'gugu-managed-strong',
+              },
+            },
+          ],
+        }, null, 2),
+        'utf-8',
+      )
+
+      const svc = new ProviderService()
+      const result = await svc.listProviders()
+
+      expect(result.providers[0]?.models).toEqual({
+        main: 'gugu-managed-main',
+        haiku: 'gugu-managed-fast',
+        sonnet: 'gugu-managed-main',
+        opus: 'gugu-managed-main',
+      })
+      const settings = await readSettings()
+      const env = settings.env as Record<string, string>
+      expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('gugu-managed-fast')
+      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('gugu-managed-main')
+    })
+
     test('should activate Gugu Managed when no provider is active', async () => {
       delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
       const svc = new ProviderService()

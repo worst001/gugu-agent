@@ -74,7 +74,7 @@ describe('provider presets API', () => {
       main: 'gugu-managed-main',
       haiku: 'gugu-managed-fast',
       sonnet: 'gugu-managed-main',
-      opus: 'gugu-managed-strong',
+      opus: 'gugu-managed-main',
     })
   })
 
