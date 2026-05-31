@@ -368,6 +368,10 @@ type ChatStore = {
     sessionId: string,
     message: Pick<LocalUserEcho, 'id' | 'content' | 'attachments'>,
   ) => void
+  rewindLocalMessages: (
+    sessionId: string,
+    target: Pick<LocalUserEcho, 'id' | 'content' | 'attachments'> & { userMessageIndex?: number },
+  ) => { messagesRemoved: number } | null
   queueComposerPrefill: (
     sessionId: string,
     prefill: { text: string; attachments?: UIAttachment[] },
@@ -490,7 +494,7 @@ function getMaxTurnsReachedPrompt(message: string): string | null {
   if (!/Reached maximum number of turns/i.test(message)) return null
   const maxTurns = message.match(/\((\d+)\)/)?.[1]
   const suffix = maxTurns ? `（${maxTurns} 轮）` : ''
-  return `本轮连续操作已达到上限${suffix}，Gugu 已先停下来，避免继续绕圈。通常是路径不存在、把目录当成文件读取，或某个工具连续失败导致的。你可以补充目标文件/目录，或直接说“继续”，Gugu 会接着处理。`
+  return `本轮连续自动操作已达到保护上限${suffix}，Gugu 先停下来避免重复执行或继续消耗额度。这个上限只限制当前这一轮自动执行，不是订阅额度上限。通常是路径不存在、命令反复失败，或任务一次拆得太大。你可以直接说“继续”，或补充更明确的文件/目录/下一步目标，Gugu 会基于已有上下文接着处理。`
 }
 
 function getAgentRecoveryPrompt(message: string): string | null {
@@ -1174,6 +1178,55 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     forgetRememberedLocalUserEcho(sessionId, message)
   },
 
+  rewindLocalMessages: (sessionId, target) => {
+    const session = get().sessions[sessionId]
+    if (!session) return null
+
+    let targetIndex = session.messages.findIndex((message) => message.id === target.id)
+    if (targetIndex === -1 && target.userMessageIndex !== undefined) {
+      let userMessageIndex = -1
+      targetIndex = session.messages.findIndex((message) => {
+        if (message.type !== 'user_text' || message.pending) return false
+        userMessageIndex += 1
+        return userMessageIndex === target.userMessageIndex
+      })
+    }
+    if (targetIndex < 0) return null
+
+    const removedMessages = session.messages.slice(targetIndex)
+    for (const message of removedMessages) {
+      if (message.type === 'user_text') {
+        forgetRememberedLocalUserEcho(sessionId, {
+          id: message.id,
+          content: message.content,
+          attachments: message.attachments,
+        })
+      }
+    }
+
+    if (session.elapsedTimer) clearInterval(session.elapsedTimer)
+    set((state) => ({
+      sessions: updateSessionIn(state.sessions, sessionId, () => ({
+        messages: session.messages.slice(0, targetIndex),
+        chatState: 'idle',
+        activeThinkingId: null,
+        activeToolUseId: null,
+        activeToolName: null,
+        streamingText: '',
+        streamingToolInput: '',
+        pendingPermission: null,
+        pendingPermissionQueue: [],
+        pendingComputerUsePermission: null,
+        elapsedTimer: null,
+        statusVerb: '',
+        historyLoading: false,
+        historyLoadError: null,
+      })),
+    }))
+    useTabStore.getState().updateTabStatus(sessionId, 'idle')
+    return { messagesRemoved: Math.max(1, removedMessages.length) }
+  },
+
   queueComposerPrefill: (sessionId, prefill) => {
     set((state) => ({
       sessions: updateSessionIn(state.sessions, sessionId, () => ({
@@ -1609,7 +1662,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               session.messages,
               typeof msg.message === 'string' && msg.message.trim()
                 ? msg.message
-                : '本轮连续操作已达到上限，Gugu 已先停下来，避免继续绕圈。你可以补充目标文件/目录，或直接说“继续”。',
+                : '本轮连续自动操作已达到保护上限，Gugu 先停下来避免重复执行或继续消耗额度。这个上限只限制当前这一轮自动执行，不是订阅额度上限。你可以直接说“继续”，或补充更明确的文件/目录/下一步目标。',
               Date.now(),
             ),
             chatState: 'idle',

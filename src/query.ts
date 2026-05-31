@@ -331,7 +331,7 @@ function buildStageBoundarySummary({
   const lines = [
     reason === 'repeated_tool_failure'
       ? '检测到同一个工具调用连续失败，Gugu 先停在阶段边界，避免继续重复尝试。'
-      : `本轮连续操作已达到上限${maxTurns ? `（${maxTurns} 轮）` : ''}，Gugu 先停在阶段边界，避免继续绕圈。`,
+      : `本轮连续自动操作已达到保护上限${maxTurns ? `（${maxTurns} 轮）` : ''}，Gugu 先停在阶段边界，避免重复执行或继续消耗额度。这只限制当前这一轮自动执行，不是订阅额度上限。`,
     `已推进到第 ${turnCount} 轮。`,
   ]
 
@@ -348,7 +348,7 @@ function buildStageBoundarySummary({
   const nextStep =
     reason === 'repeated_tool_failure'
       ? '如果继续，先换一种策略：不要重复同一个失败调用，改为列目录、检查路径是否存在，或让用户确认目标文件。'
-      : '如果用户说“继续”，基于上面的阶段结果继续下一段，不要从头开始；优先复用已获得的信息，只补查缺口。'
+      : '如果用户说“继续”，基于上面的阶段结果继续下一段，不要从头开始；优先复用已获得的信息，只补查缺口。若任务过大，先拆成更小的阶段。'
 
   lines.push(`下一步建议：${nextStep}`)
 

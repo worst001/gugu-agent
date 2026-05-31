@@ -18,6 +18,7 @@ vi.mock('../../api/sessions', () => ({
     list: vi.fn(async () => ({ sessions: [] })),
     getMessages: vi.fn(async () => ({ messages: [] })),
     getSlashCommands: vi.fn(async () => ({ commands: [] })),
+    getRecentProjects: vi.fn(async () => ({ projects: [] })),
     getGitInfo: vi.fn(async () => ({
       branch: 'main',
       repoName: 'project',
@@ -55,7 +56,14 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
 
-function seedEmptySession(sessionId: string) {
+function seedEmptySession(
+  sessionId: string,
+  overrides: Partial<{
+    projectPath: string
+    workDir: string | null
+    workDirExists: boolean
+  }> = {},
+) {
   useSettingsStore.setState({ locale: 'en' })
   useTabStore.setState({
     tabs: [{ sessionId, title: 'New Session', type: 'session', status: 'idle' }],
@@ -71,6 +79,7 @@ function seedEmptySession(sessionId: string) {
       projectPath: '/workspace/project',
       workDir: '/workspace/project',
       workDirExists: true,
+      ...overrides,
     }],
     activeSessionId: sessionId,
     isLoading: false,
@@ -121,6 +130,43 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toBe('what is this')
     expect(payload?.content).not.toContain('CE automation')
     expect(payload?.ceModelPreference).toBeUndefined()
+  })
+
+  it('keeps a selected project visible while replacing a brand-new empty session', async () => {
+    vi.mocked(sessionsApi.create).mockResolvedValueOnce({ sessionId: 'created-project-session' })
+    vi.mocked(sessionsApi.list).mockResolvedValueOnce({ sessions: [], total: 0 })
+    vi.mocked(sessionsApi.getRecentProjects).mockResolvedValueOnce({
+      projects: [{
+        projectPath: 'Users-hanwenhao-Downloads-HTML',
+        realPath: '/Users/hanwenhao/Downloads/HTML',
+        projectName: 'HTML',
+        repoName: null,
+        branch: null,
+        isGit: false,
+        modifiedAt: '2026-05-30T00:00:00.000Z',
+        sessionCount: 1,
+      }],
+    })
+    seedEmptySession('empty-project-session', {
+      projectPath: '',
+      workDir: null,
+      workDirExists: true,
+    })
+
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByText('Select a project...'))
+    fireEvent.click(await screen.findByText('HTML'))
+
+    await waitFor(() => {
+      expect(sessionsApi.create).toHaveBeenCalledWith('/Users/hanwenhao/Downloads/HTML')
+      expect(screen.queryByText('Select a project...')).not.toBeInTheDocument()
+    })
+    expect(useSessionStore.getState().activeSessionId).toBe('created-project-session')
+    expect(useSessionStore.getState().sessions[0]).toMatchObject({
+      id: 'created-project-session',
+      workDir: '/Users/hanwenhao/Downloads/HTML',
+    })
   })
 
   it('wraps messages with plan mode scaffolding when the plan toggle is selected', async () => {

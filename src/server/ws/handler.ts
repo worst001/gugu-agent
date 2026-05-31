@@ -154,9 +154,7 @@ type TurnMonitor = {
 const sessionTurnMonitors = new Map<string, TurnMonitor>()
 
 function getMaxTurnsReachedMessage(cliMsg: any): string {
-  if (typeof cliMsg?.result === 'string' && cliMsg.result.trim()) {
-    return cliMsg.result.trim()
-  }
+  const resultText = typeof cliMsg?.result === 'string' ? cliMsg.result : ''
   const maxTurnsText = Array.isArray(cliMsg?.errors)
     ? cliMsg.errors.find(
         (error: unknown) =>
@@ -164,13 +162,19 @@ function getMaxTurnsReachedMessage(cliMsg: any): string {
           /Reached maximum number of turns/i.test(error),
       )
     : ''
+  const sourceText = typeof maxTurnsText === 'string' && maxTurnsText.trim()
+    ? maxTurnsText
+    : resultText
   const maxTurnsMatch =
-    typeof maxTurnsText === 'string'
-      ? maxTurnsText.match(/\((\d+)\)/)
-      : null
+    sourceText.match(/\((\d+)\)/)
+      ?? sourceText.match(/max turns\s*\((\d+)\)/i)
+      ?? sourceText.match(/(\d+)\s*轮/)
   const maxTurns = maxTurnsMatch?.[1]
   const suffix = maxTurns ? `（${maxTurns} 轮）` : ''
-  return `本轮连续操作已达到上限${suffix}，Gugu 已先停下来，避免继续绕圈。通常是路径不存在、把目录当成文件读取，或某个工具连续失败导致的。你可以补充目标文件/目录，或直接说“继续”，Gugu 会接着处理。`
+  if (resultText.trim() && !/Reached max(?:imum)?(?: number of)? turns|连续操作已达到上限/i.test(resultText)) {
+    return resultText.trim()
+  }
+  return `本轮连续自动操作已达到保护上限${suffix}，Gugu 先停下来避免重复执行或继续消耗额度。这个上限只限制当前这一轮自动执行，不是订阅额度上限。通常是路径不存在、命令反复失败，或任务一次拆得太大。你可以直接说“继续”，或补充更明确的文件/目录/下一步目标，Gugu 会基于已有上下文接着处理。`
 }
 
 export function getSlashCommands(sessionId: string): Array<{ name: string; description: string }> {

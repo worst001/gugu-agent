@@ -1167,6 +1167,9 @@ export const zh: Record<TranslationKey, string> = {
   'chat.rewindFilesMore': '另有 {count} 个',
   'chat.rewindSuccessWithCode': '已回滚 {count} 条消息，并恢复相关文件。',
   'chat.rewindSuccessConversationOnly': '已回滚 {count} 条消息。这一轮没有可用的文件检查点。',
+  'chat.rewindLocalOnlyReason': '这轮还没有写入本地会话记录，只会回滚当前界面里的对话，不会改动文件。',
+  'chat.rewindSessionMissing': '这轮还没有写入本地会话记录，无法执行文件回滚。你可以关闭弹窗后继续输入，或从输入框重新发送这条内容。',
+  'chat.rewindSuccessLocalOnly': '已回滚当前界面中的 {count} 条消息。这一轮尚未写入文件检查点。',
   'chat.forkAction': '从这里分叉',
   'chat.forkModalTitle': '分叉对话',
   'chat.forkConfirm': '创建分叉会话',
@@ -1437,6 +1440,7 @@ export const zh: Record<TranslationKey, string> = {
   'dirPicker.noRecent': '暂无最近项目',
   'dirPicker.chooseFolder': '选择其他文件夹',
   'dirPicker.chooseProjectFolder': '选择项目文件夹',
+  'dirPicker.selectFailed': '项目路径选择失败：{message}',
   'dirPicker.useThisFolder': '使用此文件夹',
   'dirPicker.noSubdirs': '无子目录',
 

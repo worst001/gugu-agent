@@ -437,6 +437,56 @@ describe('chatStore history mapping', () => {
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toEqual([])
   })
 
+  it('rewinds local-only messages and forgets the optimistic echo', async () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'write a table')
+    const localUser = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages.find(
+      (message) => message.type === 'user_text',
+    )
+    expect(localUser?.type).toBe('user_text')
+
+    useChatStore.setState((state) => {
+      const session = state.sessions[TEST_SESSION_ID]!
+      return {
+        sessions: {
+          ...state.sessions,
+          [TEST_SESSION_ID]: {
+            ...session,
+            messages: [
+              ...session.messages,
+              {
+                id: 'assistant-after-local',
+                type: 'assistant_text',
+                content: 'working',
+                timestamp: 2,
+              },
+            ],
+            streamingText: 'partial',
+          },
+        },
+      }
+    })
+
+    const result = useChatStore.getState().rewindLocalMessages(TEST_SESSION_ID, {
+      id: localUser!.id,
+      content: localUser!.type === 'user_text' ? localUser!.content : '',
+      attachments: localUser!.type === 'user_text' ? localUser!.attachments : undefined,
+      userMessageIndex: 0,
+    })
+    expect(result).toEqual({ messagesRemoved: 2 })
+
+    const sessionAfterRewind = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(sessionAfterRewind?.messages).toEqual([])
+    expect(sessionAfterRewind?.chatState).toBe('idle')
+    expect(sessionAfterRewind?.streamingText).toBe('')
+
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({ messages: [] })
+    await useChatStore.getState().reloadHistory(TEST_SESSION_ID)
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toEqual([])
+  })
+
   it('keeps parent tool linkage for live tool events', () => {
     // Initialize the session first
     useChatStore.setState({

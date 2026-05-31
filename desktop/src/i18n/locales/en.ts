@@ -1163,6 +1163,9 @@
   'chat.rewindFilesMore': '+{count} more',
   'chat.rewindSuccessWithCode': 'Rewound {count} messages and restored tracked files.',
   'chat.rewindSuccessConversationOnly': 'Rewound {count} messages. No file checkpoint was available for this turn.',
+  'chat.rewindLocalOnlyReason': 'This turn has not been written to the local session transcript yet. Only the visible chat will be rewound; files will not be changed.',
+  'chat.rewindSessionMissing': 'This turn has not been written to the local session transcript yet, so file rollback cannot run. Close this dialog and continue, or resend this prompt from the composer.',
+  'chat.rewindSuccessLocalOnly': 'Rewound {count} visible messages. This turn had not reached a file checkpoint yet.',
   'chat.forkAction': 'Fork from here',
   'chat.forkModalTitle': 'Fork Conversation',
   'chat.forkConfirm': 'Fork session',
@@ -1433,6 +1436,7 @@
   'dirPicker.noRecent': 'No recent projects',
   'dirPicker.chooseFolder': 'Choose a different folder',
   'dirPicker.chooseProjectFolder': 'Choose project folder',
+  'dirPicker.selectFailed': 'Failed to select project path: {message}',
   'dirPicker.useThisFolder': 'Use this folder',
   'dirPicker.noSubdirs': 'No subdirectories',
 

@@ -30,6 +30,34 @@ type SessionStore = {
   setSelectedProjects: (projects: string[]) => void
 }
 
+function mergeFetchedSessionsWithOptimisticState(
+  fetchedSessions: SessionListItem[],
+  currentSessions: SessionListItem[],
+  activeSessionId: string | null,
+): SessionListItem[] {
+  const currentById = new Map(currentSessions.map((session) => [session.id, session]))
+  const merged = fetchedSessions.map((session) => {
+    const current = currentById.get(session.id)
+    if (!current) return session
+    const workDir = session.workDir || current.workDir
+    return {
+      ...session,
+      projectPath: session.projectPath || current.projectPath,
+      workDir,
+      workDirExists: session.workDir ? session.workDirExists : current.workDirExists,
+    }
+  })
+
+  if (activeSessionId && !merged.some((session) => session.id === activeSessionId)) {
+    const activeSession = currentById.get(activeSessionId)
+    if (activeSession && activeSession.messageCount === 0) {
+      merged.unshift(activeSession)
+    }
+  }
+
+  return merged
+}
+
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   activeSessionId: null,
@@ -41,6 +69,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   fetchSessions: async (project?: string) => {
     set({ isLoading: true, error: null })
     try {
+      const currentSessions = get().sessions
+      const activeSessionId = get().activeSessionId
       const { sessions: raw } = await sessionsApi.list({ project, limit: 100 })
       // Deduplicate by session ID — keep the most recently modified entry
       const byId = new Map<string, SessionListItem>()
@@ -50,10 +80,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           byId.set(s.id, s)
         }
       }
-      const sessions = [...byId.values()].map((session) => ({
+      const fetchedSessions = [...byId.values()].map((session) => ({
         ...session,
         title: sanitizeSessionTitle(session.title),
       }))
+      const sessions = mergeFetchedSessionsWithOptimisticState(
+        fetchedSessions,
+        currentSessions,
+        activeSessionId,
+      )
       const availableProjects = [...new Set(sessions.map((s) => s.projectPath).filter(Boolean))].sort()
       set({ sessions, availableProjects, isLoading: false })
     } catch (err) {

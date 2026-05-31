@@ -93,6 +93,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const [showPromptOptimizeSlowNotice, setShowPromptOptimizeSlowNotice] = useState(false)
   const [isPromptOptimizeContinuing, setIsPromptOptimizeContinuing] = useState(false)
   const [promptOptimizeError, setPromptOptimizeError] = useState<string | null>(null)
+  const [pendingProjectSelection, setPendingProjectSelection] = useState<{
+    sessionId: string
+    workDir: string
+  } | null>(null)
   const [voiceSupported, setVoiceSupported] = useState(false)
   const [isVoiceRecording, setIsVoiceRecording] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
@@ -144,6 +148,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const addFilesLabel = isHeroComposer ? t('empty.addFiles') : t('chat.addFiles')
   const slashCommandsLabel = isHeroComposer ? t('empty.slashCommands') : t('chat.slashCommands')
   const resolvedWorkDir = activeSession?.workDir || gitInfo?.workDir || undefined
+  const pickerWorkDir =
+    pendingProjectSelection?.sessionId === activeTabId
+      ? pendingProjectSelection.workDir
+      : resolvedWorkDir
   const promptOptimizeProgressPercent = isPromptOptimizing
     ? Math.max(PROMPT_OPTIMIZE_INITIAL_PROGRESS, promptOptimizeProgress)
     : 0
@@ -1457,21 +1465,34 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
               />
             ) : (
               <DirectoryPicker
-                value={resolvedWorkDir || ''}
+                value={pickerWorkDir || ''}
                 onChange={async (newWorkDir) => {
                   if (!activeTabId) return
                   const oldId = activeTabId
-                  const { deleteSession, createSession } = useSessionStore.getState()
-                  const { replaceTabSession } = useTabStore.getState()
-                  const { disconnectSession, connectToSession } = useChatStore.getState()
-                  const newId = await createSession(newWorkDir)
-                  useSessionRuntimeStore.getState().moveSelection(oldId, newId)
-                  useAgentRunModeStore.getState().moveMode(oldId, newId)
-                  useCeWorkflowRoleStore.getState().moveRole(oldId, newId)
-                  disconnectSession(oldId)
-                  replaceTabSession(oldId, newId)
-                  connectToSession(newId)
-                  deleteSession(oldId).catch(() => {})
+                  setPendingProjectSelection({ sessionId: oldId, workDir: newWorkDir })
+                  try {
+                    const { deleteSession, createSession } = useSessionStore.getState()
+                    const { replaceTabSession } = useTabStore.getState()
+                    const { disconnectSession, connectToSession } = useChatStore.getState()
+                    const newId = await createSession(newWorkDir)
+                    useSessionRuntimeStore.getState().moveSelection(oldId, newId)
+                    useAgentRunModeStore.getState().moveMode(oldId, newId)
+                    useCeWorkflowRoleStore.getState().moveRole(oldId, newId)
+                    disconnectSession(oldId)
+                    replaceTabSession(oldId, newId)
+                    connectToSession(newId)
+                    deleteSession(oldId).catch(() => {})
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error)
+                    useUIStore.getState().addToast({
+                      type: 'error',
+                      message: t('dirPicker.selectFailed', { message }),
+                    })
+                  } finally {
+                    setPendingProjectSelection((current) =>
+                      current?.sessionId === oldId ? null : current
+                    )
+                  }
                 }}
               />
             )}

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MessageList, buildRenderModel } from './MessageList'
+import { ApiError } from '../../api/client'
 import { sessionsApi } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -876,6 +877,68 @@ describe('MessageList nested tool calls', () => {
       text: '第二段',
       attachments: undefined,
     })
+  })
+
+  it('falls back to local rewind when the session transcript is missing', async () => {
+    vi.spyOn(sessionsApi, 'rewind').mockRejectedValue(
+      new ApiError(404, { message: `Session not found: ${ACTIVE_TAB}` }),
+    )
+    const queueComposerPrefill = vi.fn()
+
+    useChatStore.setState({
+      queueComposerPrefill,
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: '第一段',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: 'ok',
+              timestamp: 2,
+            },
+            {
+              id: 'user-2',
+              type: 'user_text',
+              content: '第二段',
+              timestamp: 3,
+            },
+            {
+              id: 'assistant-2',
+              type: 'assistant_text',
+              content: 'working',
+              timestamp: 4,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const buttons = screen.getAllByRole('button', { name: 'Rewind to here' })
+    fireEvent.click(buttons[1]!)
+    const dialog = await screen.findByRole('dialog')
+
+    expect(await within(dialog).findByText(/Only the visible chat will be rewound/)).toBeTruthy()
+    expect(within(dialog).queryByText(/Session not found/)).toBeNull()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Rewind here/ }))
+
+    await waitFor(() => {
+      expect(useChatStore.getState().sessions[ACTIVE_TAB]?.messages.map((message) => message.id))
+        .toEqual(['user-1', 'assistant-1'])
+    })
+    expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
+      text: '第二段',
+      attachments: undefined,
+    })
+    expect(sessionsApi.rewind).toHaveBeenCalledTimes(2)
   })
 
   it('forks a user message into a new session without mutating the current chat', async () => {

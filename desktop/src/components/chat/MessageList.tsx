@@ -39,10 +39,72 @@ type RenderModel = {
 }
 
 type AssistantTextMessage = Extract<UIMessage, { type: 'assistant_text' }>
+type UserTextMessage = Extract<UIMessage, { type: 'user_text' }>
+
+type RewindTarget = {
+  messageId: string
+  userMessageIndex: number
+  content: string
+  attachments?: UserTextMessage['attachments']
+}
 
 type PlanConfirmationTarget = {
   sessionId: string
   message: AssistantTextMessage
+}
+
+function getApiErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    return typeof error.body === 'object' && error.body && 'message' in error.body
+      ? String((error.body as { message: unknown }).message)
+      : error.message
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isSessionTranscriptMissingError(error: unknown, message: string): boolean {
+  return /Session not found/i.test(message) &&
+    (!(error instanceof ApiError) || error.status === 404)
+}
+
+function findLocalRewindStartIndex(messages: UIMessage[], target: RewindTarget): number {
+  const idIndex = messages.findIndex((message) => message.id === target.messageId)
+  if (idIndex >= 0) return idIndex
+
+  let userMessageIndex = -1
+  return messages.findIndex((message) => {
+    if (message.type !== 'user_text' || message.pending) return false
+    userMessageIndex += 1
+    return userMessageIndex === target.userMessageIndex
+  })
+}
+
+function createLocalRewindPreview(
+  messages: UIMessage[],
+  target: RewindTarget,
+  reason: string,
+): SessionRewindResponse | null {
+  const startIndex = findLocalRewindStartIndex(messages, target)
+  if (startIndex < 0) return null
+  const removedMessages = messages.slice(startIndex)
+  return {
+    target: {
+      targetUserMessageId: target.messageId,
+      userMessageIndex: target.userMessageIndex,
+      userMessageCount: messages.filter((message) => message.type === 'user_text' && !message.pending).length,
+    },
+    conversation: {
+      messagesRemoved: Math.max(1, removedMessages.length),
+      removedMessageIds: removedMessages.map((message) => message.id),
+    },
+    code: {
+      available: false,
+      reason,
+      filesChanged: [],
+      insertions: 0,
+      deletions: 0,
+    },
+  }
 }
 
 function appendChildToolCall(
@@ -293,6 +355,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const reloadHistory = useChatStore((s) => s.reloadHistory)
   const forgetLocalUserEcho = useChatStore((s) => s.forgetLocalUserEcho)
+  const rewindLocalMessages = useChatStore((s) => s.rewindLocalMessages)
   const queueComposerPrefill = useChatStore((s) => s.queueComposerPrefill)
   const sendMessage = useChatStore((s) => s.sendMessage)
   const forkSession = useSessionStore((s) => s.forkSession)
@@ -314,12 +377,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const shouldAutoScrollRef = useRef(true)
   const lastSessionIdRef = useRef<string | null | undefined>(resolvedSessionId)
   const t = useTranslation()
-  const [rewindTarget, setRewindTarget] = useState<{
-    messageId: string
-    userMessageIndex: number
-    content: string
-    attachments?: Extract<UIMessage, { type: 'user_text' }>['attachments']
-  } | null>(null)
+  const [rewindTarget, setRewindTarget] = useState<RewindTarget | null>(null)
   const [rewindPreview, setRewindPreview] = useState<SessionRewindResponse | null>(null)
   const [rewindError, setRewindError] = useState<string | null>(null)
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
@@ -376,14 +434,20 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
       })
       .catch((error) => {
         if (cancelled) return
-        const message =
-          error instanceof ApiError
-            ? typeof error.body === 'object' && error.body && 'message' in error.body
-              ? String((error.body as { message: unknown }).message)
-              : error.message
-            : error instanceof Error
-              ? error.message
-              : String(error)
+        const message = getApiErrorMessage(error)
+        if (isSessionTranscriptMissingError(error, message)) {
+          const localPreview = createLocalRewindPreview(
+            messages,
+            rewindTarget,
+            t('chat.rewindLocalOnlyReason'),
+          )
+          if (localPreview) {
+            setRewindPreview(localPreview)
+            return
+          }
+          setRewindError(t('chat.rewindSessionMissing'))
+          return
+        }
         setRewindError(message)
       })
       .finally(() => {
@@ -395,7 +459,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [resolvedSessionId, rewindTarget])
+  }, [messages, resolvedSessionId, rewindTarget, t])
 
   useEffect(() => {
     if (!resolvedSessionId || !forkTarget) return
@@ -586,14 +650,32 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
       setRewindTarget(null)
       setRewindPreview(null)
     } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? typeof error.body === 'object' && error.body && 'message' in error.body
-            ? String((error.body as { message: unknown }).message)
-            : error.message
-          : error instanceof Error
-            ? error.message
-            : String(error)
+      const message = getApiErrorMessage(error)
+      if (isSessionTranscriptMissingError(error, message)) {
+        const result = rewindLocalMessages(resolvedSessionId, {
+          id: rewindTarget.messageId,
+          content: rewindTarget.content,
+          attachments: rewindTarget.attachments,
+          userMessageIndex: rewindTarget.userMessageIndex,
+        })
+        if (result) {
+          queueComposerPrefill(resolvedSessionId, {
+            text: rewindTarget.content,
+            attachments: rewindTarget.attachments,
+          })
+          addToast({
+            type: 'success',
+            message: t('chat.rewindSuccessLocalOnly', {
+              count: result.messagesRemoved,
+            }),
+          })
+          setRewindTarget(null)
+          setRewindPreview(null)
+          return
+        }
+        setRewindError(t('chat.rewindSessionMissing'))
+        return
+      }
       setRewindError(message)
     } finally {
       setIsExecutingRewind(false)
@@ -606,6 +688,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     queueComposerPrefill,
     reloadHistory,
     resolvedSessionId,
+    rewindLocalMessages,
     rewindTarget,
     stopGeneration,
     t,
