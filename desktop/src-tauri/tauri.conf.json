@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/tauri-schema-v2.json",
   "productName": "gugu-agent",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "identifier": "com.guxingyao.guguagent.desktop",
   "build": {
     "frontendDist": "../dist",
