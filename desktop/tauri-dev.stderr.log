@@ -1,35 +1,0 @@
-$ tauri dev
-     Running BeforeDevCommand (`bun run build:sidecars && bun run dev`)
-$ bun run ./scripts/build-sidecars.ts
-$ vite
-     Running DevCommand (`cargo  run --no-default-features --color always --`)
-        Info Watching D:\Claude Code\claude-code-gugu\desktop\src-tauri for changes...
-[1m[92m   Compiling[0m gugu-agent v0.1.19 (D:\Claude Code\claude-code-gugu\desktop\src-tauri)
-[1m[96m    Building[0m [=======================> ] 469/472: gugu-ag…[1m[96m    Building[0m [=======================> ] 470/472: gugu-ag…                                                            [1m[93mwarning[0m[1m[97m: unused imports: `MenuItemBuilder` and `SubmenuBuilder`[0m
-  [1m[96m--> [0msrc\lib.rs:19:32
-   [1m[96m|[0m
-[1m[96m19[0m [1m[96m|[0m use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-   [1m[96m|[0m                                [1m[93m^^^^^^^^^^^^^^^[0m  [1m[93m^^^^^^^^^^^^^^[0m
-   [1m[96m|[0m
-   [1m[96m= [0m[1m[97mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
-
-[1m[96m    Building[0m [=======================> ] 470/472: gugu-ag…                                                            [1m[93mwarning[0m[1m[97m: function `parse_env_block` is never used[0m
-   [1m[96m--> [0msrc\lib.rs:652:4
-    [1m[96m|[0m
-[1m[96m652[0m [1m[96m|[0m fn parse_env_block(bytes: &[u8]) -> HashMap<String, String> {
-    [1m[96m|[0m    [1m[93m^^^^^^^^^^^^^^^[0m
-    [1m[96m|[0m
-    [1m[96m= [0m[1m[97mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
-
-[1m[96m    Building[0m [=======================> ] 470/472: gugu-ag…                                                            [1m[93mwarning[0m: `gugu-agent` (lib) generated 2 warnings (run `cargo fix --lib -p gugu-agent` to apply 1 suggestion)
-[1m[96m    Building[0m [=======================> ] 471/472: gugu-ag…                                                            [1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 6.54s
-[1m[92m     Running[0m `target\debug\gugu-agent.exe`
-[gugu-adapters] [gugu-sidecar] --feishu requested but FEISHU_APP_ID / FEISHU_APP_SECRET missing in env or ~/.claude/adapters.json — skipping
-[gugu-adapters] [gugu-sidecar] --telegram requested but TELEGRAM_BOT_TOKEN missing in env or ~/.claude/adapters.json — skipping
-[gugu-adapters] [gugu-sidecar] --dingtalk requested but DINGTALK_CLIENT_ID / DINGTALK_CLIENT_SECRET missing in env or ~/.claude/adapters.json — skipping
-[gugu-adapters] [gugu-sidecar] --wecom requested but WECOM_CORP_ID / WECOM_AGENT_ID / WECOM_SECRET / WECOM_TOKEN / WECOM_ENCODING_AES_KEY missing in env or ~/.claude/adapters.json — skipping
-[gugu-adapters] [gugu-sidecar] --qq requested but QQ_APP_ID / QQ_APP_SECRET or QQ_ONEBOT_URL missing in env or ~/.claude/adapters.json — skipping
-[gugu-adapters] [gugu-sidecar] no adapter could be started - check credentials in env or ~/.claude/adapters.json
-[1m[91merror[0m: process didn't exit successfully: `target\debug\gugu-agent.exe` (exit code: 1)
-error: script "dev" exited with code 255
-error: script "tauri" exited with code 1
