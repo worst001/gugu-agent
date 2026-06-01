@@ -15,7 +15,7 @@
 - 本地健康检查 `http://127.0.0.1:18787/health` 和公网健康检查 `https://gugu.guxingyao.com/health` 都返回 `{"ok":true}`。
 - 生产数据源已经切到 MySQL：`GUGU_STORE_DRIVER=mysql`。
 - Redis limiter/circuit 已启用：`GUGU_REDIS_LIMITER_ENABLED=1`、`GUGU_REDIS_CIRCUIT_ENABLED=1`。
-- Phase 4 attachment task 代码已经以 flags-off 方式部署到生产，但没有灰度启用。admin metrics 显示 `attachmentTasks.enabled=false`、`redisEnabled=false`、`queued=0`、`running=0`、`completed=0`。
+- Phase 4 attachment task 已进入 memory-only 小流量灰度：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`。admin metrics 显示 `attachmentTasks.enabled=true`、`redisEnabled=false`、`backend=memory`、`fallbackActive=false`。
 - 生产 monitor timer 每 5 分钟运行一次；最近查看到的运行时间是 `2026-05-29 00:11:24 CST`，日志结尾 `issues=[]`。
 - MySQL backup timer 已启用，下一次计划运行时间是 `2026-05-29 03:38:35 CST`。
 
@@ -30,6 +30,47 @@
 - attachment task 仍按预期关闭：`enabled=false`、`redisEnabled=false`、`queued=0`、`running=0`、`completed=0`。
 - 近一小时 gateway 日志没有 Redis fallback、支付失败、上游熔断或 timeout；有一段公网扫描 `.env`、`wp-config.php`、`docker-compose.yml` 等常见敏感路径的探测，均返回 `404 NOT_FOUND`。这不影响当前业务，但后续可放入 Nginx 边缘规则/告警降噪。
 - 本地新增了 `gateway/scripts/mysql-restore-check.ts` 和 `bun run mysql-restore-check`，用于把 MySQL backup 恢复到 scratch/restore/dryrun/test 库后校验 sha256、表计数和基础支付/订单一致性；该脚本尚未部署到生产。
+
+`2026-05-29 03:50 CST` 追加只读检查：
+
+- `gugu-gateway`、`mysqld`、`redis` 仍为 `active`，本地 health 仍为 `{"ok":true}`。
+- `gugu-gateway-mysql-backup.timer` 首次自动运行已执行：`LAST=Fri 2026-05-29 03:38:36 CST`，下一次计划 `Sat 2026-05-30 03:43:10 CST`。
+- `gugu-gateway-mysql-backup.service` 运行成功，产物 `/var/backups/gugu-gateway/gateway-mysql-20260529-033837.sql`，大小约 `393K`，`bytes=401708`，`dumpMethod=js`。
+- backup manifest 和 `.sha256` 文件已创建；`sha256sum -c /var/backups/gugu-gateway/gateway-mysql-20260529-033837.sql.sha256` 返回 `OK`，sha256 为 `7418f2cb101861c1c49f9d9e3e1f81c1c6587e3245f3936d966968e8b6af58bf`。
+- manifest 表计数看起来正常：`devices=15`、`activation_codes=13`、`usage_events=1816`、`orders=42`、`payment_notifications=2`。
+- `gugu-gateway-monitor.timer` 最近一次运行在 `2026-05-29 03:48:01 CST`，monitor 输出 `issues=[]`。
+- admin metrics 显示 message/GLM 队列仍为空；DeepSeek/GLM circuit 均为 `closed`，`backend=redis`、`fallbackActive=false`；attachment task 仍关闭：`enabled=false`、`redisEnabled=false`、`queued=0`、`running=0`、`completed=0`。
+
+`2026-05-31` 本地 Phase 2 告警闭环推进：
+
+- 新增 `gateway/src/alerting.ts`、`gateway/scripts/gateway-alert-check.ts` 和 `bun run gateway-alert-check`。
+- alert check 覆盖 local health、admin metrics、message/GLM 队列、DeepSeek/GLM circuit/Redis fallback、attachment task 开关是否符合预期、MySQL backup 新鲜度与 sha256、基础支付/订单一致性。
+- 支持 `GUGU_ALERT_WEBHOOK_URL`，payload 支持 `generic`、`feishu`、`dingtalk`；未配置 webhook 时只输出 JSON，有 error 级 issue 时非零退出。
+- 新增 `gateway/deploy/systemd/gugu-gateway-alert.service` 和 `gugu-gateway-alert.timer` 模板，尚未部署到生产。
+- `deploy/env/gateway.env.example` 和 `docs/runbooks/gateway-systemd-mysql-redis.md` 已补 alert 配置与安装说明。
+- 新增 `gateway/src/__tests__/alerting.test.ts` 覆盖告警判定和 webhook payload。
+
+`2026-06-01 17:31-17:37 CST` Phase 2 alert 生产落地：
+
+- 已把 `gateway/scripts/gateway-alert-check.ts` 和 `gateway/src/alerting.ts` 部署到生产 `/root/opt/gugu`。
+- 新增 root-layout 模板 `gateway/deploy/systemd/gugu-gateway-alert.root.service` 和 `gateway/deploy/systemd/gugu-gateway-alert.root.timer`，用于当前生产 `/root/opt/gugu`、root 用户布局；生产 `/etc/systemd/system/gugu-gateway-alert.service` 和 `.timer` 已按这套布局安装。
+- 手动启动 `gugu-gateway-alert.service` 成功，journal 输出 `ok=true`、`issues=[]`；local health `200 {"ok":true}`。
+- alert check 验证最新 MySQL backup 新鲜且 `sha256Matches=true`，表计数为 `devices=17`、`activation_codes=14`、`usage_events=2273`、`orders=42`、`payment_notifications=2`。
+- `gugu-gateway-alert.timer` 已 enabled/active；`enable --now` 触发的 `2026-06-01 17:32:11 CST` 运行成功，首轮自然调度 `2026-06-01 17:37:25 CST` 也成功，下一轮显示为 `2026-06-01 17:42:27 CST`。
+- 当前未配置 `GUGU_ALERT_WEBHOOK_URL`，因此先以 journald JSON 输出和 systemd service 非零退出作为告警闭环；外部 IM/webhook 通知仍是后续待配置项。
+
+`2026-06-01 18:43-19:08 CST` Phase 4 memory-only 灰度启用：
+
+- 用户明确决定先跳过 `GUGU_ALERT_WEBHOOK_URL` 外部通知配置，继续推进后续 phase；当前 webhook 仍不配置。
+- 生产 `.env` 已先备份为 `/root/opt/gugu/.env.phase4-memory-20260601184318.bak`。
+- 已显式设置 `GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，并同步 `GUGU_ALERT_EXPECT_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_ALERT_EXPECT_REDIS_ATTACHMENT_TASKS_ENABLED=0`。
+- 已创建私有 spool 目录 `/var/lib/gugu-gateway/attachment-tasks`，权限 `0700 root:root`；`GUGU_ATTACHMENT_TASK_SPOOL_DIR` 指向该目录。
+- `systemctl restart gugu-gateway` 后，`gugu-gateway`、`mysqld`、`redis` 仍为 `active`，local health 返回 `{"ok":true}`。
+- 新增并部署 `gateway/scripts/phase4-attachment-task-smoke.ts`；production smoke 用 `text/plain` 的 `file_parser` 请求验证本地路径，不打 GLM 上游。
+- smoke 结果：`POST /v1/attachments/tasks` 返回 `202`、`Retry-After=1`、`provider=glm`；轮询后 task 按预期 `failed`，`responseStatus=400`、`errorCode=UNSUPPORTED_FILE_TYPE`，spool 目录为空。
+- smoke 后 admin metrics：`enabled=true`、`redisEnabled=false`、`backend=memory`、`fallbackActive=false`、`queued=0`、`running=0`、`completed=1`、`queueLimit=16`、`workerConcurrency=2`。
+- `gugu-gateway-alert.service` 在 `2026-06-01 19:07:54 CST` 返回 `ok=true`、`issues=[]`；`post-cutover-monitor` 在 `2026-06-01 19:08:00 CST` 返回 `ok=true`、`issues=[]`。
+- `systemctl list-timers 'gugu-gateway*'` 显示 monitor、alert、MySQL backup timers 均继续调度；最近 30 分钟 gateway 日志只看到重启时预期的 SIGTERM 和 smoke 请求日志，没有 Redis fallback、支付异常或上游错误。
 
 ## 生产运行图
 
@@ -186,24 +227,27 @@ GUGU_MAINTENANCE_DISABLE_ORDERS=0
 GUGU_MAINTENANCE_DISABLE_WRITES=0
 ```
 
-未在 env 中显式打开，当前通过默认值保持关闭：
+Phase 4 memory-only 灰度当前显式打开 task API，但 Redis task metadata/lease 仍关闭：
 
 ```bash
-GUGU_ATTACHMENT_TASKS_ENABLED=0
+GUGU_ATTACHMENT_TASKS_ENABLED=1
 GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0
+GUGU_ATTACHMENT_TASK_SPOOL_DIR=/var/lib/gugu-gateway/attachment-tasks
+GUGU_ALERT_EXPECT_ATTACHMENT_TASKS_ENABLED=1
+GUGU_ALERT_EXPECT_REDIS_ATTACHMENT_TASKS_ENABLED=0
 ```
 
 metrics 中的 task 快照：
 
 ```json
 {
-  "enabled": false,
+  "enabled": true,
   "redisEnabled": false,
   "backend": "memory",
   "fallbackActive": false,
   "queued": 0,
   "running": 0,
-  "completed": 0,
+  "completed": 1,
   "queueLimit": 16,
   "workerConcurrency": 2,
   "retentionMs": 3600000,
@@ -262,14 +306,14 @@ curl -fsS https://gugu.guxingyao.com/health
 
 1. 先观察到 `gugu-gateway-mysql-backup.timer` 在 `2026-05-29 03:38:35 CST` 首次自动执行成功，检查 manifest 和 sha256。
 2. 继续观察 `gugu-gateway-monitor.timer`、Redis fallback warning、支付通知和 fulfilled 订单。
-3. 如果要启用 attachment async task，按三段灰度：
-   - 先保持代码已部署但 `GUGU_ATTACHMENT_TASKS_ENABLED=0`，确认桌面回退同步解析。
-   - 小流量打开 `GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，验证创建、轮询、成功、失败退款、spool 删除、stale cleanup。
-   - 再打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，验证 `backend=redis`、`fallbackActive=false`。
+3. attachment async task 继续按三段灰度：
+   - 已完成：代码部署但 `GUGU_ATTACHMENT_TASKS_ENABLED=0`，确认桌面回退同步解析。
+   - 已完成：小流量打开 `GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，production smoke 验证创建、轮询、失败路径、spool 删除和 metrics。
+   - 下一步：继续观察 memory-only 真实流量；稳定后再打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，验证 `backend=redis`、`fallbackActive=false`。
 4. DeepSeek V4 多模态接入时，把 worker/provider 从 `glm` 平滑扩展到 `deepseek-v4`，不要改客户端 task 协议。
 5. 再做生产目录规范化：`/opt/gugu-gateway`、`/etc/gugu-gateway/gateway.env`、非 root `gugu` 用户。
 6. Docker、多实例、SLB/Nginx 多后端放最后，等单机指标和真实压力证明需要再推进。
 
 ## 给下一位 gateway agent 的 prompt
 
-请从 `docs/runbooks/gateway-agent-handoff-2026-05-29.md` 接手 gateway。当前生产在 `139.196.214.54`，运行目录 `/root/opt/gugu`，服务 `gugu-gateway.service`，MySQL `gugu_gateway` 已是 active store，Redis limiter/circuit 已启用，微信和支付宝真实支付已验证。Phase 4 attachment task 代码已 flags-off 部署到生产，但尚未灰度启用，`/v1/attachments/tasks` 应保持 `404 ATTACHMENT_TASKS_DISABLED`，admin metrics 应显示 `attachmentTasks.enabled=false`。不要把用户附件 payload 放 OSS；单机阶段只用本机私有 spool。下一步优先确认 MySQL backup timer 首次自动运行结果、继续观察 monitor/Redis fallback 日志，然后再决定是否按三段式灰度启用 attachment async task。DeepSeek V4 多模态后续会上线，task 协议必须保持 provider-neutral。
+请从 `docs/runbooks/gateway-agent-handoff-2026-05-29.md` 接手 gateway。当前生产在 `139.196.214.54`，运行目录 `/root/opt/gugu`，服务 `gugu-gateway.service`，MySQL `gugu_gateway` 已是 active store，Redis limiter/circuit 已启用，微信和支付宝真实支付已验证。Phase 2 alert check 已部署到生产并由 `gugu-gateway-alert.timer` 每 5 分钟运行；用户已决定跳过外部 webhook 配置，因此先依赖 journald JSON 和 systemd failure。Phase 4 attachment task 已进入 memory-only 小流量灰度：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，admin metrics 应显示 `attachmentTasks.enabled=true`、`redisEnabled=false`、`backend=memory`、`fallbackActive=false`。不要把用户附件 payload 放 OSS；单机阶段只用本机私有 spool `/var/lib/gugu-gateway/attachment-tasks`。下一步优先观察 memory-only 真实流量、alert/monitor 和 spool 清理；稳定后再决定是否打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`。DeepSeek V4 多模态后续会上线，task 协议必须保持 provider-neutral。

@@ -96,7 +96,8 @@ describe('MessageList nested tool calls', () => {
 
     render(<MessageList />)
 
-    expect(screen.getByText(/Working\.\.\./)).toBeTruthy()
+    const activityPanel = screen.getByLabelText('Current activity')
+    expect(within(activityPanel).getAllByText('Waiting for your confirmation').length).toBeGreaterThan(0)
   })
 
   it('renders sub-agent tool calls inline beneath the parent agent tool call', () => {
@@ -624,7 +625,9 @@ describe('MessageList nested tool calls', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('streaming new token')).toBeTruthy()
+      const assistantShell = container.querySelector('[data-message-shell="assistant"]')
+      expect(assistantShell).toBeTruthy()
+      expect(within(assistantShell as HTMLElement).getByText('streaming new token')).toBeTruthy()
     })
     expect(scrollIntoView).not.toHaveBeenCalled()
   })
@@ -682,7 +685,9 @@ describe('MessageList nested tool calls', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('streaming next token')).toBeTruthy()
+      const assistantShell = container.querySelector('[data-message-shell="assistant"]')
+      expect(assistantShell).toBeTruthy()
+      expect(within(assistantShell as HTMLElement).getByText('streaming next token')).toBeTruthy()
     })
     expect(scrollIntoView).toHaveBeenCalled()
   })
@@ -875,6 +880,101 @@ describe('MessageList nested tool calls', () => {
     expect(reloadHistory).toHaveBeenCalledWith(ACTIVE_TAB)
     expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
       text: '第二段',
+      attachments: undefined,
+    })
+  })
+
+  it('forgets trailing local user echoes after a successful rewind', async () => {
+    vi.spyOn(sessionsApi, 'rewind').mockResolvedValue({
+      target: {
+        targetUserMessageId: 'user-2',
+        userMessageIndex: 1,
+        userMessageCount: 3,
+      },
+      conversation: {
+        messagesRemoved: 3,
+      },
+      code: {
+        available: false,
+        filesChanged: [],
+        insertions: 0,
+        deletions: 0,
+      },
+    })
+    const reloadHistory = vi.fn().mockResolvedValue(undefined)
+    const queueComposerPrefill = vi.fn()
+    const forgetLocalUserEcho = vi.fn()
+
+    useChatStore.setState({
+      reloadHistory,
+      queueComposerPrefill,
+      forgetLocalUserEcho,
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: 'write first thing',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: 'ok',
+              timestamp: 2,
+            },
+            {
+              id: 'user-2',
+              type: 'user_text',
+              content: 'write second thing',
+              timestamp: 3,
+            },
+            {
+              id: 'assistant-plan',
+              type: 'assistant_text',
+              content: 'Plan:\n- implement the requested change\n\nDoes this plan look okay?',
+              timestamp: 4,
+            },
+            {
+              id: 'user-plan',
+              type: 'user_text',
+              content: 'Implement plan',
+              timestamp: 5,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const buttons = screen.getAllByRole('button', { name: 'Rewind to here' })
+    fireEvent.click(buttons[1]!)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /Rewind here/ }))
+
+    await waitFor(() => {
+      expect(sessionsApi.rewind).toHaveBeenLastCalledWith(ACTIVE_TAB, {
+        targetUserMessageId: 'user-2',
+        userMessageIndex: 1,
+        expectedContent: 'write second thing',
+      })
+    })
+    expect(forgetLocalUserEcho).toHaveBeenCalledWith(ACTIVE_TAB, {
+      id: 'user-2',
+      content: 'write second thing',
+      attachments: undefined,
+    })
+    expect(forgetLocalUserEcho).toHaveBeenCalledWith(ACTIVE_TAB, {
+      id: 'user-plan',
+      content: 'Implement plan',
+      attachments: undefined,
+    })
+    expect(forgetLocalUserEcho).toHaveBeenCalledTimes(2)
+    expect(reloadHistory).toHaveBeenCalledWith(ACTIVE_TAB)
+    expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
+      text: 'write second thing',
       attachments: undefined,
     })
   })

@@ -117,11 +117,12 @@ const DEFAULT_PREWARM_IDLE_TIMEOUT_MS = 5 * 60_000
 const DEFAULT_IDLE_SESSION_RECONNECT_GRACE_MS = 30_000
 const DEFAULT_ACTIVE_SESSION_RECONNECT_GRACE_MS = 30 * 60_000
 const DEFAULT_TURN_WATCHDOG_INTERVAL_MS = 5_000
-const DEFAULT_TURN_PROGRESS_NOTICE_MS = 45_000
-const DEFAULT_TURN_PROGRESS_REMINDER_MS = 60_000
+const DEFAULT_TURN_PROGRESS_NOTICE_MS = 20_000
+const DEFAULT_TURN_PROGRESS_REMINDER_MS = 30_000
 const DEFAULT_ATTACHMENT_PARSE_PROGRESS_NOTICE_MS = 15_000
 const DEFAULT_ATTACHMENT_PARSE_PROGRESS_REMINDER_MS = 15_000
-const DEFAULT_MODEL_STALL_NOTICE_MS = 5 * 60_000
+const DEFAULT_MODEL_STALL_NOTICE_MS = 60_000
+const DEFAULT_MODEL_IDLE_TIMEOUT_MS = 2 * 60_000
 const DEFAULT_SDK_LIVENESS_TIMEOUT_MS = 2 * 60_000
 const DEFAULT_SDK_RECONNECT_GRACE_MS = 10 * 60_000
 const DEFAULT_SDK_RESTORED_PROGRESS_NOTICE_MS = 90_000
@@ -474,6 +475,11 @@ function tickTurnMonitor(sessionId: string): void {
     })
   }
 
+  if (shouldRecoverForModelIdle(monitor, now)) {
+    recoverStalledTurn(sessionId, '模型长时间没有返回任何内容，已中止本轮以恢复会话。')
+    return
+  }
+
   if (monitor.phase === 'tool_executing') {
     const toolNoticeMs = getEnvMs('CC_HAHA_TOOL_STALL_NOTICE_MS', DEFAULT_TOOL_STALL_NOTICE_MS)
     if (noProgressMs >= toolNoticeMs && !monitor.toolStallNoticeSent) {
@@ -519,6 +525,18 @@ function shouldRecoverForRestoredAgentIdle(
     DEFAULT_SDK_RESTORED_IDLE_TIMEOUT_MS,
   )
   return timeoutMs > 0 && now - monitor.sdkRestoredAt >= timeoutMs
+}
+
+function shouldRecoverForModelIdle(
+  monitor: TurnMonitor,
+  now: number,
+): boolean {
+  if (monitor.phase !== 'thinking' && monitor.phase !== 'streaming') return false
+  const timeoutMs = getEnvMs(
+    'CC_HAHA_MODEL_IDLE_TIMEOUT_MS',
+    DEFAULT_MODEL_IDLE_TIMEOUT_MS,
+  )
+  return timeoutMs > 0 && now - monitor.lastProgressAt >= timeoutMs
 }
 
 function noteSdkConnected(sessionId: string): void {
@@ -940,6 +958,7 @@ function handlePermissionResponse(
     message.allowed,
     message.rule,
     message.updatedInput,
+    message.message,
   )
   console.log(`[WS] Permission response for ${message.requestId}: ${message.allowed}`)
 }
@@ -2351,6 +2370,10 @@ export const __testing = {
   shouldRecoverForRestoredAgentIdle(sessionId: string, now: number) {
     const monitor = sessionTurnMonitors.get(sessionId)
     return monitor ? shouldRecoverForRestoredAgentIdle(monitor, now) : false
+  },
+  shouldRecoverForModelIdle(sessionId: string, now: number) {
+    const monitor = sessionTurnMonitors.get(sessionId)
+    return monitor ? shouldRecoverForModelIdle(monitor, now) : false
   },
   setTurnMonitor(
     sessionId: string,

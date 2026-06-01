@@ -7,6 +7,7 @@ let originalReconnectGrace: string | undefined
 let originalSdkLivenessTimeout: string | undefined
 let originalSdkReconnectGrace: string | undefined
 let originalSdkRestoredIdleTimeout: string | undefined
+let originalModelIdleTimeout: string | undefined
 
 describe('desktop WebSocket watchdog', () => {
   beforeEach(() => {
@@ -14,6 +15,7 @@ describe('desktop WebSocket watchdog', () => {
     originalSdkLivenessTimeout = process.env.CC_HAHA_SDK_LIVENESS_TIMEOUT_MS
     originalSdkReconnectGrace = process.env.CC_HAHA_SDK_RECONNECT_GRACE_MS
     originalSdkRestoredIdleTimeout = process.env.CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS
+    originalModelIdleTimeout = process.env.CC_HAHA_MODEL_IDLE_TIMEOUT_MS
     __testing.clearTurnMonitor(SESSION_ID)
     __testing.clearSessionCleanupTimer(SESSION_ID)
   })
@@ -40,6 +42,11 @@ describe('desktop WebSocket watchdog', () => {
       delete process.env.CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS
     } else {
       process.env.CC_HAHA_SDK_RESTORED_IDLE_TIMEOUT_MS = originalSdkRestoredIdleTimeout
+    }
+    if (originalModelIdleTimeout === undefined) {
+      delete process.env.CC_HAHA_MODEL_IDLE_TIMEOUT_MS
+    } else {
+      process.env.CC_HAHA_MODEL_IDLE_TIMEOUT_MS = originalModelIdleTimeout
     }
   })
 
@@ -189,5 +196,23 @@ describe('desktop WebSocket watchdog', () => {
     __testing.noteTurnActivity(SESSION_ID, { type: 'assistant' })
 
     expect(__testing.getTurnMonitorSnapshot(SESSION_ID)?.sdkRestoredAt).toBeNull()
+  })
+
+  test('recovers model turns that never produce content or tools', () => {
+    process.env.CC_HAHA_MODEL_IDLE_TIMEOUT_MS = '1000'
+    __testing.setTurnMonitor(SESSION_ID, {
+      phase: 'thinking',
+      lastProgressAt: 1_000,
+    })
+
+    expect(__testing.shouldRecoverForModelIdle(SESSION_ID, 1_500)).toBe(false)
+    expect(__testing.shouldRecoverForModelIdle(SESSION_ID, 2_100)).toBe(true)
+
+    __testing.setTurnMonitor(SESSION_ID, {
+      phase: 'tool_executing',
+      lastProgressAt: 1_000,
+    })
+
+    expect(__testing.shouldRecoverForModelIdle(SESSION_ID, 2_100)).toBe(false)
   })
 })

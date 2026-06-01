@@ -56,6 +56,7 @@ export type OpenAIChatRequest = {
   tools?: OpenAIResponsesTool[]
   tool_choice?: unknown
   reasoning_effort?: 'low' | 'medium' | 'high'
+  thinking?: { type: 'enabled' | 'disabled' }
 }
 
 export type OpenAIChatResponse = {
@@ -79,6 +80,8 @@ export type OpenAIChatResponse = {
     prompt_tokens: number
     completion_tokens: number
     total_tokens: number
+    prompt_cache_hit_tokens?: number
+    prompt_cache_miss_tokens?: number
     prompt_tokens_details?: {
       cached_tokens?: number
     }

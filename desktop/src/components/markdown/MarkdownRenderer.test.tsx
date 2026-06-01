@@ -131,4 +131,37 @@ describe('MarkdownRenderer', () => {
 
     expect(filesystemApi.reveal).toHaveBeenCalledWith('D:\\work\\example.ts')
   })
+
+  it('resolves relative file references against the current workspace before revealing', () => {
+    render(
+      <MarkdownRenderer
+        content={'已完成 `tetris.html`，双击打开即可游玩。'}
+        localPathBase="D:\\Cursor\\Test"
+      />,
+    )
+
+    const pathButton = screen.getByRole('button', { name: 'tetris.html' })
+    fireEvent.click(pathButton)
+
+    expect(filesystemApi.reveal).toHaveBeenCalledWith('D:\\Cursor\\Test\\tetris.html')
+  })
+
+  it('keeps relative-looking inline code plain when no workspace is available', () => {
+    render(<MarkdownRenderer content={'已完成 `tetris.html`。'} />)
+
+    expect(screen.queryByRole('button', { name: 'tetris.html' })).not.toBeInTheDocument()
+    expect(screen.getByText('tetris.html')).toBeInTheDocument()
+  })
+
+  it('does not resolve relative file references that escape the workspace', () => {
+    render(
+      <MarkdownRenderer
+        content={'Do not reveal `..\\secrets.txt` from here.'}
+        localPathBase="D:\\Cursor\\Test"
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: '..\\secrets.txt' })).not.toBeInTheDocument()
+    expect(screen.getByText('..\\secrets.txt')).toBeInTheDocument()
+  })
 })

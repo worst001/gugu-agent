@@ -1,6 +1,7 @@
 import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
+import { isOfficeToolInternalFallbackRequest } from '../constants/officeTools'
 
-const FALLBACK_SESSION_TITLE = 'New Session'
+export const FALLBACK_SESSION_TITLE = 'New Session'
 const TITLE_MAX_LEN = 80
 
 function extractAttachmentParserDisplayText(content: string): string | null {
@@ -11,11 +12,33 @@ function extractAttachmentParserDisplayText(content: string): string | null {
   return match?.[1] ?? null
 }
 
+function extractOfficeToolboxDisplayText(content: string): string | null {
+  if (!content.startsWith('[Office toolbox:') || !content.includes('User request:')) {
+    return null
+  }
+  const match = content.match(/(?:^|\n)User request:\s*\n([\s\S]*)$/)
+  const request = match?.[1] ?? null
+  if (request !== null && isOfficeToolInternalFallbackRequest(request)) return ''
+  return request
+}
+
+function looksLikeHiddenScaffoldTitle(title: string): boolean {
+  return title.startsWith('[Workflow:') ||
+    title.startsWith('[Agent mode:') ||
+    title.startsWith('[Office toolbox:') ||
+    title.includes('CE automation (binding)') ||
+    title.includes('Default mode remains natural') ||
+    title.includes('product-facing planning mode') ||
+    title.includes('Gugu Agent Office Toolbox') ||
+    title.includes('<闄勦欢瑙ｆ瀽缁撴灉>')
+}
+
 export function sanitizeSessionTitle(title: string): string {
   let stripped = title
   for (let i = 0; i < 3; i += 1) {
     const next = extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
+      ?? extractOfficeToolboxDisplayText(stripped)
     if (next === null || next === stripped) break
     stripped = next
   }
@@ -25,6 +48,7 @@ export function sanitizeSessionTitle(title: string): string {
     !cleaned ||
     cleaned.startsWith('[Workflow:') ||
     cleaned.startsWith('[Agent mode:') ||
+    looksLikeHiddenScaffoldTitle(cleaned) ||
     cleaned.includes('CE automation (binding)') ||
     cleaned.includes('<附件解析结果>')
   ) {

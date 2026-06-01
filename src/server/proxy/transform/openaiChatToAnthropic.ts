@@ -9,6 +9,7 @@ import type {
   AnthropicResponse,
   AnthropicContentBlock,
 } from './types.js'
+import { mapOpenAIChatUsageToAnthropic } from './openaiChatUsage.js'
 
 /**
  * Convert OpenAI Chat Completions response to Anthropic Messages response.
@@ -77,7 +78,7 @@ export function openaiChatToAnthropic(response: OpenAIChatResponse, model: strin
     model: response.model || model,
     stop_reason: mapFinishReason(choice.finish_reason),
     stop_sequence: null,
-    usage: mapUsage(response.usage),
+    usage: mapOpenAIChatUsageToAnthropic(response.usage),
   }
 }
 
@@ -91,17 +92,6 @@ function mapFinishReason(reason: string | null): string {
   }
 }
 
-function mapUsage(usage?: OpenAIChatResponse['usage']): AnthropicResponse['usage'] {
-  if (!usage) {
-    return { input_tokens: 0, output_tokens: 0 }
-  }
-  return {
-    input_tokens: usage.prompt_tokens || 0,
-    output_tokens: usage.completion_tokens || 0,
-    cache_read_input_tokens: usage.prompt_tokens_details?.cached_tokens || 0,
-  }
-}
-
 function createEmptyResponse(response: OpenAIChatResponse, model: string): AnthropicResponse {
   return {
     id: response.id || `msg_${Date.now()}`,
@@ -111,6 +101,6 @@ function createEmptyResponse(response: OpenAIChatResponse, model: string): Anthr
     model: response.model || model,
     stop_reason: 'end_turn',
     stop_sequence: null,
-    usage: mapUsage(response.usage),
+    usage: mapOpenAIChatUsageToAnthropic(response.usage),
   }
 }

@@ -525,6 +525,86 @@ describe('ChatGPT provider integration', () => {
     expect(text).toContain('ok')
   })
 
+  test('stream proxy never inserts pings inside split pass-through SSE events', async () => {
+    process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS = '0'
+    process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS = '5'
+    const svc = new ProviderService()
+    const provider = await svc.addProvider({
+      presetId: 'anthropic-compatible',
+      name: 'Anthropic Compatible',
+      apiKey: 'anthropic-key',
+      baseUrl: 'https://anthropic-compatible.test',
+      apiFormat: 'anthropic',
+      models: {
+        main: 'claude-test',
+        haiku: 'claude-test',
+        sonnet: 'claude-test',
+        opus: 'claude-test',
+      },
+    })
+    await svc.activateProvider(provider.id)
+
+    globalThis.fetch = (async () => {
+      const encoder = new TextEncoder()
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_split"',
+          ))
+          setTimeout(() => {
+            controller.enqueue(encoder.encode([
+              ',"type":"message","role":"assistant","content":[],"model":"claude-test","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}',
+              '',
+              'event: content_block_start',
+              'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+              '',
+              'event: content_block_delta',
+              'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
+              '',
+              'event: content_block_stop',
+              'data: {"type":"content_block_stop","index":0}',
+              '',
+              'event: message_delta',
+              'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}',
+              '',
+              'event: message_stop',
+              'data: {"type":"message_stop"}',
+              '',
+            ].join('\n')))
+            controller.close()
+          }, 25)
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    }) as typeof fetch
+
+    const req = new Request('http://127.0.0.1:3456/proxy/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-test',
+        max_tokens: 64,
+        stream: true,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    })
+    const res = await handleProxyRequest(req, new URL(req.url))
+    const text = await res.text()
+    const messageStart = text
+      .split(/\r?\n\r?\n/)
+      .find((block) => block.startsWith('event: message_start'))
+    const dataLine = messageStart
+      ?.split(/\r?\n/)
+      .find((line) => line.startsWith('data: '))
+
+    expect(res.status).toBe(200)
+    expect(dataLine).toBeDefined()
+    expect(() => JSON.parse(dataLine!.slice(6))).not.toThrow()
+    expect(text).toContain('ok')
+  })
+
   test('stream proxy closes with a recovery error after upstream idle timeout', async () => {
     process.env.CC_HAHA_PROXY_STREAM_IDLE_TIMEOUT_MS = '20'
     process.env.CC_HAHA_PROXY_STREAM_PING_INTERVAL_MS = '5'

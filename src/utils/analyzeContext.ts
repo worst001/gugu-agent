@@ -35,6 +35,7 @@ import type {
 } from '../tools/AgentTool/loadAgentsDir.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/constants.js'
 import {
+  formatCommandsWithinBudget,
   getLimitedSkillToolCommands,
   getSkillToolInfo as getSlashCommandInfo,
 } from '../tools/SkillTool/prompt.js'
@@ -189,6 +190,12 @@ interface SkillInfo {
   /** Total tokens consumed by skills */
   readonly tokens: number
   /** Individual skill details */
+  readonly skillFrontmatter: SkillFrontmatter[]
+}
+
+type SkillTokenBreakdown = {
+  readonly listingTokens: number
+  readonly toolSchemaTokens: number
   readonly skillFrontmatter: SkillFrontmatter[]
 }
 
@@ -530,6 +537,55 @@ function findSkillTool(tools: Tools): Tool | undefined {
   return findToolByName(tools, SKILL_TOOL_NAME)
 }
 
+const SKILL_LISTING_PREFIX =
+  'The following skills are available for use with the Skill tool:\n\n'
+
+function allocateDisplayedSkillTokens(
+  rawSkillFrontmatter: SkillFrontmatter[],
+  displayedTotalTokens: number,
+): SkillFrontmatter[] {
+  const rawTotal = rawSkillFrontmatter.reduce((sum, skill) => sum + skill.tokens, 0)
+  if (rawTotal <= 0 || displayedTotalTokens <= 0) {
+    return rawSkillFrontmatter.map(skill => ({ ...skill, tokens: 0 }))
+  }
+
+  let allocated = 0
+  return rawSkillFrontmatter.map((skill, index) => {
+    const tokens = index === rawSkillFrontmatter.length - 1
+      ? Math.max(0, displayedTotalTokens - allocated)
+      : Math.round((skill.tokens / rawTotal) * displayedTotalTokens)
+    allocated += tokens
+    return { ...skill, tokens }
+  })
+}
+
+export function estimateSkillListingTokenBreakdown(
+  skills: Awaited<ReturnType<typeof getLimitedSkillToolCommands>>,
+  contextWindow?: number,
+  toolSchemaTokens = 0,
+): SkillTokenBreakdown {
+  const rawSkillFrontmatter: SkillFrontmatter[] = skills.map(skill => ({
+    name: getCommandName(skill),
+    source: (skill.type === 'prompt' ? skill.source : 'plugin') as
+      | SettingSource
+      | 'plugin',
+    tokens: estimateSkillFrontmatterTokens(skill),
+  }))
+  const listingContent = formatCommandsWithinBudget(skills, contextWindow)
+  const listingTokens = listingContent
+    ? roughTokenCountEstimation(`${SKILL_LISTING_PREFIX}${listingContent}`)
+    : 0
+
+  return {
+    listingTokens,
+    toolSchemaTokens,
+    skillFrontmatter: allocateDisplayedSkillTokens(
+      rawSkillFrontmatter,
+      listingTokens,
+    ),
+  }
+}
+
 async function countSlashCommandTokens(
   tools: Tools,
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
@@ -570,9 +626,11 @@ async function countSkillTokens(
   tools: Tools,
   getToolPermissionContext: () => Promise<ToolPermissionContext>,
   agentInfo: AgentDefinitionsResult | null,
+  contextWindow?: number,
   estimateOnly = false,
 ): Promise<{
   skillTokens: number
+  skillToolSchemaTokens: number
   skillInfo: {
     totalSkills: number
     includedSkills: number
@@ -586,38 +644,33 @@ async function countSkillTokens(
     if (!slashCommandTool) {
       return {
         skillTokens: 0,
+        skillToolSchemaTokens: 0,
         skillInfo: { totalSkills: 0, includedSkills: 0, skillFrontmatter: [] },
       }
     }
 
-    // NOTE: This counts the entire SlashCommandTool (which includes both commands AND skills).
-    // This is the same tool counted by countSlashCommandTokens(), but we track it separately
-    // here for display purposes. These tokens should NOT be added to context categories
-    // to avoid double-counting.
-    const skillTokens = await countToolDefinitionTokens(
+    const skillToolSchemaTokens = await countToolDefinitionTokens(
       [slashCommandTool],
       getToolPermissionContext,
       agentInfo,
       undefined,
       estimateOnly,
     )
-
-    // Calculate per-skill token estimates based on frontmatter only
-    // (name, description, whenToUse) since full content is only loaded on invocation
-    const skillFrontmatter: SkillFrontmatter[] = skills.map(skill => ({
-      name: getCommandName(skill),
-      source: (skill.type === 'prompt' ? skill.source : 'plugin') as
-        | SettingSource
-        | 'plugin',
-      tokens: estimateSkillFrontmatterTokens(skill),
-    }))
+    const skillBreakdown = estimateSkillListingTokenBreakdown(
+      skills,
+      contextWindow,
+      skillToolSchemaTokens,
+    )
+    const skillTokens =
+      skillBreakdown.toolSchemaTokens + skillBreakdown.listingTokens
 
     return {
       skillTokens,
+      skillToolSchemaTokens,
       skillInfo: {
         totalSkills: skills.length,
         includedSkills: skills.length,
-        skillFrontmatter,
+        skillFrontmatter: skillBreakdown.skillFrontmatter,
       },
     }
   } catch (error) {
@@ -626,6 +679,7 @@ async function countSkillTokens(
     // Return zero values rather than failing the entire context analysis
     return {
       skillTokens: 0,
+      skillToolSchemaTokens: 0,
       skillInfo: { totalSkills: 0, includedSkills: 0, skillFrontmatter: [] },
     }
   }
@@ -1020,15 +1074,12 @@ export async function analyzeContextUsage(
     tools,
     getToolPermissionContext,
     agentDefinitions,
+    contextWindow,
     estimateOnly,
   )
   const skillInfo = skillResult.skillInfo
-  // Use sum of individual skill token estimates (matches what's shown in details)
-  // rather than skillResult.skillTokens which includes tool schema overhead
-  const skillFrontmatterTokens = skillInfo.skillFrontmatter.reduce(
-    (sum, skill) => sum + skill.tokens,
-    0,
-  )
+  const skillTokens = skillResult.skillTokens
+  const skillToolSchemaTokens = skillResult.skillToolSchemaTokens
 
   const messageTokens = messageBreakdown.totalTokens
 
@@ -1052,7 +1103,7 @@ export async function analyzeContextUsage(
 
   // Built-in tools right after system prompt (skills shown separately below)
   // Ant users get a per-tool breakdown via systemToolDetails
-  const systemToolsTokens = builtInToolTokens - skillFrontmatterTokens
+  const systemToolsTokens = Math.max(0, builtInToolTokens - skillToolSchemaTokens)
   if (systemToolsTokens > 0) {
     cats.push({
       name:
@@ -1113,10 +1164,10 @@ export async function analyzeContextUsage(
   }
 
   // Skills after memory files
-  if (skillFrontmatterTokens > 0) {
+  if (skillTokens > 0) {
     cats.push({
       name: 'Skills',
-      tokens: skillFrontmatterTokens,
+      tokens: skillTokens,
       color: 'warning',
     })
   }
@@ -1400,11 +1451,11 @@ export async function analyzeContextUsage(
           }
         : undefined,
     skills:
-      skillFrontmatterTokens > 0
+      skillTokens > 0
         ? {
             totalSkills: skillInfo.totalSkills,
             includedSkills: skillInfo.includedSkills,
-            tokens: skillFrontmatterTokens,
+            tokens: skillTokens,
             skillFrontmatter: skillInfo.skillFrontmatter,
           }
         : undefined,

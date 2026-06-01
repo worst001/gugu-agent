@@ -23,6 +23,7 @@ type Props = {
   sessionId?: string
   cwd?: string
   commands?: SlashCommandOption[]
+  onContextSnapshot?: (context: SessionContextSnapshot) => void
   onClose: () => void
 }
 
@@ -148,6 +149,53 @@ function formatDuration(seconds: number | undefined) {
 function formatPercent(value: number | undefined) {
   const percent = Math.max(0, Math.min(100, value ?? 0))
   return `${percent.toFixed(percent >= 10 || Number.isInteger(percent) ? 0 : 1)}%`
+}
+
+function createEmptyContextSnapshot(model = ''): SessionContextSnapshot {
+  return {
+    categories: [],
+    totalTokens: 0,
+    maxTokens: 0,
+    rawMaxTokens: 0,
+    percentage: 0,
+    gridRows: [],
+    model,
+    memoryFiles: [],
+    mcpTools: [],
+    agents: [],
+    messageBreakdown: {
+      toolCallTokens: 0,
+      toolResultTokens: 0,
+      attachmentTokens: 0,
+      assistantMessageTokens: 0,
+      userMessageTokens: 0,
+      toolCallsByType: [],
+      attachmentsByType: [],
+    },
+    apiUsage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+  }
+}
+
+function createInactiveContextInspection(sessionId = ''): SessionInspectionResponse {
+  return {
+    active: false,
+    status: {
+      sessionId,
+      workDir: '',
+      permissionMode: '',
+    },
+    contextEstimate: createEmptyContextSnapshot(),
+  }
+}
+
+function isSessionNotFoundError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return /Session not found/i.test(message)
 }
 
 function sessionInspectorInitialTab(command: LocalSlashCommandName): SessionInspectorTab {
@@ -674,11 +722,13 @@ function SessionInspectorPanel({
   command,
   sessionId,
   commands,
+  onContextSnapshot,
   onClose,
 }: {
   command: LocalSlashCommandName
   sessionId?: string
   commands?: SlashCommandOption[]
+  onContextSnapshot?: (context: SessionContextSnapshot) => void
   onClose: () => void
 }) {
   const t = useTranslation()
@@ -696,6 +746,13 @@ function SessionInspectorPanel({
 
   useEffect(() => {
     if (!sessionId) {
+      if (command === 'context') {
+        const inactive = createInactiveContextInspection()
+        setData(inactive)
+        if (inactive.contextEstimate) onContextSnapshot?.(inactive.contextEstimate)
+        setError(null)
+        return
+      }
       setError(t('slash.inspector.error.noActiveSession'))
       return
     }
@@ -707,15 +764,27 @@ function SessionInspectorPanel({
     contextRequestSessionRef.current = null
     sessionsApi.getInspection(sessionId, { includeContext: false })
       .then((response) => {
-        if (!cancelled) setData(assertSessionInspectionResponse(response, t))
+        if (cancelled) return
+        const inspected = assertSessionInspectionResponse(response, t)
+        setData(inspected)
+        const nextContext = inspected.context ?? inspected.contextEstimate
+        if (nextContext) onContextSnapshot?.(nextContext)
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+        if (cancelled) return
+        if (command === 'context' && isSessionNotFoundError(err)) {
+          const inactive = createInactiveContextInspection(sessionId)
+          setData(inactive)
+          if (inactive.contextEstimate) onContextSnapshot?.(inactive.contextEstimate)
+          setError(null)
+          return
+        }
+        setError(err instanceof Error ? err.message : String(err))
       })
     return () => {
       cancelled = true
     }
-  }, [sessionId, t])
+  }, [command, onContextSnapshot, sessionId, t])
 
   useEffect(() => {
     if (!sessionId || selectedTab !== 'context' || data === null || data.context) return
@@ -728,6 +797,7 @@ function SessionInspectorPanel({
       .then((response) => {
         if (cancelled) return
         const inspected = assertSessionInspectionResponse(response, t)
+        const nextContext = inspected.context ?? inspected.contextEstimate
         setData((current) => current
           ? {
               ...current,
@@ -738,10 +808,24 @@ function SessionInspectorPanel({
               },
             }
           : inspected)
+        if (nextContext) onContextSnapshot?.(nextContext)
         setContextError(inspected.errors?.context ?? null)
       })
       .catch((err) => {
-        if (!cancelled) setContextError(err instanceof Error ? err.message : String(err))
+        if (cancelled) return
+        if (isSessionNotFoundError(err)) {
+          const emptyContext = createEmptyContextSnapshot()
+          setData((current) => current
+            ? {
+                ...current,
+                contextEstimate: current.contextEstimate ?? createEmptyContextSnapshot(current.status.model),
+              }
+            : createInactiveContextInspection(sessionId))
+          onContextSnapshot?.(emptyContext)
+          setContextError(null)
+          return
+        }
+        setContextError(err instanceof Error ? err.message : String(err))
       })
       .finally(() => {
         if (!cancelled) setContextLoading(false)
@@ -749,7 +833,7 @@ function SessionInspectorPanel({
     return () => {
       cancelled = true
     }
-  }, [data, selectedTab, sessionId, t])
+  }, [data, onContextSnapshot, selectedTab, sessionId, t])
 
   const tabs: Array<{ id: SessionInspectorTab; label: string }> = command === 'context'
     ? [{ id: 'context', label: t('slash.inspector.tab.context') }]
@@ -1050,11 +1134,19 @@ function HelpPanel({
   )
 }
 
-export function LocalSlashCommandPanel({ command, sessionId, cwd, commands, onClose }: Props) {
+export function LocalSlashCommandPanel({ command, sessionId, cwd, commands, onContextSnapshot, onClose }: Props) {
   if (command === 'mcp') return <McpPanel cwd={cwd} onClose={onClose} />
   if (command === 'skills') return <SkillsPanel cwd={cwd} onClose={onClose} />
   if (command === 'status' || command === 'cost' || command === 'context') {
-    return <SessionInspectorPanel command={command} sessionId={sessionId} commands={commands} onClose={onClose} />
+    return (
+      <SessionInspectorPanel
+        command={command}
+        sessionId={sessionId}
+        commands={commands}
+        onContextSnapshot={onContextSnapshot}
+        onClose={onClose}
+      />
+    )
   }
   return <HelpPanel commands={commands} onClose={onClose} />
 }

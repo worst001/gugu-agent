@@ -306,7 +306,22 @@ export class ProviderService {
 
   async listProviders(): Promise<{ providers: SavedProvider[]; activeId: string | null }> {
     const index = await this.ensureManagedProviderIndex(await this.readIndex())
+    await this.ensureActiveProviderSettings(index)
     return { providers: index.providers, activeId: index.activeId }
+  }
+
+  private async ensureActiveProviderSettings(index: ProvidersIndex): Promise<void> {
+    if (!index.activeId) return
+    const provider = index.providers.find((p) => p.id === index.activeId)
+    if (!provider) return
+
+    const settings = await this.readSettings()
+    const env = (settings.env as Record<string, string> | undefined) ?? {}
+    const desired = this.buildManagedEnv(provider)
+    const isStale = Object.entries(desired).some(([key, value]) => env[key] !== value)
+    if (isStale) {
+      await this.syncToSettings(provider)
+    }
   }
 
   async getProvider(id: string): Promise<SavedProvider> {

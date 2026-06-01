@@ -3,7 +3,7 @@
  */
 
 import type { ToolResultBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
-import { mkdir, writeFile } from 'fs/promises'
+import { access, mkdir, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { getOriginalCwd, getSessionId } from '../bootstrap/state.js'
 import {
@@ -29,6 +29,7 @@ export const TOOL_RESULTS_SUBDIR = 'tool-results'
 // XML tag used to wrap persisted output messages
 export const PERSISTED_OUTPUT_TAG = '<persisted-output>'
 export const PERSISTED_OUTPUT_CLOSING_TAG = '</persisted-output>'
+export const TOOL_RESULT_HANDLE_PREFIX = 'tool-result:'
 
 // Message used when tool result content was cleared without persisting to file
 export const TOOL_RESULT_CLEARED_MESSAGE = '[Old tool result content cleared]'
@@ -79,6 +80,8 @@ export function getPersistenceThreshold(
 
 // Result of persisting a tool result to disk
 export type PersistedToolResult = {
+  toolUseId: string
+  handle: string
   filepath: string
   originalSize: number
   isJson: boolean
@@ -114,6 +117,73 @@ export const PREVIEW_SIZE_BYTES = 2000
 export function getToolResultPath(id: string, isJson: boolean): string {
   const ext = isJson ? 'json' : 'txt'
   return join(getToolResultsDir(), `${id}.${ext}`)
+}
+
+export function buildToolResultHandle(toolUseId: string): string {
+  return `${TOOL_RESULT_HANDLE_PREFIX}${toolUseId}`
+}
+
+export function parseToolResultHandle(handle: string): string | null {
+  if (!handle.startsWith(TOOL_RESULT_HANDLE_PREFIX)) return null
+  const toolUseId = handle.slice(TOOL_RESULT_HANDLE_PREFIX.length)
+  if (!/^[A-Za-z0-9_-]+$/.test(toolUseId)) return null
+  return toolUseId
+}
+
+export type PersistedToolResultHandleResolution = {
+  handle: string
+  toolUseId: string
+  filepath: string
+  isJson: boolean
+}
+
+export async function resolvePersistedToolResultHandle(
+  handle: string,
+): Promise<PersistedToolResultHandleResolution | { error: string }> {
+  const toolUseId = parseToolResultHandle(handle)
+  if (!toolUseId) {
+    return { error: 'Invalid tool result handle' }
+  }
+
+  for (const isJson of [false, true]) {
+    const filepath = getToolResultPath(toolUseId, isJson)
+    try {
+      await access(filepath)
+      return {
+        handle,
+        toolUseId,
+        filepath,
+        isJson,
+      }
+    } catch (error) {
+      if (getErrnoCode(error) === 'ENOENT') continue
+      logError(toError(error))
+      return { error: getFileSystemErrorMessage(toError(error)) }
+    }
+  }
+
+  return { error: `Persisted tool result not found for handle: ${handle}` }
+}
+
+export type PersistedToolResultRead =
+  | {
+      handle: string
+      toolUseId: string
+      filepath: string
+      isJson: boolean
+      content: string
+    }
+  | { error: string }
+
+export async function readPersistedToolResultByHandle(
+  handle: string,
+): Promise<PersistedToolResultRead> {
+  const resolution = await resolvePersistedToolResultHandle(handle)
+  if ('error' in resolution) return resolution
+  return {
+    ...resolution,
+    content: await readFile(resolution.filepath, 'utf-8'),
+  }
 }
 
 /**
@@ -175,6 +245,8 @@ export async function persistToolResult(
   const { preview, hasMore } = generatePreview(contentStr, PREVIEW_SIZE_BYTES)
 
   return {
+    toolUseId,
+    handle: buildToolResultHandle(toolUseId),
     filepath,
     originalSize: contentStr.length,
     isJson,
@@ -191,11 +263,33 @@ export function buildLargeToolResultMessage(
 ): string {
   let message = `${PERSISTED_OUTPUT_TAG}\n`
   message += `Output too large (${formatFileSize(result.originalSize)}). Full output saved to: ${result.filepath}\n\n`
+  message += `Handle: ${result.handle}\n\n`
   message += `Preview (first ${formatFileSize(PREVIEW_SIZE_BYTES)}):\n`
   message += result.preview
   message += result.hasMore ? '\n...\n' : '\n'
   message += PERSISTED_OUTPUT_CLOSING_TAG
   return message
+}
+
+export type PersistedToolResultReference = {
+  handle: string | null
+  filepath: string | null
+}
+
+export function parsePersistedToolResultMessage(
+  content: string,
+): PersistedToolResultReference | null {
+  if (!content.startsWith(PERSISTED_OUTPUT_TAG)) {
+    return null
+  }
+  const handleMatch = content.match(/^Handle: (tool-result:[^\r\n]+)$/m)
+  const filepathMatch = content.match(
+    /^Output too large \([^)]+\)\. Full output saved to: (.+)$/m,
+  )
+  return {
+    handle: handleMatch?.[1] ?? null,
+    filepath: filepathMatch?.[1] ?? null,
+  }
 }
 
 /**
@@ -476,6 +570,9 @@ export type ContentReplacementRecord = {
   kind: 'tool-result'
   toolUseId: string
   replacement: string
+  handle?: string
+  filepath?: string
+  originalSize?: number
 }
 
 export type ToolResultReplacementRecord = Extract<
@@ -727,12 +824,19 @@ function replaceToolResultContents(
 
 async function buildReplacement(
   candidate: ToolResultCandidate,
-): Promise<{ content: string; originalSize: number } | null> {
+): Promise<{
+  content: string
+  originalSize: number
+  handle: string
+  filepath: string
+} | null> {
   const result = await persistToolResult(candidate.content, candidate.toolUseId)
   if (isPersistError(result)) return null
   return {
     content: buildLargeToolResultMessage(result),
     originalSize: result.originalSize,
+    handle: result.handle,
+    filepath: result.filepath,
   }
 }
 
@@ -871,6 +975,9 @@ export async function enforceToolResultBudget(
       kind: 'tool-result',
       toolUseId: candidate.toolUseId,
       replacement: replacement.content,
+      handle: replacement.handle,
+      filepath: replacement.filepath,
+      originalSize: replacement.originalSize,
     })
     logEvent('tengu_tool_result_persisted_message_budget', {
       originalSizeBytes: replacement.originalSize,

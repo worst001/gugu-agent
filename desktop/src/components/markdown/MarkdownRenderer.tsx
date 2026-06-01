@@ -9,6 +9,7 @@ type Props = {
   content: string
   variant?: 'default' | 'document'
   className?: string
+  localPathBase?: string | null
 }
 
 type CodeBlock = {
@@ -69,7 +70,7 @@ marked.setOptions({
 })
 marked.use({ renderer })
 
-function enhanceMarkdownHtml(html: string): string {
+function enhanceMarkdownHtml(html: string, options?: { localPathBase?: string | null }): string {
   const cleanHtml = DOMPurify.sanitize(html, {
     ADD_TAGS: ['use'],
     ADD_ATTR: ['xlink:href'],
@@ -97,13 +98,14 @@ function enhanceMarkdownHtml(html: string): string {
 
   container.querySelectorAll('code').forEach((code) => {
     const text = code.textContent?.trim()
-    if (!text || !looksLikeLocalPath(text)) return
+    const targetPath = text ? getLocalPathTarget(text, options?.localPathBase) : null
+    if (!text || !targetPath) return
 
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'local-path-chip'
-    button.setAttribute('data-open-local-path', text)
-    button.setAttribute('title', text)
+    button.setAttribute('data-open-local-path', targetPath)
+    button.setAttribute('title', targetPath === text ? text : `${text} -> ${targetPath}`)
     button.textContent = text
     code.replaceWith(button)
   })
@@ -111,21 +113,102 @@ function enhanceMarkdownHtml(html: string): string {
   return container.innerHTML
 }
 
-function looksLikeLocalPath(value: string): boolean {
+const RELATIVE_PATH_EXTENSIONS = new Set([
+  'c',
+  'cpp',
+  'cs',
+  'css',
+  'csv',
+  'go',
+  'html',
+  'java',
+  'js',
+  'json',
+  'jsx',
+  'md',
+  'pdf',
+  'ps1',
+  'py',
+  'rs',
+  'sh',
+  'sql',
+  'toml',
+  'ts',
+  'tsx',
+  'txt',
+  'yaml',
+  'yml',
+])
+
+function getLocalPathTarget(value: string, localPathBase?: string | null): string | null {
   const text = value.trim()
   if (text.length < 3 || text.length > 500 || /[\r\n\0]/.test(text)) {
-    return false
+    return null
   }
 
   if (/^[a-z][a-z0-9+.-]*:/i.test(text) && !/^[a-z]:[\\/]/i.test(text)) {
-    return false
+    return null
   }
 
   const isWindowsAbsolute = /^[a-z]:[\\/][^<>:"|?*]+$/i.test(text)
   const isUncPath = /^\\\\[^\\/:*?"<>|\r\n]+\\[^\\/:*?"<>|\r\n]+/.test(text)
   const isPosixAbsolute = /^\/(?:[^/\0]+\/)+[^/\0]*$/.test(text)
+  if (isWindowsAbsolute || isUncPath || isPosixAbsolute) {
+    return text
+  }
 
-  return isWindowsAbsolute || isUncPath || isPosixAbsolute
+  if (!localPathBase || !looksLikeRelativeLocalPath(text)) {
+    return null
+  }
+
+  return joinLocalPath(localPathBase, text)
+}
+
+function looksLikeRelativeLocalPath(value: string): boolean {
+  if (/^[~$`"'|&;<>{}()[\]]/.test(value)) return false
+  if (value.includes('://')) return false
+  if (value.startsWith('-')) return false
+  if (value.split(/[\\/]/).some((segment) => segment === '..')) return false
+
+  const hasDirectory = /[\\/]/.test(value)
+  if (hasDirectory) return true
+
+  const lastSegment = value.split(/[\\/]/).pop() ?? value
+  if (lastSegment.startsWith('.') || !lastSegment.includes('.')) return false
+  const ext = lastSegment.split('.').pop()?.toLowerCase() ?? ''
+  return RELATIVE_PATH_EXTENSIONS.has(ext)
+}
+
+function joinLocalPath(basePath: string, relativePath: string): string {
+  const usesBackslash = /^[a-z]:[\\/]/i.test(basePath) || basePath.includes('\\')
+  const sep = usesBackslash ? '\\' : '/'
+  const base = basePath.replace(/[\\/]+$/, '')
+  const relative = relativePath.replace(/[\\/]+/g, sep)
+  return normalizeLocalPath(`${base}${sep}${relative}`, sep)
+}
+
+function normalizeLocalPath(value: string, sep: '\\' | '/'): string {
+  const normalized = value.replace(/[\\/]+/g, sep)
+  const driveMatch = normalized.match(/^([a-z]:\\)(.*)$/i)
+  const posixRoot = normalized.startsWith('/') ? sep : ''
+  const root = driveMatch ? driveMatch[1] ?? '' : posixRoot
+  const rest = driveMatch ? driveMatch[2] ?? '' : posixRoot ? normalized.slice(1) : normalized
+  const parts: string[] = []
+
+  for (const part of rest.split(sep)) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      if (parts.length > 0 && parts[parts.length - 1] !== '..') {
+        parts.pop()
+      } else if (!root) {
+        parts.push(part)
+      }
+      continue
+    }
+    parts.push(part)
+  }
+
+  return `${root}${parts.join(sep)}`
 }
 
 function parseMarkdown(content: string): { html: string; codeBlocks: CodeBlock[] } {
@@ -174,7 +257,7 @@ function getProseClasses(variant: 'default' | 'document', className?: string) {
     .join(' ')
 }
 
-export function MarkdownRenderer({ content, variant = 'default', className }: Props) {
+export function MarkdownRenderer({ content, variant = 'default', className, localPathBase }: Props) {
   const { html, codeBlocks } = useMemo(() => parseMarkdown(content), [content])
   const proseClasses = useMemo(
     () => getProseClasses(variant, className),
@@ -246,7 +329,7 @@ export function MarkdownRenderer({ content, variant = 'default', className }: Pr
   }, [])
 
   if (codeBlocks.length === 0) {
-    const cleanHtml = enhanceMarkdownHtml(html)
+    const cleanHtml = enhanceMarkdownHtml(html, { localPathBase })
     return (
       <div
         className={proseClasses}
@@ -260,7 +343,7 @@ export function MarkdownRenderer({ content, variant = 'default', className }: Pr
     <div className={proseClasses} onClick={handleClick}>
       {parts.map((part, i) =>
         part.type === 'html' ? (
-          <div key={i} dangerouslySetInnerHTML={{ __html: enhanceMarkdownHtml(part.content) }} />
+          <div key={i} dangerouslySetInnerHTML={{ __html: enhanceMarkdownHtml(part.content, { localPathBase }) }} />
         ) : shouldRenderAsMermaid(part.block) ? (
           <MermaidRenderer key={part.block.id} code={part.block.code} />
         ) : (

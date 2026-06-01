@@ -95,6 +95,69 @@ Important runtime filters:
 - The Tauri resource mapping packages the `.agents/skills` directory as source
   material; runtime decides what to activate.
 
+### Built-in MCP Packaging Policy
+
+Skills, plugins, agents, and MCP servers have different release requirements.
+Packaging a skill or plugin is not enough to make an MCP server usable. Any MCP
+server that is enabled by default in a desktop release must satisfy all of these
+conditions:
+
+- The server executable or script is included in the release, or the command is
+  resolved to a bundled runtime path controlled by Gugu Agent.
+- The MCP command does not depend on a user-local `PATH` entry such as `qmd`,
+  `sh`, `npx`, or a globally installed package unless the package also provides
+  a verified fallback path.
+- The command is cross-platform for Windows and macOS, or the release provides
+  platform-specific command wiring.
+- First-run or upgrade bootstrap is idempotent: it may add missing bundled MCP
+  config, but it must not overwrite user-edited MCP config.
+- A health check can prove the MCP server starts before the release treats it as
+  a default built-in capability.
+- A failing optional MCP must be disabled or clearly marked as optional rather
+  than leaving the default plugin list full of red `Unavailable` entries.
+
+Current MCP decisions:
+
+- `codegraph`: planned as the highest-priority built-in MCP candidate because it
+  directly supports codebase navigation, symbol lookup, call graphs, and impact
+  analysis. A future release should bundle the CodeGraph server/CLI, register
+  MCP config to the bundled executable path, and initialize per-project
+  `.codegraph/` indexes only on demand. Do not package `.codegraph/` indexes.
+- `plugin:claude-mem:mcp-search`: default enabled for desktop releases. In the
+  bundled desktop sidecar runtime, Gugu rewrites this MCP server to
+  `gugu-sidecar claude-mem-mcp --plugin-root <bundled claude-mem>`, so users do
+  not need to install `sh`, Git Bash, Node.js, `npx`, or any other host command.
+  Local desktop/dev runs may launch the bundled `mcp-server.cjs` directly with
+  the current Bun/Node runtime. Desktop release smoke tests must verify the
+  rewritten command starts and reports `connected`.
+- `plugin:qmd:qmd`: do not enable by default unless Gugu Agent intentionally
+  ships qmd as a local knowledge-base feature. A config that only runs
+  `qmd mcp` is not release-ready because most users will not have `qmd` on
+  `PATH`; current desktop defaults suppress this plugin MCP entry.
+
+Office Toolbox packaging decision:
+
+- `office-suite` is a lightweight bundled Skill under `.agents/skills`, not a
+  host-command MCP server. Desktop packages must include it through the existing
+  `gugu-agent-pack` resource mapping.
+- Office Toolbox V1 is frontend task routing plus prompt scaffolding and the
+  existing attachment-parser pipeline. It must not require users to install
+  Python, qmd, sh, Office, LibreOffice, `npx`, or any other host command.
+- Release smoke should verify that selecting `总结文档 / 分析表格 / 做PPT / 写邮件 /
+  处理文件` can enter the basic flow on a clean machine even when optional MCP
+  hosts are unavailable. PDF/Office parsing still depends on the configured
+  GLM/Gugu Managed parser limits; oversized files should produce a friendly
+  split-file or parser-configuration prompt rather than a missing-command error.
+
+`qmd`, `codegraph`, and `claude-mem` do not conflict conceptually:
+
+- `codegraph` is for source-code structure and dependency understanding.
+- `qmd` is for markdown/document knowledge-base retrieval.
+- `claude-mem` is for local memory search.
+
+The release risk is not capability overlap; it is startup reliability, platform
+compatibility, and avoiding default red MCP entries.
+
 ## Packaging Specification
 
 This section is the required packaging standard for desktop `0.1.16`.
@@ -107,6 +170,8 @@ Every official desktop package must contain:
 - Tauri Rust app from `desktop/src-tauri`.
 - Compiled sidecar binary named from `gugu-sidecar`.
 - Built-in capability pack mounted as `gugu-agent-pack`.
+- Any default-enabled MCP server executable/script and bootstrap config required
+  by the bundled capability pack.
 - Windows installer artifact for x64.
 - macOS installer artifact for Apple Silicon.
 - Signed updater artifacts for both supported platforms.
@@ -220,6 +285,8 @@ Before release publication, verify the package contains:
 - `gugu-agent-pack/third-party/compound-engineering-plugin/plugins/engineering-advanced-skills`.
 - `gugu-agent-pack/third-party/compound-engineering-plugin/plugins/engineering-skills`.
 - plugin `agents` directories listed in "What Must Be Packaged".
+- default-enabled MCP server binaries/scripts, if any, are present at the exact
+  paths referenced by bootstrap config.
 
 Runtime smoke test must confirm:
 
@@ -228,6 +295,9 @@ Runtime smoke test must confirm:
 - bundled plugins show up
 - `gugu-bundled` marketplace exists
 - plugin-provided agents are discoverable
+- every default-enabled MCP server starts on both Windows and macOS
+- optional MCP servers that are not fully bundled do not show as default
+  `Unavailable` entries after a fresh install
 
 ## Publishing Specification
 

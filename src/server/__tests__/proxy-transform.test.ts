@@ -7,6 +7,7 @@ import { anthropicToOpenaiChat } from '../proxy/transform/anthropicToOpenaiChat.
 import { anthropicToOpenaiResponses } from '../proxy/transform/anthropicToOpenaiResponses.js'
 import { openaiChatToAnthropic } from '../proxy/transform/openaiChatToAnthropic.js'
 import { openaiResponsesToAnthropic } from '../proxy/transform/openaiResponsesToAnthropic.js'
+import { resolveProviderCapabilities } from '../proxy/providerCapabilities.js'
 import type { AnthropicRequest, OpenAIChatResponse, OpenAIResponsesResponse } from '../proxy/transform/types.js'
 
 // ─── anthropicToOpenaiChat ──────────────────────────────────────
@@ -139,6 +140,25 @@ describe('anthropicToOpenaiChat', () => {
     expect(anthropicToOpenaiChat(highReq).reasoning_effort).toBe('high')
   })
 
+  test('DeepSeek-compatible providers use thinking request shape instead of reasoning_effort', () => {
+    const req: AnthropicRequest = {
+      model: 'deepseek-reasoner',
+      max_tokens: 100,
+      messages: [{ role: 'user', content: 'Hi' }],
+      thinking: { type: 'enabled', budget_tokens: 4096 },
+    }
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://api.deepseek.com',
+      model: req.model,
+    }).openAIChat
+
+    const result = anthropicToOpenaiChat(req, { capabilities })
+
+    expect(result.thinking).toEqual({ type: 'enabled' })
+    expect(result.reasoning_effort).toBeUndefined()
+  })
+
   test('assistant message with tool_use', () => {
     const req: AnthropicRequest = {
       model: 'gpt-4',
@@ -159,6 +179,57 @@ describe('anthropicToOpenaiChat', () => {
     expect(msg.tool_calls![0].id).toBe('tc_1')
     expect(msg.tool_calls![0].function.name).toBe('get_weather')
     expect(msg.tool_calls![0].function.arguments).toBe('{"city":"NYC"}')
+  })
+
+  test('DeepSeek-compatible providers insert reasoning_content placeholder for assistant tool calls', () => {
+    const req: AnthropicRequest = {
+      model: 'deepseek-reasoner',
+      max_tokens: 100,
+      messages: [{
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'toolu_1', name: 'TaskCreate', input: { title: 'Create page' } },
+        ],
+      }],
+    }
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://api.deepseek.com',
+      model: req.model,
+    }).openAIChat
+
+    const result = anthropicToOpenaiChat(req, { capabilities })
+    const msg = result.messages[0]
+
+    expect(msg.role).toBe('assistant')
+    expect(msg.tool_calls).toHaveLength(1)
+    expect(msg.reasoning_content).toBe('(reasoning omitted)')
+  })
+
+  test('generic OpenAI Chat does not receive DeepSeek-only thinking or placeholder fields', () => {
+    const req: AnthropicRequest = {
+      model: 'gpt-4',
+      max_tokens: 100,
+      messages: [{
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'toolu_1', name: 'TaskCreate', input: { title: 'Create page' } },
+        ],
+      }],
+      thinking: { type: 'enabled' },
+    }
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://api.openai.com',
+      model: req.model,
+    }).openAIChat
+
+    const result = anthropicToOpenaiChat(req, { capabilities })
+    const msg = result.messages[0]
+
+    expect(result.thinking).toBeUndefined()
+    expect(result.reasoning_effort).toBe('high')
+    expect(msg.reasoning_content).toBeUndefined()
   })
 
   test('assistant thinking blocks are preserved as reasoning_content', () => {
@@ -348,6 +419,55 @@ describe('openaiChatToAnthropic', () => {
     }
     const result = openaiChatToAnthropic(res, 'gpt-4')
     expect(result.usage.cache_read_input_tokens).toBe(80)
+  })
+
+  test('DeepSeek prompt cache usage maps to Anthropic cache telemetry', () => {
+    const res: OpenAIChatResponse = {
+      id: 'x', object: 'chat.completion', created: 0, model: 'deepseek-chat',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        prompt_cache_hit_tokens: 64,
+        prompt_cache_miss_tokens: 36,
+      },
+    }
+    const result = openaiChatToAnthropic(res, 'deepseek-chat')
+    expect(result.usage.cache_read_input_tokens).toBe(64)
+    expect(result.usage.cache_creation_input_tokens).toBe(36)
+  })
+
+  test('OpenAI cached_tokens takes precedence over DeepSeek cache-hit field', () => {
+    const res: OpenAIChatResponse = {
+      id: 'x', object: 'chat.completion', created: 0, model: 'gpt-4',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        prompt_cache_hit_tokens: 64,
+        prompt_tokens_details: { cached_tokens: 80 },
+      },
+    }
+    const result = openaiChatToAnthropic(res, 'gpt-4')
+    expect(result.usage.cache_read_input_tokens).toBe(80)
+  })
+
+  test('unknown cache fields are ignored safely', () => {
+    const res: OpenAIChatResponse = {
+      id: 'x', object: 'chat.completion', created: 0, model: 'gpt-4',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        prompt_cache_unknown_tokens: 90,
+      } as OpenAIChatResponse['usage'],
+    }
+    const result = openaiChatToAnthropic(res, 'gpt-4')
+    expect(result.usage.cache_read_input_tokens).toBe(0)
+    expect(result.usage.cache_creation_input_tokens).toBeUndefined()
   })
 })
 

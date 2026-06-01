@@ -53,6 +53,15 @@ describe('provider presets API', () => {
     expect(PROVIDER_PRESETS.map((preset) => preset.id)).toEqual(['gugu-managed', 'custom'])
   })
 
+  test('DeepSeek compatibility remains Custom-only, not a built-in provider preset', () => {
+    const presetIdentities = PROVIDER_PRESETS.map((preset) =>
+      [preset.id, preset.name, preset.baseUrl, preset.websiteUrl].join(' ').toLowerCase()
+    )
+
+    expect(presetIdentities.some((identity) => identity.includes('deepseek'))).toBe(false)
+    expect(PROVIDER_PRESETS.find((preset) => preset.id === 'custom')?.category).toBe('custom')
+  })
+
   test('Gugu Managed is the only built-in managed preset', () => {
     const gugu = PROVIDER_PRESETS.find((preset) => preset.id === 'gugu-managed')
 

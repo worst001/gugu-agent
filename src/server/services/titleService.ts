@@ -10,6 +10,14 @@ import { ProviderService } from './providerService.js'
 import { sessionService } from './sessionService.js'
 
 const TITLE_MAX_LEN = 50
+const OFFICE_TOOL_ATTACHMENT_ONLY_REQUEST_PREFIX = 'The user sent attachments only.'
+const OFFICE_TOOL_EMPTY_REQUEST = 'The user did not provide additional text.'
+
+function isOfficeToolInternalFallbackRequest(request: string): boolean {
+  const normalized = request.replace(/\s+/g, ' ').trim()
+  return normalized === OFFICE_TOOL_EMPTY_REQUEST ||
+    normalized.startsWith(OFFICE_TOOL_ATTACHMENT_ONLY_REQUEST_PREFIX)
+}
 
 const TITLE_SYSTEM_PROMPT = `Generate a concise, sentence-case title (3-7 words) that captures the main topic or goal of this coding session. The title should be clear enough that the user recognizes the session in a list. Use sentence case: capitalize only the first word and proper nouns.
 
@@ -38,12 +46,23 @@ export function getTitleInputText(raw: string): string {
     return getTitleInputText(attachmentMatch[1])
   }
 
+  const isOfficeToolboxScaffold =
+    text.startsWith('[Office toolbox:') && text.includes('User request:')
+  if (isOfficeToolboxScaffold) {
+    const requestMatch = text.match(/(?:^|\n)User request:\s*\n([\s\S]*)$/)
+    const request = requestMatch?.[1] ?? ''
+    if (isOfficeToolInternalFallbackRequest(request)) return ''
+    return request ? getTitleInputText(request) : ''
+  }
+
   const isCeWorkflowScaffold =
     text.startsWith('[Workflow:') && text.includes('CE automation (binding)')
   const isPlanModeScaffold =
     text.startsWith('[Agent mode: plan]') && text.includes('product-facing planning mode')
+  const isDefaultPreRouteScaffold =
+    text.startsWith('[Agent mode: default + CE pre-route]') && text.includes('Default mode remains natural')
 
-  if (!isCeWorkflowScaffold && !isPlanModeScaffold) {
+  if (!isCeWorkflowScaffold && !isPlanModeScaffold && !isDefaultPreRouteScaffold) {
     return text
   }
 
@@ -52,7 +71,7 @@ export function getTitleInputText(raw: string): string {
     .filter(Boolean)
 
   if (userMessages.length > 0) {
-    return userMessages.join('\n')
+    return userMessages.map(getTitleInputText).join('\n')
   }
 
   if (text.includes('User sent attachments only')) return ''

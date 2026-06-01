@@ -53,6 +53,12 @@ docs/superpowers/
 # Temp server/web logs
 .tmp-*.log
 desktop/gugu-dev.*.log
+desktop/tauri-dev*.log
+
+# Local analysis / generated work artifacts
+.tmp/
+.analysis-*/
+outputs/
 
 # Debug / temp screenshots (root dir only)
 /*.png

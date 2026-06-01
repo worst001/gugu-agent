@@ -21,7 +21,6 @@ import {
   resolveClaudeCliLauncher,
 } from '../../utils/desktopBundledCli.js'
 import type { PermissionUpdate } from '../../types/permissions.js'
-import { permissionUpdateSchema } from '../../utils/permissions/PermissionUpdateSchema.js'
 
 type AttachmentRef = {
   type: 'file' | 'image'
@@ -343,6 +342,7 @@ export class ConversationService {
     allowed: boolean,
     rule?: string,
     updatedInput?: Record<string, unknown>,
+    message?: string,
   ): boolean {
     const session = this.sessions.get(sessionId)
     const pendingRequest = session?.pendingPermissionRequests.get(requestId)
@@ -361,15 +361,14 @@ export class ConversationService {
               updatedInput: updatedInput ?? {},
               ...(pendingRequest && (rule === 'session' || rule === 'always')
                 ? {
-                    updatedPermissions: normalizePermissionUpdates(
-                      pendingRequest.permissionSuggestions,
+                    updatedPermissions: buildToolWidePermissionUpdate(
                       pendingRequest.toolName,
                       rule === 'always' ? 'localSettings' : 'session',
                     ),
                   }
                 : {}),
             }
-          : { behavior: 'deny', message: 'User denied via UI' },
+          : { behavior: 'deny', message: message?.trim() || 'User denied via UI' },
       },
     })
   }
@@ -1312,39 +1311,10 @@ export class ConversationService {
 
 type PermissionRuleDestination = 'session' | 'localSettings'
 
-/**
- * Merge SDK suggestions or fall back to a single allow rule for this tool.
- * Invalid suggestion objects must not be forwarded as-is: the CLI validates
- * `updatedPermissions` with Zod — one bad entry drops the entire array and
- * nothing gets persisted ("always allow" appears to do nothing).
- */
-function normalizePermissionUpdates(
-  suggestions: unknown[] | undefined,
+function buildToolWidePermissionUpdate(
   toolName: string,
   destination: PermissionRuleDestination,
 ): PermissionUpdate[] {
-  const schema = permissionUpdateSchema()
-  const valid: PermissionUpdate[] = []
-
-  if (Array.isArray(suggestions) && suggestions.length > 0) {
-    for (const suggestion of suggestions) {
-      if (!suggestion || typeof suggestion !== 'object') continue
-      const merged = { ...suggestion, destination }
-      const parsed = schema.safeParse(merged)
-      if (parsed.success) {
-        valid.push(parsed.data as PermissionUpdate)
-      } else {
-        console.warn(
-          `[ConversationService] Dropped invalid permission suggestion for ${toolName} (${destination}): ${parsed.error.message}`,
-        )
-      }
-    }
-  }
-
-  if (valid.length > 0) {
-    return valid
-  }
-
   return [
     {
       type: 'addRules',

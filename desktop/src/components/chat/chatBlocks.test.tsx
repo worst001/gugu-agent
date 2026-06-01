@@ -6,8 +6,10 @@ import { ToolCallGroup } from './ToolCallGroup'
 import { ToolResultBlock } from './ToolResultBlock'
 import { PermissionDialog } from './PermissionDialog'
 import { StreamingIndicator } from './StreamingIndicator'
+import { AgentActivityPanel } from './AgentActivityPanel'
 import { useChatStore } from '../../stores/chatStore'
 import type { PerSessionState } from '../../stores/chatStore'
+import type { UIMessage } from '../../types/chat'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -77,6 +79,266 @@ describe('chat blocks', () => {
     const { container } = render(<ThinkingBlock content="old reasoning" isActive={false} />)
 
     expect(container.querySelector('.thinking-inline-cursor')).toBeNull()
+  })
+
+  it('shows collapsible live activity for the running turn', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    const messages: UIMessage[] = [
+      {
+        id: 'thinking-1',
+        type: 'thinking',
+        content: 'Looking at the failing test',
+        timestamp: 1,
+      },
+      {
+        id: 'tool-1',
+        type: 'tool_use',
+        toolName: 'Bash',
+        toolUseId: 'bash-1',
+        input: { command: 'bun test src/example.test.ts' },
+        timestamp: 2,
+      },
+    ]
+
+    render(
+      <AgentActivityPanel
+        chatState="tool_executing"
+        elapsedSeconds={78}
+        activeToolName="Bash"
+        activeToolUseId="bash-1"
+        activeThinkingId="thinking-1"
+        messages={messages}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getByText('Current activity')).toBeTruthy()
+    expect(screen.getByText('1m 18s')).toBeTruthy()
+    expect(screen.getAllByText('Running Bash').length).toBeGreaterThan(0)
+    expect(screen.getByText('bun test src/example.test.ts')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Current activity/i }))
+
+    expect(screen.queryByText('bun test src/example.test.ts')).toBeNull()
+  })
+
+  it('explains long thinking before any tool starts', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="thinking"
+        elapsedSeconds={95}
+        activeThinkingId="thinking-1"
+        messages={[
+          {
+            id: 'thinking-1',
+            type: 'thinking',
+            content: 'Analyzing context',
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getAllByText('Thinking through the next step').length).toBeGreaterThan(0)
+    expect(screen.getByText('No model output yet after 1m 35s')).toBeTruthy()
+    expect(screen.getByText(/has not received text, a tool call, or a permission request/i)).toBeTruthy()
+  })
+
+  it('labels the pre-first-token gap as waiting for the model, not reasoning', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="thinking"
+        elapsedSeconds={25}
+        messages={[]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getAllByText('Waiting for the model response').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Thinking through the next step')).toBeNull()
+    expect(screen.getByText('No model output yet after 25s')).toBeTruthy()
+  })
+
+  it('communicates when Bash runs for a very long time', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="tool_executing"
+        elapsedSeconds={610}
+        messages={[
+          {
+            id: 'tool-1',
+            type: 'tool_use',
+            toolName: 'Bash',
+            toolUseId: 'bash-1',
+            input: { command: 'npm run build' },
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getAllByText('Running Bash').length).toBeGreaterThan(0)
+    expect(screen.getByText('Bash has been running for 10m 10s')).toBeTruthy()
+    expect(screen.getByText(/unusually long/i)).toBeTruthy()
+    expect(screen.getByText('npm run build')).toBeTruthy()
+  })
+
+  it('treats permission waits as user confirmation instead of long-running tools', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="permission_pending"
+        elapsedSeconds={190}
+        messages={[
+          {
+            id: 'tool-1',
+            type: 'tool_use',
+            toolName: 'ExitPlanMode',
+            toolUseId: 'plan-1',
+            input: { plan: 'Implement the plan' },
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+        pendingPermission={{
+          toolName: 'ExitPlanMode',
+          toolUseId: 'plan-1',
+          input: { plan: 'Implement the plan' },
+        }}
+      />,
+    )
+
+    expect(screen.getAllByText('Waiting for your confirmation: ExitPlanMode').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/ExitPlanMode is taking a while/i)).toBeNull()
+    expect(screen.queryByText(/ExitPlanMode has been running/i)).toBeNull()
+  })
+
+  it('warns when Write is unusually slow', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="tool_executing"
+        elapsedSeconds={75}
+        messages={[
+          {
+            id: 'tool-1',
+            type: 'tool_use',
+            toolName: 'Write',
+            toolUseId: 'write-1',
+            input: { file_path: '/tmp/large-output.md' },
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getByText('Write is unusually slow (1m 15s)')).toBeTruthy()
+    expect(screen.getByText(/Local file writes usually finish quickly/i)).toBeTruthy()
+    expect(screen.getByText('/tmp/large-output.md')).toBeTruthy()
+  })
+
+  it('explains slow repository scans', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="tool_executing"
+        elapsedSeconds={185}
+        messages={[
+          {
+            id: 'tool-1',
+            type: 'tool_use',
+            toolName: 'Grep',
+            toolUseId: 'grep-1',
+            input: { pattern: 'ContextUsageIndicator', path: 'desktop/src' },
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getByText('Grep is scanning for 3m 5s')).toBeTruthy()
+    expect(screen.getByText(/Large repositories, broad patterns, or huge logs/i)).toBeTruthy()
+    expect(screen.getByText('ContextUsageIndicator - desktop/src')).toBeTruthy()
+  })
+
+  it('explains long child agent runs', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="tool_executing"
+        elapsedSeconds={245}
+        messages={[
+          {
+            id: 'tool-1',
+            type: 'tool_use',
+            toolName: 'Agent',
+            toolUseId: 'agent-1',
+            input: { description: 'Review the release workflow' },
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getByText('Agent has been running for 4m 5s')).toBeTruthy()
+    expect(screen.getByText(/child agent may be doing several steps/i)).toBeTruthy()
+  })
+
+  it('explains slow Codegraph MCP calls', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="tool_executing"
+        elapsedSeconds={75}
+        messages={[
+          {
+            id: 'tool-1',
+            type: 'tool_use',
+            toolName: 'mcp__codegraph__codegraph_context',
+            toolUseId: 'mcp-1',
+            input: { task: 'Trace the context usage flow' },
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getByText('Codegraph is taking time (1m 15s)')).toBeTruthy()
+    expect(screen.getByText(/indexing, or traversing a large project graph/i)).toBeTruthy()
+  })
+
+  it('explains long attachment parsing before tools start', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="thinking"
+        elapsedSeconds={55}
+        statusVerb="Parsing attachments"
+        messages={[]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getByText('Parsing attachments for 55s')).toBeTruthy()
+    expect(screen.getByText(/OCR, vision, audio, PDF, and Office files/i)).toBeTruthy()
   })
 
   it('shows tool previews only after expanding the tool block', () => {

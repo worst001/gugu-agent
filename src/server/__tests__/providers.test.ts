@@ -15,11 +15,14 @@ import type { CreateProviderInput } from '../types/provider.js'
 let tmpDir: string
 let originalConfigDir: string | undefined
 let originalManagedDefaultFlag: string | undefined
+let originalServerPort: number
 
 async function setup() {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'provider-test-'))
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   originalManagedDefaultFlag = process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+  originalServerPort = ProviderService.getServerPort()
+  ProviderService.setServerPort(3456)
   process.env.CLAUDE_CONFIG_DIR = tmpDir
   process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = '1'
 }
@@ -35,6 +38,7 @@ async function teardown() {
   } else {
     delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   }
+  ProviderService.setServerPort(originalServerPort)
   await fs.rm(tmpDir, { recursive: true, force: true })
 }
 
@@ -167,6 +171,24 @@ describe('ProviderService', () => {
         ANTHROPIC_BASE_URL: 'http://127.0.0.1:3456/proxy/gugu-managed',
         ANTHROPIC_API_KEY: 'proxy-managed',
       })
+    })
+
+    test('should refresh managed proxy settings when the server port changes', async () => {
+      delete process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
+      ProviderService.setServerPort(11111)
+      const svc = new ProviderService()
+      await svc.listProviders()
+
+      let settings = await readSettings()
+      let env = settings.env as Record<string, string>
+      expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:11111/proxy/gugu-managed')
+
+      ProviderService.setServerPort(22222)
+      await svc.listProviders()
+
+      settings = await readSettings()
+      env = settings.env as Record<string, string>
+      expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:22222/proxy/gugu-managed')
     })
 
     test('should move hidden ChatGPT Connect default back to Gugu Managed', async () => {

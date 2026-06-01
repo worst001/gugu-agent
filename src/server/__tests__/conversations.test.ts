@@ -42,7 +42,55 @@ describe('ConversationService', () => {
     expect(result).toBe(false)
   })
 
-  it('should forward suggested permission updates for allow-always (localSettings) decisions', () => {
+  it('should forward permission denial feedback messages', () => {
+    const svc = new ConversationService()
+    const sent: unknown[] = []
+
+    ;(svc as any).sessions.set('session-feedback', {
+      proc: null,
+      outputCallbacks: [],
+      workDir: process.cwd(),
+      sdkToken: 'token',
+      sdkSocket: {
+        send(data: string) {
+          sent.push(JSON.parse(data))
+        },
+      },
+      pendingOutbound: [],
+      stderrLines: [],
+      sdkMessages: [],
+      pendingPermissionRequests: new Map([
+        ['req-feedback', {
+          toolName: 'ExitPlanMode',
+          input: {},
+          permissionSuggestions: [],
+        }],
+      ]),
+    })
+
+    const result = svc.respondToPermission(
+      'session-feedback',
+      'req-feedback',
+      false,
+      undefined,
+      undefined,
+      'Please revise the plan.',
+    )
+
+    expect(result).toBe(true)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({
+      type: 'control_response',
+      response: {
+        response: {
+          behavior: 'deny',
+          message: 'Please revise the plan.',
+        },
+      },
+    })
+  })
+
+  it('should forward tool-wide permission updates for allow-always (localSettings) decisions', () => {
     const svc = new ConversationService()
     const sent: unknown[] = []
 
@@ -87,7 +135,7 @@ describe('ConversationService', () => {
           updatedPermissions: [
             {
               type: 'addRules',
-              rules: [{ toolName: 'Bash', ruleContent: 'ls src' }],
+              rules: [{ toolName: 'Bash' }],
               behavior: 'allow',
               destination: 'localSettings',
             },
@@ -97,7 +145,62 @@ describe('ConversationService', () => {
     })
   })
 
-  it('should fall back to tool-wide allow when permission suggestions are invalid for Zod', () => {
+  it('should forward tool-wide permission updates for allow-session decisions', () => {
+    const svc = new ConversationService()
+    const sent: unknown[] = []
+
+    ;(svc as any).sessions.set('session-session-rule', {
+      proc: null,
+      outputCallbacks: [],
+      workDir: process.cwd(),
+      sdkToken: 'token',
+      sdkSocket: {
+        send(data: string) {
+          sent.push(JSON.parse(data))
+        },
+      },
+      pendingOutbound: [],
+      stderrLines: [],
+      sdkMessages: [],
+      pendingPermissionRequests: new Map([
+        ['req-session-rule', {
+          toolName: 'Bash',
+          input: { command: 'python -m pip install openpyxl' },
+          permissionSuggestions: [
+            {
+              type: 'addRules',
+              rules: [{ toolName: 'Bash', ruleContent: 'python -m' }],
+              behavior: 'allow',
+              destination: 'session',
+            },
+          ],
+        }],
+      ]),
+    })
+
+    const result = svc.respondToPermission('session-session-rule', 'req-session-rule', true, 'session')
+
+    expect(result).toBe(true)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({
+      type: 'control_response',
+      response: {
+        response: {
+          behavior: 'allow',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              rules: [{ toolName: 'Bash' }],
+              behavior: 'allow',
+              destination: 'session',
+            },
+          ],
+        },
+      },
+    })
+  })
+
+  it('should use tool-wide allow even when SDK suggestions are invalid', () => {
     const svc = new ConversationService()
     const sent: unknown[] = []
 
@@ -901,13 +1004,10 @@ describe('WebSocket Chat Integration', () => {
     const estimateOnlyBody = await estimateOnlyRes.json() as any
     expect(estimateOnlyBody.active).toBe(true)
     expect(estimateOnlyBody.status.sessionId).toBe(sessionId)
-    if (estimateOnlyBody.contextEstimate) {
-      expect(estimateOnlyBody.contextEstimate.totalTokens).toBeGreaterThan(0)
-      expect(estimateOnlyBody.contextEstimate.rawMaxTokens).toBeGreaterThan(0)
-      expect(estimateOnlyBody.errors).toEqual({})
-    } else {
-      expect(estimateOnlyBody.errors.context).toContain('unavailable')
-    }
+    expect(estimateOnlyBody.contextEstimate.totalTokens).toBe(27000)
+    expect(estimateOnlyBody.contextEstimate.rawMaxTokens).toBe(200000)
+    expect(estimateOnlyBody.contextEstimate.estimateOnly).toBe(true)
+    expect(estimateOnlyBody.errors).toEqual({})
     expect(estimateOnlyBody.context).toBeUndefined()
     expect(estimateOnlyBody.usage).toBeUndefined()
   })

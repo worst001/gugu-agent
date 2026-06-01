@@ -1,4 +1,5 @@
-import { join } from 'path'
+import { existsSync } from 'fs'
+import { basename, join } from 'path'
 import { expandEnvVarsInString } from '../../services/mcp/envExpansion.js'
 import {
   type McpServerConfig,
@@ -6,6 +7,7 @@ import {
   type ScopedMcpServerConfig,
 } from '../../services/mcp/types.js'
 import type { LoadedPlugin, PluginError } from '../../types/plugin.js'
+import { isInBundledMode } from '../bundledMode.js'
 import { logForDebugging } from '../debug.js'
 import { errorMessage, isENOENT } from '../errors.js'
 import { getFsImplementation } from '../fsOperations.js'
@@ -520,7 +522,12 @@ export function resolvePluginMcpEnvironment(
       }
       stdioConfig.env = resolvedEnv
 
-      resolved = stdioConfig
+      resolved = maybeUseBundledClaudeMemMcpLauncher(
+        stdioConfig,
+        plugin,
+        pluginName,
+        serverName,
+      )
       break
     }
 
@@ -581,6 +588,84 @@ export function resolvePluginMcpEnvironment(
   return resolved
 }
 
+function maybeUseBundledClaudeMemMcpLauncher(
+  config: McpServerConfig,
+  plugin: { path: string; source: string },
+  pluginName?: string,
+  serverName?: string,
+): McpServerConfig {
+  if ((config.type ?? 'stdio') !== 'stdio') return config
+  if (serverName !== 'mcp-search') return config
+  if (pluginName !== 'claude-mem' && !plugin.source.includes('claude-mem')) {
+    return config
+  }
+
+  const stdioConfig = config as Extract<McpServerConfig, { type?: 'stdio' }>
+  const serverScript = join(plugin.path, 'scripts', 'mcp-server.cjs')
+
+  // Desktop releases run inside the compiled gugu-sidecar. Use that bundled
+  // runtime as the MCP host so small-user installs do not need Git Bash, sh,
+  // Node.js, or npx in PATH just to start the default claude-mem server.
+  if (
+    process.env.CLAUDE_APP_ROOT &&
+    (isInBundledMode() || isGuguSidecarExecutable())
+  ) {
+    return {
+      ...stdioConfig,
+      command: process.execPath,
+      args: [
+        'claude-mem-mcp',
+        '--app-root',
+        process.env.CLAUDE_APP_ROOT,
+        '--plugin-root',
+        plugin.path,
+      ],
+    }
+  }
+
+  // Dev and local desktop runs are usually hosted by Bun/Node rather than the
+  // compiled sidecar. Launch the bundled CJS server directly so Windows users do
+  // not see a missing `sh` preflight failure while testing a local build.
+  if (existsSync(serverScript) && isCurrentProcessJavaScriptRuntime()) {
+    return {
+      ...stdioConfig,
+      command: process.execPath,
+      args: [serverScript],
+    }
+  }
+
+  return config
+}
+
+function isCurrentProcessJavaScriptRuntime(): boolean {
+  const executable = basename(process.execPath).toLowerCase()
+  return (
+    executable === 'bun' ||
+    executable === 'bun.exe' ||
+    executable === 'node' ||
+    executable === 'node.exe'
+  )
+}
+
+function isGuguSidecarExecutable(): boolean {
+  const executable = basename(process.execPath).toLowerCase()
+  return executable === 'gugu-sidecar' || executable === 'gugu-sidecar.exe'
+}
+
+function shouldSuppressPluginMcpServer(
+  plugin: { name: string; source: string },
+  serverName: string,
+): boolean {
+  const pluginName = plugin.name.toLowerCase()
+  const pluginSource = plugin.source.toLowerCase()
+  return (
+    serverName === 'qmd' &&
+    (pluginName === 'qmd' ||
+      pluginSource === 'qmd' ||
+      pluginSource.startsWith('qmd@'))
+  )
+}
+
 /**
  * Get MCP servers from a specific plugin with environment variable resolution and scoping
  * This function is called when the MCP servers need to be activated and ensures they have
@@ -611,6 +696,13 @@ export async function getPluginMcpServers(
   for (const [name, config] of Object.entries(servers)) {
     const userConfig = buildMcpUserConfig(plugin, name)
     try {
+      if (shouldSuppressPluginMcpServer(plugin, name)) {
+        logForDebugging(
+          `Suppressing plugin MCP server "${plugin.name}:${name}": not bundled as a default desktop capability`,
+        )
+        continue
+      }
+
       resolvedServers[name] = resolvePluginMcpEnvironment(
         config,
         plugin,

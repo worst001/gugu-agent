@@ -2,6 +2,33 @@
 
 本项目基于 Anthropic 协议与 LLM 通信。通过协议转换代理，可以使用 OpenAI、DeepSeek、Ollama 等任意模型。
 
+## 模型接入边界
+
+桌面端公开的模型接入入口只保留 **Gugu 托管服务** 和 **自定义接口**。本文里的 OpenAI、DeepSeek、Ollama 等配置都表示用户自备账号、API Key、Base URL 和模型 ID 的自定义接口或代理示例，不代表内置官方预设、合作入口或推荐排序。
+
+如果你在桌面端使用自定义接口：
+
+- 选择 **OpenAI Chat Completions 兼容协议** 时，本地代理会把 Anthropic Messages 请求转换为 `/v1/chat/completions`。
+- DeepSeek-like 自定义端点会启用能力门控的兼容处理，包括 thinking 请求形状、工具调用循环里的 `reasoning_content` 回放，以及 prefix cache 命中/未命中用量归一化。
+- 泛 OpenAI 兼容端点不会收到 DeepSeek-only 字段，例如 `thinking: { type: "enabled" }` 或补位的 `reasoning_content`。
+
+### DeepSeek-like 自定义接口排障
+
+如果工具调用后上游返回缺少 `reasoning_content`、thinking mode、或 cache telemetry 相关错误，优先检查：
+
+1. 自定义接口协议是否选择了 OpenAI Chat Completions 兼容协议。
+2. Base URL 或模型 ID 是否能被识别为 DeepSeek-like 端点，例如包含 `deepseek`。
+3. 当前模型是否支持图片输入。DeepSeek-like 端点会被按文本/工具内容处理，图片内容块会被本地代理提前拒绝。
+4. 流式响应是否返回 OpenAI Chat 格式的 `usage` 块。`prompt_cache_hit_tokens` 会映射为 `cache_read_input_tokens`，`prompt_cache_miss_tokens` 会映射为 `cache_creation_input_tokens`。
+
+需要排查 prefix cache 漂移时，可以临时设置：
+
+```bash
+CC_GUGU_PROXY_PREFIX_DEBUG=1
+```
+
+该日志只输出稳定前缀组件的哈希和变更类型，不输出 system prompt、API Key 或完整工具 schema。
+
 ## 原理
 
 ```

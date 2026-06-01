@@ -496,6 +496,84 @@ Current production note: because the live gateway still uses `/root/opt/gugu`,
 production has an adapted `gugu-gateway-monitor.service` installed directly
 under `/etc/systemd/system`.
 
+## Gateway Alert Checks
+
+The monitor above writes status to journald. The alert check turns the same
+signals into thresholded issues and optionally sends them to a webhook. It
+checks local health, `/admin/api/metrics`, Redis circuit fallback state, queue
+pressure, unexpected attachment-task flag changes, MySQL backup freshness and
+SHA-256, and basic payment/order integrity.
+
+Manual check from the live tree:
+
+```bash
+cd /root/opt/gugu
+bun run scripts/gateway-alert-check.ts \
+  --env-file /root/opt/gugu/.env \
+  --backup-dir /var/backups/gugu-gateway
+```
+
+Expected result:
+
+- JSON output has `"ok": true`.
+- `issues` is empty.
+- The latest MySQL backup is younger than `GUGU_ALERT_BACKUP_MAX_AGE_HOURS`
+  and its `.sha256` verifies.
+- DeepSeek/GLM circuits are `closed`, `backend=redis`, and
+  `fallbackActive=false`.
+- Attachment task flags match the expected rollout state. During the current
+  flags-off phase this means `GUGU_ALERT_EXPECT_ATTACHMENT_TASKS_ENABLED=0`
+  and `GUGU_ALERT_EXPECT_REDIS_ATTACHMENT_TASKS_ENABLED=0`.
+
+Optional webhook configuration in the gateway env:
+
+```bash
+GUGU_ALERT_WEBHOOK_URL=
+GUGU_ALERT_WEBHOOK_KIND=generic
+GUGU_ALERT_BACKUP_MAX_AGE_HOURS=30
+GUGU_ALERT_PAYMENT_WINDOW_HOURS=24
+GUGU_ALERT_MAX_RECENT_5XX=0
+GUGU_ALERT_MAX_RECENT_429=10
+GUGU_ALERT_MAX_QUEUE_WAITING=0
+GUGU_ALERT_MAX_QUEUE_ACTIVE_RATIO=0.95
+GUGU_ALERT_REQUIRE_REDIS_CIRCUIT=1
+GUGU_ALERT_EXPECT_ATTACHMENT_TASKS_ENABLED=0
+GUGU_ALERT_EXPECT_REDIS_ATTACHMENT_TASKS_ENABLED=0
+```
+
+`GUGU_ALERT_WEBHOOK_KIND` supports `generic`, `feishu`, and `dingtalk`. The
+script sends only when issues exist; with no webhook URL it still exits non-zero
+for error-level issues so systemd can surface failures.
+
+For the normalized `/opt/gugu-gateway` layout, install the alert timer:
+
+```bash
+sudo cp gateway/deploy/systemd/gugu-gateway-alert.service /etc/systemd/system/
+sudo cp gateway/deploy/systemd/gugu-gateway-alert.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gugu-gateway-alert.timer
+systemctl list-timers gugu-gateway-alert.timer --no-pager
+```
+
+Before relying on the timer, run the service once manually:
+
+```bash
+sudo systemctl start gugu-gateway-alert.service
+journalctl -u gugu-gateway-alert.service -n 100 --no-pager
+```
+
+Current production note: because the live gateway still uses `/root/opt/gugu`,
+production has adapted `gugu-gateway-alert.service` and
+`gugu-gateway-alert.timer` installed directly under `/etc/systemd/system`. The
+matching root-layout templates are kept in
+`gateway/deploy/systemd/gugu-gateway-alert.root.service` and
+`gateway/deploy/systemd/gugu-gateway-alert.root.timer`. On 2026-06-01
+17:31 CST, the manual production run returned `ok=true` and `issues=[]`; at
+17:32 CST, `gugu-gateway-alert.timer` was enabled with a 5-minute cadence, and
+the first natural timer run at 17:37 CST also returned `ok=true` and
+`issues=[]`. No external webhook is configured yet, so failures surface through
+journald and the systemd service exit code until `GUGU_ALERT_WEBHOOK_URL` is set.
+
 ## MySQL Backups After Cutover
 
 After production switches to `GUGU_STORE_DRIVER=mysql`, the SQLite backup timer

@@ -18,6 +18,12 @@ import { openaiResponsesToAnthropic } from './transform/openaiResponsesToAnthrop
 import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthropic.js'
 import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
 import { buildOpenAIEndpoint } from './openaiEndpoint.js'
+import {
+  resolveProviderCapabilities,
+  type OpenAIChatProviderCapabilities,
+  type ProviderCapabilities,
+} from './providerCapabilities.js'
+import { observePrefixStability } from './prefixStability.js'
 import type { AnthropicContentBlock, AnthropicRequest, AnthropicResponse } from './transform/types.js'
 import {
   CHATGPT_CODEX_API_ENDPOINT,
@@ -199,12 +205,23 @@ function wrapAnthropicSseStream(
   } = {},
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+
+  const findEventBoundary = (text: string): { index: number; length: number } | null => {
+    const lf = text.indexOf('\n\n')
+    const crlf = text.indexOf('\r\n\r\n')
+    if (lf === -1 && crlf === -1) return null
+    if (lf === -1) return { index: crlf, length: 4 }
+    if (crlf === -1) return { index: lf, length: 2 }
+    return lf < crlf ? { index: lf, length: 2 } : { index: crlf, length: 4 }
+  }
 
   return new ReadableStream({
     async start(controller) {
       const reader = upstream.getReader()
       let pingTimer: ReturnType<typeof setInterval> | null = null
       let closed = false
+      let frameBuffer = ''
 
       const clearTimers = () => {
         if (pingTimer) {
@@ -217,6 +234,13 @@ function wrapAnthropicSseStream(
         if (closed) return
         closed = true
         clearTimers()
+        const decoderTail = decoder.decode()
+        if (decoderTail) frameBuffer += decoderTail
+        if (frameBuffer.trim()) {
+          const suffix = frameBuffer.endsWith('\n\n') || frameBuffer.endsWith('\r\n\r\n') ? '' : '\n\n'
+          controller.enqueue(encoder.encode(`${frameBuffer}${suffix}`))
+          frameBuffer = ''
+        }
         controller.close()
       }
 
@@ -225,10 +249,23 @@ function wrapAnthropicSseStream(
         controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk)
       }
 
+      const enqueueCompleteFrames = (chunk: Uint8Array) => {
+        frameBuffer += decoder.decode(chunk, { stream: true })
+
+        while (true) {
+          const boundary = findEventBoundary(frameBuffer)
+          if (!boundary) break
+          const end = boundary.index + boundary.length
+          enqueue(frameBuffer.slice(0, end))
+          frameBuffer = frameBuffer.slice(end)
+        }
+      }
+
       const emitIdleError = () => {
         if (closed) return
         closed = true
         clearTimers()
+        frameBuffer = ''
         options.abortUpstream?.()
         void reader.cancel(PROXY_STREAM_IDLE_MESSAGE).catch(() => {})
         controller.enqueue(encoder.encode(formatSse('error', {
@@ -243,6 +280,7 @@ function wrapAnthropicSseStream(
 
       if (options.pingIntervalMs) {
         pingTimer = setInterval(() => {
+          if (frameBuffer.length > 0) return
           enqueue(formatSse('ping', { type: 'ping' }))
         }, options.pingIntervalMs)
       }
@@ -267,7 +305,7 @@ function wrapAnthropicSseStream(
 
           const { done, value } = readResult.result
           if (done) break
-          enqueue(value)
+          enqueueCompleteFrames(value)
         }
         close()
       } catch (err) {
@@ -361,14 +399,24 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
   const isStream = body.stream === true
   const baseUrl = config.baseUrl.replace(/\/+$/, '')
   const requestTimeoutMs = getRequestTimeoutHeader(req)
+  const capabilities = resolveProviderCapabilities({
+    apiFormat: config.apiFormat,
+    baseUrl,
+    model: body.model,
+  })
+  observePrefixStability(body, {
+    apiFormat: config.apiFormat,
+    baseUrl,
+    capabilities,
+  })
 
-  if (hasImageInput(body) && isKnownTextOnlyProvider(baseUrl, body.model)) {
+  if (hasImageInput(body) && !capabilities.supportsImages) {
     return Response.json(
       {
         type: 'error',
         error: {
           type: 'invalid_request_error',
-          message: getUnsupportedImageInputMessage(baseUrl, body.model),
+          message: getUnsupportedImageInputMessage(body.model, capabilities),
         },
       },
       { status: 400 },
@@ -386,7 +434,7 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
       return await handleGuguManaged(req, body)
     }
     if (config.apiFormat === 'openai_chat') {
-      return await handleOpenaiChat(body, baseUrl, config.apiKey, isStream, requestTimeoutMs)
+      return await handleOpenaiChat(body, baseUrl, config.apiKey, isStream, capabilities.openAIChat, requestTimeoutMs)
     } else {
       return await handleOpenaiResponses(body, baseUrl, config.apiKey, isStream, requestTimeoutMs)
     }
@@ -416,14 +464,8 @@ function hasImageInput(body: AnthropicRequest): boolean {
   })
 }
 
-function isKnownTextOnlyProvider(baseUrl: string, model: string): boolean {
-  const haystack = `${baseUrl} ${model}`.toLowerCase()
-  return haystack.includes('deepseek')
-}
-
-function getUnsupportedImageInputMessage(baseUrl: string, model: string): string {
-  const haystack = `${baseUrl} ${model}`.toLowerCase()
-  if (haystack.includes('deepseek')) {
+function getUnsupportedImageInputMessage(model: string, capabilities: ProviderCapabilities): string {
+  if (capabilities.providerFamily === 'deepseek') {
     return `DeepSeek's Anthropic-compatible API currently does not support image content blocks, including DeepSeek V4 models. Model "${model}" can only receive text/tool content through this provider. Switch to a vision-capable provider/model, or send text only.`
   }
   return `Model "${model}" does not support image input on the active provider. Switch to a vision-capable provider/model, or send text only.`
@@ -781,9 +823,10 @@ async function handleOpenaiChat(
   baseUrl: string,
   apiKey: string,
   isStream: boolean,
+  capabilities: OpenAIChatProviderCapabilities,
   requestTimeoutMs?: RequestTimeoutOverride,
 ): Promise<Response> {
-  const transformed = anthropicToOpenaiChat(body)
+  const transformed = anthropicToOpenaiChat(body, { capabilities })
   const url = buildOpenAIEndpoint(baseUrl, 'chat/completions')
 
   const { response: upstream, abort: abortUpstream } = await fetchUpstream(url, {

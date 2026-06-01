@@ -2,6 +2,33 @@
 
 This project communicates with LLMs via the Anthropic protocol. By using a protocol translation proxy, you can use any model including OpenAI, DeepSeek, Ollama, etc.
 
+## Model Access Boundary
+
+The desktop model access UI publicly exposes only **Gugu Managed** and **Custom**. The OpenAI, DeepSeek, Ollama, and other examples in this page are bring-your-own account/API key/Base URL/model ID custom endpoints or proxy examples. They are not built-in official presets, partner entries, or ranked recommendations.
+
+When using a Custom endpoint in the desktop app:
+
+- Selecting the **OpenAI Chat Completions compatible protocol** makes the local proxy translate Anthropic Messages requests to `/v1/chat/completions`.
+- DeepSeek-like custom endpoints receive capability-gated compatibility handling, including the thinking request shape, `reasoning_content` replay across tool-call loops, and prefix-cache hit/miss usage normalization.
+- Generic OpenAI-compatible endpoints do not receive DeepSeek-only fields such as `thinking: { type: "enabled" }` or placeholder `reasoning_content`.
+
+### DeepSeek-like Custom Endpoint Troubleshooting
+
+If the upstream reports errors about missing `reasoning_content`, thinking mode, or cache telemetry after a tool call, check:
+
+1. The Custom endpoint protocol is set to OpenAI Chat Completions compatible mode.
+2. The Base URL or model ID can be recognized as DeepSeek-like, for example by containing `deepseek`.
+3. The current model supports the input type. DeepSeek-like endpoints are treated as text/tool only; image content blocks are rejected by the local proxy before forwarding.
+4. Streaming responses emit OpenAI Chat-style `usage` chunks. `prompt_cache_hit_tokens` maps to `cache_read_input_tokens`, and `prompt_cache_miss_tokens` maps to `cache_creation_input_tokens`.
+
+To inspect prefix-cache drift during troubleshooting, temporarily set:
+
+```bash
+CC_GUGU_PROXY_PREFIX_DEBUG=1
+```
+
+The debug log emits hashes and changed component names only. It does not print the system prompt, API keys, or full tool schemas.
+
 ## How It Works
 
 ```

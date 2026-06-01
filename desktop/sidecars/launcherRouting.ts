@@ -1,8 +1,13 @@
 import path from 'node:path'
 
-export type SidecarMode = 'server' | 'cli' | 'adapters'
+export type SidecarMode = 'server' | 'cli' | 'adapters' | 'claude-mem-mcp'
 
-const EXPLICIT_MODES = new Set<SidecarMode>(['server', 'cli', 'adapters'])
+const EXPLICIT_MODES = new Set<SidecarMode>([
+  'server',
+  'cli',
+  'adapters',
+  'claude-mem-mcp',
+])
 const DESKTOP_CLI_NAMES = new Set(['claude-gugu', 'claude-gugu.exe'])
 
 export function resolveSidecarInvocation(

@@ -248,6 +248,41 @@ describe('openaiChatStreamToAnthropic', () => {
     )
     expect(firstBlockStop).toBeLessThan(toolBlockStart)
   })
+
+  test('DeepSeek cache usage maps when usage arrives with finish chunk', async () => {
+    const sseChunks = [
+      'data: {"id":"c8","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c8","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"prompt_cache_hit_tokens":64,"prompt_cache_miss_tokens":36}}\n\n',
+      'data: [DONE]\n\n',
+    ]
+
+    const upstream = makeStream(sseChunks)
+    const events = await collectSse(openaiChatStreamToAnthropic(upstream, 'deepseek-chat'))
+    const msgDelta = events.find((e) => e.event === 'message_delta')!
+    const usage = msgDelta.data.usage as Record<string, unknown>
+
+    expect(usage.output_tokens).toBe(5)
+    expect(usage.cache_read_input_tokens).toBe(64)
+    expect(usage.cache_creation_input_tokens).toBe(36)
+  })
+
+  test('DeepSeek cache usage maps when usage arrives as a separate chunk', async () => {
+    const sseChunks = [
+      'data: {"id":"c9","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c9","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: {"id":"c9","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"prompt_cache_hit_tokens":64,"prompt_cache_miss_tokens":36}}\n\n',
+      'data: [DONE]\n\n',
+    ]
+
+    const upstream = makeStream(sseChunks)
+    const events = await collectSse(openaiChatStreamToAnthropic(upstream, 'deepseek-chat'))
+    const msgDelta = events.find((e) => e.event === 'message_delta')!
+    const usage = msgDelta.data.usage as Record<string, unknown>
+
+    expect(usage.output_tokens).toBe(5)
+    expect(usage.cache_read_input_tokens).toBe(64)
+    expect(usage.cache_creation_input_tokens).toBe(36)
+  })
 })
 
 // ─── OpenAI Responses SSE → Anthropic SSE ──────────────────────

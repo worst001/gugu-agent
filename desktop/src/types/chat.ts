@@ -20,6 +20,7 @@ export type ClientMessage =
       allowed: boolean
       rule?: string
       updatedInput?: Record<string, unknown>
+      message?: string
     }
   | {
       type: 'computer_use_permission_response'

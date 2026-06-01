@@ -20,6 +20,7 @@
  *   - delta.reasoning          (GLM-5, Cerebras, Groq — mapped to reasoning_content)
  */
 
+import { mapOpenAIChatUsageToAnthropicStream } from '../transform/openaiChatUsage.js'
 import type { OpenAIChatStreamChunk } from '../transform/types.js'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -465,7 +466,7 @@ function handleFinishReason(
 
   const stopReason = mapFinishReason(finishReason)
   const usage = chunk.usage
-    ? { output_tokens: chunk.usage.completion_tokens || 0 }
+    ? mapOpenAIChatUsageToAnthropicStream(chunk.usage)
     : { output_tokens: 0 }
 
   const messageDelta: SseEvent = {
@@ -494,7 +495,7 @@ function mergeUsageIntoHeldDelta(
   if (!state.heldMessageDelta) return
 
   const data = state.heldMessageDelta.data as Record<string, unknown>
-  data.usage = { output_tokens: usage.completion_tokens || 0 }
+  data.usage = mapOpenAIChatUsageToAnthropicStream(usage)
   state.messageDeltaSent = true
   state.queue.push(state.heldMessageDelta)
   state.heldMessageDelta = null

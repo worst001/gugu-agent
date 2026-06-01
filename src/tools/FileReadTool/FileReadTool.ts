@@ -73,6 +73,12 @@ import { matchWildcardPattern } from '../../utils/permissions/shellRuleMatching.
 import { readFileInRange } from '../../utils/readFileInRange.js'
 import { semanticNumber } from '../../utils/semanticNumber.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
+import {
+  getToolResultPath,
+  parseToolResultHandle,
+  resolvePersistedToolResultHandle,
+  TOOL_RESULT_HANDLE_PREFIX,
+} from '../../utils/toolResultStorage.js'
 import { BASH_TOOL_NAME } from '../BashTool/toolName.js'
 import { getDefaultFileReadingLimits } from './limits.js'
 import {
@@ -226,7 +232,9 @@ function detectSessionFileType(
 
 const inputSchema = lazySchema(() =>
   z.strictObject({
-    file_path: z.string().describe('The absolute path to the file to read'),
+    file_path: z.string().describe(
+      'The absolute path to the file to read, or a persisted tool-result handle.',
+    ),
     offset: semanticNumber(z.number().int().nonnegative().optional()).describe(
       'The line number to start reading from. Only provide if the file is too large to read at once',
     ),
@@ -383,20 +391,51 @@ export const FileReadTool = buildTool({
     return { isSearch: false, isRead: true }
   },
   getPath({ file_path }): string {
-    return file_path || getCwd()
+    const toolResultId =
+      typeof file_path === 'string' ? parseToolResultHandle(file_path) : null
+    return toolResultId ? getToolResultPath(toolResultId, false) : file_path || getCwd()
   },
   backfillObservableInput(input) {
     // hooks.mdx documents file_path as absolute; expand so hook allowlists
     // can't be bypassed via ~ or relative paths.
     if (typeof input.file_path === 'string') {
-      input.file_path = expandPath(input.file_path)
+      const toolResultId = parseToolResultHandle(input.file_path)
+      input.file_path = toolResultId
+        ? getToolResultPath(toolResultId, false)
+        : expandPath(input.file_path)
     }
   },
   async preparePermissionMatcher({ file_path }) {
-    return pattern => matchWildcardPattern(pattern, file_path)
+    const toolResultId = parseToolResultHandle(file_path)
+    const permissionPath = toolResultId
+      ? getToolResultPath(toolResultId, false)
+      : file_path
+    return pattern => matchWildcardPattern(pattern, permissionPath)
   },
   async checkPermissions(input, context): Promise<PermissionDecision> {
     const appState = context.getAppState()
+    const toolResultId =
+      typeof input.file_path === 'string'
+        ? parseToolResultHandle(input.file_path)
+        : null
+    if (toolResultId) {
+      const resolution = await resolvePersistedToolResultHandle(input.file_path)
+      if ('error' in resolution) {
+        return {
+          behavior: 'deny',
+          message: resolution.error,
+          decisionReason: {
+            type: 'other',
+            reason: 'Persisted tool result handle could not be resolved',
+          },
+        }
+      }
+      return checkReadPermissionForTool(
+        FileReadTool,
+        { ...input, file_path: resolution.filepath },
+        appState.toolPermissionContext,
+      )
+    }
     return checkReadPermissionForTool(
       FileReadTool,
       input,
@@ -437,6 +476,38 @@ export const FileReadTool = buildTool({
           errorCode: 8,
         }
       }
+    }
+
+    const toolResultId = parseToolResultHandle(file_path)
+    if (file_path.startsWith(TOOL_RESULT_HANDLE_PREFIX) && !toolResultId) {
+      return {
+        result: false,
+        message: `Invalid persisted tool result handle: "${file_path}".`,
+        errorCode: 10,
+      }
+    }
+    if (toolResultId) {
+      const appState = toolUseContext.getAppState()
+      for (const candidatePath of [
+        getToolResultPath(toolResultId, false),
+        getToolResultPath(toolResultId, true),
+      ]) {
+        const denyRule = matchingRuleForInput(
+          candidatePath,
+          appState.toolPermissionContext,
+          'read',
+          'deny',
+        )
+        if (denyRule !== null) {
+          return {
+            result: false,
+            message:
+              'File is in a directory that is denied by your permission settings.',
+            errorCode: 1,
+          }
+        }
+      }
+      return { result: true }
     }
 
     // Path expansion + deny rule check (no I/O)
@@ -515,10 +586,18 @@ export const FileReadTool = buildTool({
       })
     }
 
-    const ext = path.extname(file_path).toLowerCase().slice(1)
+    let ext = path.extname(file_path).toLowerCase().slice(1)
     // Use expandPath for consistent path normalization with FileEditTool/FileWriteTool
     // (especially handles whitespace trimming and Windows path separators)
-    const fullFilePath = expandPath(file_path)
+    let fullFilePath = expandPath(file_path)
+    if (file_path.startsWith(TOOL_RESULT_HANDLE_PREFIX)) {
+      const resolution = await resolvePersistedToolResultHandle(file_path)
+      if ('error' in resolution) {
+        throw new Error(resolution.error)
+      }
+      ext = resolution.isJson ? 'json' : 'txt'
+      fullFilePath = resolution.filepath
+    }
 
     // Dedup: if we've already read this exact range and the file hasn't
     // changed on disk, return a stub instead of re-sending the full content.

@@ -16,6 +16,20 @@ describe('resolveSidecarInvocation', () => {
     })
   })
 
+  it('recognizes the bundled claude-mem MCP launcher mode', () => {
+    expect(
+      resolveSidecarInvocation(
+        ['claude-mem-mcp', '--plugin-root', '/tmp/claude-mem'],
+        '/tmp/gugu-sidecar',
+        '/tmp/app',
+      ),
+    ).toEqual({
+      mode: 'claude-mem-mcp',
+      restArgs: ['--plugin-root', '/tmp/claude-mem'],
+      defaultAppRoot: '/tmp/app',
+    })
+  })
+
   it('defaults claude-gugu invocations to cli mode', () => {
     expect(
       resolveSidecarInvocation(

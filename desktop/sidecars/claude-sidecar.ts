@@ -17,6 +17,9 @@
  * launcher-only 参数。
  */
 
+import { existsSync } from 'node:fs'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { parseLauncherArgs, resolveSidecarInvocation } from './launcherRouting'
 import { BUNDLED_ADAPTERS, startBundledAdapter } from './.generated/bundledAdapters.generated.ts'
 
@@ -31,6 +34,8 @@ const restArgs = invocation.restArgs
 
 if (mode === 'adapters') {
   await runAdapters(restArgs)
+} else if (mode === 'claude-mem-mcp') {
+  await runClaudeMemMcp(restArgs, invocation.defaultAppRoot)
 } else {
   const { appRoot, args } = parseLauncherArgs(restArgs, invocation.defaultAppRoot)
 
@@ -46,9 +51,50 @@ if (mode === 'adapters') {
   } else if (mode === 'cli') {
     await import('../../src/entrypoints/cli.tsx')
   } else {
-    console.error(`gugu-sidecar: unknown mode "${mode}" (expected "server", "cli" or "adapters")`)
+    console.error(`gugu-sidecar: unknown mode "${mode}" (expected "server", "cli", "adapters" or "claude-mem-mcp")`)
     process.exit(2)
   }
+}
+
+async function runClaudeMemMcp(rawArgs: string[], defaultAppRoot: string | null): Promise<void> {
+  let appRoot: string | null = defaultAppRoot ?? process.env.CLAUDE_APP_ROOT ?? null
+  let pluginRoot: string | null = process.env.CLAUDE_PLUGIN_ROOT ?? process.env.PLUGIN_ROOT ?? null
+
+  for (let index = 0; index < rawArgs.length; index++) {
+    const arg = rawArgs[index]
+    if (arg === '--app-root') {
+      appRoot = rawArgs[index + 1] ?? null
+      index += 1
+      continue
+    }
+    if (arg === '--plugin-root') {
+      pluginRoot = rawArgs[index + 1] ?? null
+      index += 1
+      continue
+    }
+    console.warn(`gugu-sidecar claude-mem-mcp: ignoring unknown arg "${arg}"`)
+  }
+
+  if (appRoot) {
+    process.env.CLAUDE_APP_ROOT = appRoot
+  }
+  process.env.CALLER_DIR ||= process.cwd()
+
+  if (!pluginRoot) {
+    console.error('gugu-sidecar claude-mem-mcp: missing --plugin-root')
+    process.exit(2)
+  }
+
+  const serverScript = path.join(pluginRoot, 'scripts', 'mcp-server.cjs')
+  if (!existsSync(serverScript)) {
+    console.error(`gugu-sidecar claude-mem-mcp: mcp-server.cjs not found at ${serverScript}`)
+    process.exit(1)
+  }
+
+  process.env.CLAUDE_PLUGIN_ROOT = pluginRoot
+  process.env.PLUGIN_ROOT ||= pluginRoot
+
+  await import(pathToFileURL(serverScript).href)
 }
 
 async function runAdapters(rawArgs: string[]): Promise<void> {

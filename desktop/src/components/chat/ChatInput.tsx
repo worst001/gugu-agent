@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, WandSparkles } from 'lucide-react'
+import { Code2, FileText, Files, Mail, Mic, MicOff, Presentation, Table2, WandSparkles, X } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useChatStore } from '../../stores/chatStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
@@ -12,8 +12,16 @@ import { filesystemApi } from '../../api/filesystem'
 import { promptOptimizeApi } from '../../api/promptOptimize'
 import { audioTranscriptionApi } from '../../api/audioTranscription'
 import { AgentRunModeControl } from '../controls/AgentRunModeControl'
+import { OfficeToolboxControl } from '../controls/OfficeToolboxControl'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
 import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage } from '../../constants/agentRunModes'
+import {
+  buildOfficeToolMessage,
+  getOfficeToolOption,
+  getOfficeToolPlaceholderKey,
+  officeToolRequiresAttachment,
+  type OfficeToolId,
+} from '../../constants/officeTools'
 import { useAgentRunModeStore } from '../../stores/agentRunModeStore'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from './AttachmentGallery'
@@ -71,6 +79,15 @@ type ChatInputProps = {
   variant?: 'default' | 'hero'
 }
 
+const OFFICE_TOOL_CHIP_ICONS = {
+  'coding-assistant': Code2,
+  'document-summary': FileText,
+  'spreadsheet-analysis': Table2,
+  'ppt-draft': Presentation,
+  'mail-draft': Mail,
+  'file-assistant': Files,
+} satisfies Record<OfficeToolId, typeof Code2>
+
 const PROMPT_OPTIMIZE_ESTIMATED_MS = 60_000
 const PROMPT_OPTIMIZE_INITIAL_PROGRESS = 6
 const PROMPT_OPTIMIZE_PROGRESS_CAP = 95
@@ -88,6 +105,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const [slashMenuOpen, setSlashMenuOpen] = useState(false)
   const [fileSearchOpen, setFileSearchOpen] = useState(false)
   const [localSlashPanel, setLocalSlashPanel] = useState<LocalSlashCommandName | null>(null)
+  const [selectedOfficeTool, setSelectedOfficeTool] = useState<OfficeToolId | null>(null)
   const [atFilter, setAtFilter] = useState('')
   const [atCursorPos, setAtCursorPos] = useState(-1)
   const [slashFilter, setSlashFilter] = useState('')
@@ -107,6 +125,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const [isVoiceRecording, setIsVoiceRecording] = useState(false)
   const [isVoiceTranscribing, setIsVoiceTranscribing] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
+  const [contextUsageSnapshot, setContextUsageSnapshot] = useState<SessionContextSnapshot | null>(null)
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -136,7 +155,11 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const isMemberSession = !!memberInfo
   const isActive = chatState !== 'idle'
   const isWorkspaceMissing = activeSession?.workDirExists === false
-  const canSubmit = !isWorkspaceMissing && (input.trim().length > 0 || (!isMemberSession && attachments.length > 0))
+  const canSubmit = !isWorkspaceMissing && (
+    input.trim().length > 0 ||
+    (!isMemberSession && attachments.length > 0) ||
+    (!isMemberSession && selectedOfficeTool !== null && officeToolRequiresAttachment(selectedOfficeTool))
+  )
   const canAcceptAttachments = !isMemberSession && !isActive && !isWorkspaceMissing
   const canOptimizePrompt = Boolean(
     activeTabId &&
@@ -239,6 +262,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       inputRef.current = ''
       setInput('')
       setAttachments([])
+      setSelectedOfficeTool(null)
       return
     }
 
@@ -251,11 +275,13 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     setSlashMenuOpen(false)
     setFileSearchOpen(false)
     setLocalSlashPanel(null)
+    setSelectedOfficeTool(null)
     setSlashFilter('')
     setAtFilter('')
     setAtCursorPos(-1)
     setPromptOptimizePreview(null)
     setPromptOptimizeError(null)
+    setContextUsageSnapshot(null)
   }, [activeTabId, isMemberSession])
 
   useEffect(() => {
@@ -328,6 +354,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     setPlusMenuOpen(false)
     setSlashMenuOpen(false)
     setFileSearchOpen(false)
+    setSelectedOfficeTool(null)
   }, [isMemberSession, activeTabId])
 
   useEffect(() => {
@@ -507,7 +534,10 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     if (!activeTabId) return
     if (!isMemberSession && isActive) return
     const text = (overrideText ?? input).trim()
-    if ((!text && (!attachments.length || isMemberSession)) || isWorkspaceMissing) return
+    const selectedToolNeedsAttachment = !isMemberSession &&
+      selectedOfficeTool !== null &&
+      officeToolRequiresAttachment(selectedOfficeTool)
+    if ((!text && (!attachments.length || isMemberSession) && !selectedToolNeedsAttachment) || isWorkspaceMissing) return
 
     const slashUiAction = overrideText === undefined && !isMemberSession && text.startsWith('/')
       ? resolveSlashUiAction(text.slice(1))
@@ -544,20 +574,43 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     }))
 
     if (!isMemberSession) {
+      const officeTool = selectedOfficeTool
+      if (officeTool && officeToolRequiresAttachment(officeTool) && attachmentPayload.length === 0) {
+        useUIStore.getState().addToast({
+          type: 'warning',
+          message: t('chat.officeTool.requiresAttachment', {
+            tool: t(getOfficeToolOption(officeTool).labelKey),
+          }),
+          duration: 6500,
+        })
+        return
+      }
+
       const agentMode = useAgentRunModeStore.getState().selections[activeTabId] ?? AGENT_RUN_MODE_DEFAULT
       const roleId = useCeWorkflowRoleStore.getState().selections[activeTabId]
       const availableSkillNames = slashCommands.length > 0
         ? slashCommands.map((command) => command.name)
         : undefined
+      const officeMessage = officeTool
+        ? buildOfficeToolMessage(officeTool, text, { hasAttachments: attachmentPayload.length > 0 })
+        : null
       const { wire, display, modelPreference } = buildAgentRunModeMessage(
         agentMode,
         roleId,
-        text,
+        officeMessage?.wire ?? text,
         availableSkillNames,
       )
+      const officeDisplayContent = officeMessage && officeTool
+        ? officeMessage.display.trim() || (
+          attachmentPayload.length > 0
+            ? t(getOfficeToolOption(officeTool).shortLabelKey)
+            : officeMessage.display
+        )
+        : display
       sendMessage(activeTabId, wire, attachmentPayload, {
-        displayContent: display,
+        displayContent: officeDisplayContent,
         displayAttachments: attachmentPayload,
+        ...(officeTool ? { officeTool } : {}),
         ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
       })
       if (agentMode === 'plan') {
@@ -574,6 +627,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     setSlashMenuOpen(false)
     setFileSearchOpen(false)
     setLocalSlashPanel(null)
+    setSelectedOfficeTool(null)
     setPromptOptimizePreview(null)
     setPromptOptimizeError(null)
   }
@@ -1171,13 +1225,15 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   }
 
   const composerPlaceholder =
-    isHeroComposer
-      ? t('empty.placeholder')
-      : isWorkspaceMissing
-        ? t('chat.placeholderMissing')
-        : isMemberSession
-          ? t('teams.memberPlaceholder')
-          : t('chat.placeholder')
+    isWorkspaceMissing
+      ? t('chat.placeholderMissing')
+      : isMemberSession
+        ? t('teams.memberPlaceholder')
+        : selectedOfficeTool
+          ? t(getOfficeToolPlaceholderKey(selectedOfficeTool))
+          : isHeroComposer
+            ? t('empty.placeholder')
+            : t('chat.placeholder')
 
   const voiceButtonTitle = !voiceSupported
     ? t('chat.voice.unavailable')
@@ -1238,6 +1294,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 sessionId={activeTabId ?? undefined}
                 cwd={resolvedWorkDir}
                 commands={allSlashCommands}
+                onContextSnapshot={setContextUsageSnapshot}
                 onClose={() => setLocalSlashPanel(null)}
               />
             </div>
@@ -1289,6 +1346,14 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 <AttachmentGallery attachments={attachments} variant="composer" onRemove={removeAttachment} />
               </div>
             )
+          )}
+
+          {!isMemberSession && selectedOfficeTool && (
+            <OfficeToolIntentChip
+              toolId={selectedOfficeTool}
+              onClear={() => setSelectedOfficeTool(null)}
+              compact={!isHeroComposer}
+            />
           )}
 
           {!isMemberSession && (isVoiceRecording || isVoiceTranscribing) && (
@@ -1521,6 +1586,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     chatState={chatState}
                     disabled={isWorkspaceMissing}
                     autoCompactSupported={autoCompactSupported}
+                    contextSnapshot={contextUsageSnapshot}
                     onOpen={openContextPanel}
                     onAutoCompact={handleAutoCompact}
                   />
@@ -1531,6 +1597,11 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             <div className="flex items-center gap-2">
               {!isMemberSession && activeTabId && (
                 <>
+                  <OfficeToolboxControl
+                    value={selectedOfficeTool}
+                    onChange={setSelectedOfficeTool}
+                    disabled={isWorkspaceMissing || isActive}
+                  />
                   <AgentRunModeControl sessionKey={activeTabId} disabled={isWorkspaceMissing || isActive} />
                 </>
               )}
@@ -1598,6 +1669,40 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             )}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function OfficeToolIntentChip({
+  toolId,
+  onClear,
+  compact,
+}: {
+  toolId: OfficeToolId
+  onClear: () => void
+  compact: boolean
+}) {
+  const t = useTranslation()
+  const option = getOfficeToolOption(toolId)
+  const Icon = OFFICE_TOOL_CHIP_ICONS[toolId]
+  const label = t(option.shortLabelKey)
+
+  return (
+    <div className={compact ? 'px-1 pt-2' : ''}>
+      <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-low)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-tertiary)]" />
+        <span className="min-w-0 truncate">
+          {t('chat.officeTool.intentLabel', { tool: label })}
+        </span>
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label={t('chat.officeTool.clearSelection')}
+          className="-mr-1 rounded-full p-0.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   )

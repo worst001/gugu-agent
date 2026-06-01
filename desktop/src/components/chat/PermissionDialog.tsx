@@ -5,6 +5,7 @@ import { useTranslation } from '../../i18n'
 import type { TranslationKey } from '../../i18n'
 import { Button } from '../shared/Button'
 import { DiffViewer } from './DiffViewer'
+import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
 
 type Props = {
   requestId: string
@@ -29,13 +30,38 @@ const TOOL_META: Record<string, { icon: string; label: string; color: string }> 
   WebFetch: { icon: 'cloud_download', label: 'Web Fetch', color: 'var(--color-secondary)' },
   NotebookEdit: { icon: 'note', label: 'Notebook Edit', color: 'var(--color-brand)' },
   Skill: { icon: 'auto_awesome', label: 'Skill', color: 'var(--color-tertiary)' },
+  ExitPlanMode: { icon: 'assignment_turned_in', label: 'Plan Approval', color: 'var(--color-warning)' },
+}
+
+function getInputObject(input: unknown): Record<string, unknown> {
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    return input as Record<string, unknown>
+  }
+
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return {}
+    }
+  }
+
+  return {}
+}
+
+function getStringField(obj: Record<string, unknown>, key: string): string | undefined {
+  const value = obj[key]
+  return typeof value === 'string' && value.trim() ? value : undefined
 }
 
 /**
  * Extract human-readable detail lines from tool input.
  */
 function extractToolDetails(toolName: string, input: unknown, t: (key: TranslationKey, params?: Record<string, string | number>) => string): { primary: string; secondary?: string } {
-  const obj = (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+  const obj = getInputObject(input)
 
   switch (toolName) {
     case 'Bash': {
@@ -65,13 +91,19 @@ function extractToolDetails(toolName: string, input: unknown, t: (key: Translati
       return { primary: typeof obj.query === 'string' ? obj.query : '' }
     case 'WebFetch':
       return { primary: typeof obj.url === 'string' ? obj.url : '' }
+    case 'ExitPlanMode': {
+      const planFilePath = getStringField(obj, 'planFilePath')
+      return {
+        primary: planFilePath ? `${t('permission.planFile')}: ${planFilePath}` : '',
+      }
+    }
     default:
       return { primary: typeof input === 'string' ? input : JSON.stringify(input, null, 2) }
   }
 }
 
 function getPermissionTitle(toolName: string, input: unknown, t: (key: TranslationKey, params?: Record<string, string | number>) => string) {
-  const obj = (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+  const obj = getInputObject(input)
   const filePath = typeof obj.file_path === 'string' ? obj.file_path : ''
   const fileName = filePath ? filePath.split('/').pop() || filePath : ''
 
@@ -81,13 +113,15 @@ function getPermissionTitle(toolName: string, input: unknown, t: (key: Translati
       return fileName ? t('permission.allowEditFile', { toolName, fileName }) : t('permission.allowEditFileGeneric', { toolName: toolName.toLowerCase() })
     case 'Bash':
       return t('permission.allowBash')
+    case 'ExitPlanMode':
+      return t('permission.confirmPlan')
     default:
       return t('permission.allowTool', { toolName })
   }
 }
 
 function renderPermissionPreview(toolName: string, input: unknown) {
-  const obj = (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+  const obj = getInputObject(input)
   const filePath = typeof obj.file_path === 'string' ? obj.file_path : 'file'
 
   if (toolName === 'Edit' && typeof obj.old_string === 'string' && typeof obj.new_string === 'string') {
@@ -108,7 +142,27 @@ function renderPermissionPreview(toolName: string, input: unknown) {
     )
   }
 
+  if (toolName === 'ExitPlanMode') {
+    const plan = getStringField(obj, 'plan')
+    if (!plan) return null
+
+    return (
+      <div className="max-h-[460px] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+        <MarkdownRenderer
+          content={plan}
+          className="prose-h1:mt-0 prose-h1:mb-3 prose-h1:text-lg prose-h2:mt-5 prose-h2:mb-2 prose-h2:text-base prose-h3:mt-4 prose-h3:mb-1.5 prose-h3:text-sm prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5"
+        />
+      </div>
+    )
+  }
+
   return null
+}
+
+function getDetailIcon(toolName: string) {
+  if (toolName === 'Glob' || toolName === 'Grep') return 'search'
+  if (toolName === 'ExitPlanMode') return 'article'
+  return 'folder_open'
 }
 
 export function PermissionDialog({ requestId, toolName, input, description }: Props) {
@@ -119,14 +173,16 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
   const isPending = pendingPermission?.requestId === requestId
   const [showRaw, setShowRaw] = useState(false)
   const [allowMenuOpen, setAllowMenuOpen] = useState(false)
+  const [planFeedback, setPlanFeedback] = useState('')
   const allowMenuRef = useRef<HTMLDivElement>(null)
 
+  const isExitPlanMode = toolName === 'ExitPlanMode'
   const meta = TOOL_META[toolName] || { icon: 'shield', label: toolName, color: 'var(--color-text-tertiary)' }
   const details = extractToolDetails(toolName, input, t)
   const rawInput = typeof input === 'string' ? input : JSON.stringify(input, null, 2)
   const preview = renderPermissionPreview(toolName, input)
   const title = getPermissionTitle(toolName, input, t)
-  const allowRawToggle = !preview
+  const allowRawToggle = !preview || toolName === 'ExitPlanMode'
 
   useEffect(() => {
     if (!allowMenuOpen) return
@@ -156,6 +212,25 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
       respondToPermission(activeTabId, requestId, true, { rule: 'always' })
     }
     setAllowMenuOpen(false)
+  }
+
+  const handleImplementPlan = () => {
+    if (!activeTabId) return
+    respondToPermission(activeTabId, requestId, true)
+  }
+
+  const handleRequestPlanUpdate = () => {
+    if (!activeTabId) return
+    const feedback = planFeedback.trim()
+    if (!feedback) return
+    respondToPermission(activeTabId, requestId, false, {
+      message: t('permission.planFeedbackMessage', { feedback }),
+    })
+  }
+
+  const handleDeny = () => {
+    if (!activeTabId) return
+    respondToPermission(activeTabId, requestId, false)
   }
 
   return (
@@ -211,7 +286,7 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
             {details.primary && toolName !== 'Bash' ? (
               <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container)] px-3 py-2 text-xs font-[var(--font-mono)] text-[var(--color-text-secondary)]">
                 <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)] flex-shrink-0">
-                  folder_open
+                  {getDetailIcon(toolName)}
                 </span>
                 <span className="truncate">{details.primary}</span>
               </div>
@@ -222,7 +297,7 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
           <div className="mb-2">
             <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container)] px-3 py-2 text-xs font-[var(--font-mono)] text-[var(--color-text-secondary)]">
               <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)] flex-shrink-0">
-                {toolName === 'Glob' || toolName === 'Grep' ? 'search' : 'folder_open'}
+                {getDetailIcon(toolName)}
               </span>
               <span className="truncate">{details.primary}</span>
             </div>
@@ -254,7 +329,64 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
       </div>
 
       {/* Action buttons */}
-      {isPending && (
+      {isPending && isExitPlanMode && (
+        <div className="space-y-3 border-t border-[var(--color-outline-variant)]/20 bg-[var(--color-surface-container-low)] px-4 py-3">
+          <div>
+            <label
+              htmlFor={`${requestId}-plan-feedback`}
+              className="text-xs font-semibold text-[var(--color-text-primary)]"
+            >
+              {t('chat.planConfirm.updateLabel')}
+            </label>
+            <textarea
+              id={`${requestId}-plan-feedback`}
+              value={planFeedback}
+              onChange={(event) => setPlanFeedback(event.target.value)}
+              placeholder={t('chat.planConfirm.updatePlaceholder')}
+              className="mt-2 min-h-[76px] w-full resize-y rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm leading-relaxed text-[var(--color-text-primary)] outline-none transition-colors placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-brand)]"
+            />
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--color-text-tertiary)]">
+              {t('permission.planFeedbackTip')}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleRequestPlanUpdate}
+              disabled={!planFeedback.trim()}
+              icon={
+                <span className="material-symbols-outlined text-[14px]">rate_review</span>
+              }
+            >
+              {t('permission.submitPlanFeedback')}
+            </Button>
+            <div className="flex-1" />
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleDeny}
+              icon={
+                <span className="material-symbols-outlined text-[14px]">close</span>
+              }
+            >
+              {t('permission.deny')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleImplementPlan}
+              icon={
+                <span className="material-symbols-outlined text-[14px]">check</span>
+              }
+            >
+              {t('chat.planConfirm.implementPlan')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isPending && !isExitPlanMode && (
         <div className="flex items-center gap-2 border-t border-[var(--color-outline-variant)]/20 bg-[var(--color-surface-container-low)] px-4 py-3">
           <div ref={allowMenuRef} className="relative">
             <Button
@@ -307,7 +439,7 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
           <Button
             variant="danger"
             size="sm"
-            onClick={() => activeTabId && respondToPermission(activeTabId, requestId, false)}
+            onClick={handleDeny}
             icon={
               <span className="material-symbols-outlined text-[14px]">close</span>
             }

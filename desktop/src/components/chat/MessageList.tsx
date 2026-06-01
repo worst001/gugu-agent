@@ -18,7 +18,7 @@ import { ToolCallGroup } from './ToolCallGroup'
 import { ToolResultBlock } from './ToolResultBlock'
 import { PermissionDialog } from './PermissionDialog'
 import { AskUserQuestion } from './AskUserQuestion'
-import { StreamingIndicator } from './StreamingIndicator'
+import { AgentActivityPanel } from './AgentActivityPanel'
 import { InlineTaskSummary } from './InlineTaskSummary'
 import type { AgentTaskNotification, UIMessage } from '../../types/chat'
 import { Modal } from '../shared/Modal'
@@ -359,6 +359,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const queueComposerPrefill = useChatStore((s) => s.queueComposerPrefill)
   const sendMessage = useChatStore((s) => s.sendMessage)
   const forkSession = useSessionStore((s) => s.forkSession)
+  const sessionWorkDir = useSessionStore((s) =>
+    resolvedSessionId ? s.sessions.find((session) => session.id === resolvedSessionId)?.workDir ?? null : null,
+  )
   const isMemberSession = useTeamStore((s) =>
     resolvedSessionId ? Boolean(s.getMemberBySessionId(resolvedSessionId)) : false,
   )
@@ -366,6 +369,11 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const messages = sessionState?.messages ?? []
   const chatState = sessionState?.chatState ?? 'idle'
   const streamingText = sessionState?.streamingText ?? ''
+  const elapsedSeconds = sessionState?.elapsedSeconds ?? 0
+  const statusVerb = sessionState?.statusVerb ?? ''
+  const activeToolName = sessionState?.activeToolName ?? null
+  const activeToolUseId = sessionState?.activeToolUseId ?? null
+  const pendingPermission = sessionState?.pendingPermission ?? null
   const historyLoading = sessionState?.historyLoading ?? false
   const historyLoadError = sessionState?.historyLoadError ?? null
   const activeThinkingId = sessionState?.activeThinkingId ?? null
@@ -506,15 +514,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const hasActiveThinkingBlock = activeThinkingId
     ? messages.some((message) => message.type === 'thinking' && message.id === activeThinkingId)
     : false
-  const isActiveBlankTurn =
-    chatState !== 'idle' &&
-    renderItems.length === 0 &&
-    !streamingText
-  const shouldShowStreamingIndicator =
-    chatState === 'tool_executing' ||
-    (chatState === 'thinking' && (!activeThinkingId || !hasActiveThinkingBlock)) ||
-    isWaitingForFirstResponseToken ||
-    isActiveBlankTurn
+  const shouldShowActivityPanel =
+    chatState !== 'idle' ||
+    Boolean(streamingText)
 
   useEffect(() => {
     if (!resolvedSessionId) {
@@ -625,11 +627,29 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
         expectedContent: rewindTarget.content,
       })
 
-      forgetLocalUserEcho(resolvedSessionId, {
-        id: rewindTarget.messageId,
-        content: rewindTarget.content,
-        attachments: rewindTarget.attachments,
-      })
+      const rewindStartIndex = findLocalRewindStartIndex(messages, rewindTarget)
+      const removedLocalMessages = rewindStartIndex >= 0 ? messages.slice(rewindStartIndex) : []
+      const removedUserMessages = removedLocalMessages.filter(
+        (message): message is UserTextMessage => message.type === 'user_text',
+      )
+      const userMessagesToForget =
+        removedUserMessages.length > 0
+          ? removedUserMessages
+          : [{
+              id: rewindTarget.messageId,
+              type: 'user_text' as const,
+              content: rewindTarget.content,
+              attachments: rewindTarget.attachments,
+              timestamp: 0,
+            }]
+
+      for (const message of userMessagesToForget) {
+        forgetLocalUserEcho(resolvedSessionId, {
+          id: message.id,
+          content: message.content,
+          attachments: message.attachments,
+        })
+      }
       await reloadHistory(resolvedSessionId)
       queueComposerPrefill(resolvedSessionId, {
         text: rewindTarget.content,
@@ -685,6 +705,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     chatState,
     forgetLocalUserEcho,
     isExecutingRewind,
+    messages,
     queueComposerPrefill,
     reloadHistory,
     resolvedSessionId,
@@ -775,6 +796,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
             <div key={msg.id}>
               <MessageBlock
                 sessionId={resolvedSessionId ?? undefined}
+                localPathBase={sessionWorkDir}
                 message={msg}
                 activeThinkingId={activeThinkingId}
                 agentTaskNotifications={agentTaskNotifications}
@@ -859,23 +881,30 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
           </div>
         )}
 
-        {streamingText && (
-          <AssistantMessage content={streamingText} isStreaming={chatState === 'streaming'} />
-        )}
-
-        {/* Show StreamingIndicator when:
-            - tool_executing: tool is running
-            - thinking but no active ThinkingBlock yet: the gap between
-              sending a message and receiving the first thinking delta
-            - streaming has started but the first visible answer token has not
-              arrived yet, so the UI does not appear to go blank */}
-        {shouldShowStreamingIndicator && (
-          <StreamingIndicator
-            sessionId={resolvedSessionId}
+        {shouldShowActivityPanel && (
+          <AgentActivityPanel
+            chatState={chatState}
+            elapsedSeconds={elapsedSeconds}
+            statusVerb={statusVerb}
+            activeToolName={activeToolName}
+            activeToolUseId={activeToolUseId}
+            activeThinkingId={activeThinkingId}
+            streamingText={streamingText}
+            messages={messages}
+            resultMap={toolResultMap}
+            pendingPermission={pendingPermission}
             showAwaitingThinkingHint={
               chatState === 'thinking' && (!activeThinkingId || !hasActiveThinkingBlock)
             }
             showPreResponseHint={isWaitingForFirstResponseToken}
+          />
+        )}
+
+        {streamingText && (
+          <AssistantMessage
+            content={streamingText}
+            isStreaming={chatState === 'streaming'}
+            localPathBase={sessionWorkDir}
           />
         )}
 
@@ -1205,6 +1234,7 @@ function InlinePlanConfirmation({
 
 export const MessageBlock = memo(function MessageBlock({
   sessionId,
+  localPathBase,
   message,
   activeThinkingId,
   agentTaskNotifications,
@@ -1214,6 +1244,7 @@ export const MessageBlock = memo(function MessageBlock({
   onRequestFork,
 }: {
   sessionId?: string
+  localPathBase?: string | null
   message: UIMessage
   activeThinkingId: string | null
   agentTaskNotifications: Record<string, AgentTaskNotification>
@@ -1270,6 +1301,7 @@ export const MessageBlock = memo(function MessageBlock({
               ? t('chat.unsupportedAttachmentInput')
               : message.content
           }
+          localPathBase={localPathBase}
         />
       )
     case 'thinking':
@@ -1316,7 +1348,7 @@ export const MessageBlock = memo(function MessageBlock({
       )
     case 'error': {
       if (isUnsupportedAttachmentInputError(message.message)) {
-        return <AssistantMessage content={t('chat.unsupportedAttachmentInput')} />
+        return <AssistantMessage content={t('chat.unsupportedAttachmentInput')} localPathBase={localPathBase} />
       }
       if (isGuguQuotaError(message)) {
         return <GuguQuotaCard code={message.code} message={message.message} />

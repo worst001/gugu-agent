@@ -12,6 +12,7 @@ type Props = {
   chatState: ChatState
   disabled?: boolean
   autoCompactSupported?: boolean
+  contextSnapshot?: SessionContextSnapshot | null
   onOpen: () => void
   onAutoCompact: (context: SessionContextSnapshot) => void
 }
@@ -21,21 +22,20 @@ export function ContextUsageIndicator({
   chatState,
   disabled = false,
   autoCompactSupported = false,
+  contextSnapshot = null,
   onOpen,
   onAutoCompact,
 }: Props) {
   const t = useTranslation()
   const [context, setContext] = useState<SessionContextSnapshot | null>(null)
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestIdRef = useRef(0)
   const autoCompactKeyRef = useRef<string | null>(null)
   const previousChatStateRef = useRef<ChatState>(chatState)
 
-  const refreshContext = useCallback(async (options?: { quiet?: boolean }) => {
+  const refreshContext = useCallback(async () => {
     if (!sessionId || chatState !== 'idle') return
     const requestId = ++requestIdRef.current
-    if (!options?.quiet) setLoading(true)
     setError(null)
 
     try {
@@ -50,8 +50,6 @@ export function ContextUsageIndicator({
     } catch (err) {
       if (requestId !== requestIdRef.current) return
       setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [chatState, sessionId])
 
@@ -63,6 +61,13 @@ export function ContextUsageIndicator({
   }, [sessionId])
 
   useEffect(() => {
+    if (!contextSnapshot) return
+    requestIdRef.current += 1
+    setContext(contextSnapshot)
+    setError(null)
+  }, [contextSnapshot])
+
+  useEffect(() => {
     if (!sessionId || chatState !== 'idle') return
     void refreshContext()
   }, [chatState, refreshContext, sessionId])
@@ -70,7 +75,7 @@ export function ContextUsageIndicator({
   useEffect(() => {
     if (!sessionId) return
     const intervalId = window.setInterval(() => {
-      void refreshContext({ quiet: true })
+      void refreshContext()
     }, CONTEXT_REFRESH_MS)
     return () => window.clearInterval(intervalId)
   }, [refreshContext, sessionId])
@@ -79,7 +84,7 @@ export function ContextUsageIndicator({
     const previous = previousChatStateRef.current
     previousChatStateRef.current = chatState
     if (previous !== 'idle' && chatState === 'idle') {
-      void refreshContext({ quiet: true })
+      void refreshContext()
     }
   }, [chatState, refreshContext])
 
@@ -105,11 +110,17 @@ export function ContextUsageIndicator({
     onAutoCompact(context)
   }, [autoCompactSupported, chatState, context, disabled, onAutoCompact, sessionId])
 
+  const hasSession = Boolean(sessionId)
   const percent = context
     ? Math.max(0, Math.min(100, Math.round(context.percentage)))
     : 0
   const ringColor = getRingColor(percent, Boolean(error))
-  const label = context ? `${percent}%` : loading ? '...' : '--'
+  const isAwaitingContext = hasSession && !context && !error
+  const label = context
+    ? `${percent}%`
+    : isAwaitingContext
+      ? '...'
+      : '0%'
   const title = context
     ? t('chat.contextIndicator.title', {
         percent,

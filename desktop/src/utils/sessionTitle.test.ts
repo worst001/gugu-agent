@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildPlanModeMessage } from '../constants/agentRunModes'
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
+import { buildOfficeToolMessage } from '../constants/officeTools'
 import { sanitizeSessionTitle } from './sessionTitle'
 
 describe('sanitizeSessionTitle', () => {
@@ -18,6 +19,35 @@ describe('sanitizeSessionTitle', () => {
     const { wire } = buildPlanModeMessage('Plan the composer modes')
 
     expect(sanitizeSessionTitle(wire)).toBe('Plan the composer modes')
+  })
+
+  it('uses the visible user prompt for office toolbox wire messages', () => {
+    const { wire } = buildOfficeToolMessage('coding-assistant', '写个俄罗斯方块', {
+      hasAttachments: false,
+    })
+
+    expect(sanitizeSessionTitle(wire)).toBe('写个俄罗斯方块')
+  })
+
+  it('falls back when a previously persisted title is truncated office toolbox scaffolding', () => {
+    expect(sanitizeSessionTitle('[Office toolbox: coding-assistant] The user selec...')).toBe('New Session')
+  })
+
+  it('falls back for attachment-only office toolbox wire messages', () => {
+    const { wire } = buildOfficeToolMessage('file-assistant', '', {
+      hasAttachments: true,
+    })
+
+    expect(sanitizeSessionTitle(wire)).toBe('New Session')
+  })
+
+  it('uses the visible user prompt for nested plan and office toolbox wire messages', () => {
+    const { wire: officeWire } = buildOfficeToolMessage('ppt-draft', '做一份发布会 PPT', {
+      hasAttachments: false,
+    })
+    const { wire } = buildPlanModeMessage(officeWire)
+
+    expect(sanitizeSessionTitle(wire)).toBe('做一份发布会 PPT')
   })
 
   it('uses the visible user prompt for attachment parser wire messages', () => {

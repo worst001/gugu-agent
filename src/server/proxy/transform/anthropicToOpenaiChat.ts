@@ -14,11 +14,23 @@ import type {
   OpenAIToolCall,
   OpenAITool,
 } from './types.js'
+import {
+  GENERIC_OPENAI_CHAT_CAPABILITIES,
+  type OpenAIChatProviderCapabilities,
+} from '../providerCapabilities.js'
+
+type AnthropicToOpenAIChatOptions = {
+  capabilities?: OpenAIChatProviderCapabilities
+}
 
 /**
  * Convert Anthropic Messages request to OpenAI Chat Completions request.
  */
-export function anthropicToOpenaiChat(body: AnthropicRequest): OpenAIChatRequest {
+export function anthropicToOpenaiChat(
+  body: AnthropicRequest,
+  options: AnthropicToOpenAIChatOptions = {},
+): OpenAIChatRequest {
+  const capabilities = options.capabilities ?? GENERIC_OPENAI_CHAT_CAPABILITIES
   const messages: OpenAIChatMessage[] = []
 
   // Convert system prompt
@@ -34,7 +46,7 @@ export function anthropicToOpenaiChat(body: AnthropicRequest): OpenAIChatRequest
   // Convert messages
   let pendingAssistantThinkingParts: string[] = []
   for (const msg of body.messages) {
-    pendingAssistantThinkingParts = convertMessage(msg, messages, pendingAssistantThinkingParts)
+    pendingAssistantThinkingParts = convertMessage(msg, messages, pendingAssistantThinkingParts, capabilities)
   }
 
   // Build request
@@ -78,14 +90,22 @@ export function anthropicToOpenaiChat(body: AnthropicRequest): OpenAIChatRequest
 
   // thinking → reasoning_effort
   if (body.thinking) {
-    const budget = body.thinking.budget_tokens
-    if (budget !== undefined) {
-      if (budget <= 1024) result.reasoning_effort = 'low'
-      else if (budget <= 8192) result.reasoning_effort = 'medium'
-      else result.reasoning_effort = 'high'
-    } else if (body.thinking.type === 'enabled') {
-      result.reasoning_effort = 'high'
+    if (capabilities.thinkingRequestParam === 'deepseek') {
+      result.thinking = { type: body.thinking.type === 'enabled' ? 'enabled' : 'disabled' }
+    } else {
+      const budget = body.thinking.budget_tokens
+      if (budget !== undefined) {
+        if (budget <= 1024) result.reasoning_effort = 'low'
+        else if (budget <= 8192) result.reasoning_effort = 'medium'
+        else result.reasoning_effort = 'high'
+      } else if (body.thinking.type === 'enabled') {
+        result.reasoning_effort = 'high'
+      }
     }
+  }
+
+  if (capabilities.requiresReasoningContentForToolCalls) {
+    ensureReasoningContentForToolCalls(messages)
   }
 
   return result
@@ -95,6 +115,7 @@ function convertMessage(
   msg: AnthropicMessage,
   output: OpenAIChatMessage[],
   pendingAssistantThinkingParts: string[] = [],
+  capabilities: OpenAIChatProviderCapabilities = GENERIC_OPENAI_CHAT_CAPABILITIES,
 ): string[] {
   const content = msg.content
 
@@ -102,7 +123,7 @@ function convertMessage(
   if (typeof content === 'string') {
     if (msg.role === 'assistant') {
       const assistantMessage: OpenAIChatMessage = { role: 'assistant', content }
-      if (pendingAssistantThinkingParts.length > 0) {
+      if (capabilities.reasoningContentReplay && pendingAssistantThinkingParts.length > 0) {
         assistantMessage.reasoning_content = pendingAssistantThinkingParts.join('\n')
       }
       output.push(assistantMessage)
@@ -122,7 +143,7 @@ function convertMessage(
     convertUserMessage(content, output)
     return []
   } else {
-    return convertAssistantMessage(content, output, pendingAssistantThinkingParts)
+    return convertAssistantMessage(content, output, pendingAssistantThinkingParts, capabilities)
   }
 }
 
@@ -165,6 +186,7 @@ function convertAssistantMessage(
   blocks: AnthropicContentBlock[],
   output: OpenAIChatMessage[],
   pendingThinkingParts: string[] = [],
+  capabilities: OpenAIChatProviderCapabilities = GENERIC_OPENAI_CHAT_CAPABILITIES,
 ): string[] {
   let textContent = ''
   const thinkingParts: string[] = []
@@ -191,7 +213,7 @@ function convertAssistantMessage(
   if (!textContent && toolCalls.length === 0 && allThinkingParts.length > 0) {
     // Desktop streaming can replay a thinking-only assistant fragment before
     // the assistant fragment that contains the tool call DeepSeek expects.
-    return allThinkingParts
+    return capabilities.reasoningContentReplay ? allThinkingParts : []
   }
 
   const msg: OpenAIChatMessage = {
@@ -199,7 +221,7 @@ function convertAssistantMessage(
     content: textContent || null,
   }
 
-  if (allThinkingParts.length > 0) {
+  if (capabilities.reasoningContentReplay && allThinkingParts.length > 0) {
     msg.reasoning_content = allThinkingParts.join('\n')
   }
 
@@ -209,6 +231,14 @@ function convertAssistantMessage(
 
   output.push(msg)
   return []
+}
+
+function ensureReasoningContentForToolCalls(messages: OpenAIChatMessage[]): void {
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || !msg.tool_calls?.length) continue
+    if (msg.reasoning_content?.trim()) continue
+    msg.reasoning_content = '(reasoning omitted)'
+  }
 }
 
 function convertToolChoice(choice: unknown): unknown {

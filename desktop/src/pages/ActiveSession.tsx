@@ -11,8 +11,20 @@ import { ComputerUsePermissionModal } from '../components/chat/ComputerUsePermis
 import { TeamStatusBar } from '../components/teams/TeamStatusBar'
 import { SessionTaskBar } from '../components/chat/SessionTaskBar'
 import { WorkbenchPanel } from '../components/workbench/WorkbenchPanel'
+import { FALLBACK_SESSION_TITLE, sanitizeSessionTitle } from '../utils/sessionTitle'
 
 const TASK_POLL_INTERVAL_MS = 1000
+
+function isRecoverableDirtySessionTitle(title: string | undefined): boolean {
+  if (!title) return false
+  return title.startsWith('[Office toolbox:') ||
+    title.startsWith('[Agent mode:') ||
+    title.startsWith('[Workflow:') ||
+    title.includes('Gugu Agent Office Toolbox') ||
+    title.includes('CE automation (binding)') ||
+    title.includes('Default mode remains natural') ||
+    title.includes('product-facing planning mode')
+}
 
 export function ActiveSession() {
   const activeTabId = useTabStore((s) => s.activeTabId)
@@ -77,6 +89,24 @@ export function ActiveSession() {
     if (diff < 86400000) return t('session.timeHours', { n: Math.floor(diff / 3600000) })
     return t('session.timeDays', { n: Math.floor(diff / 86400000) })
   }, [session?.modifiedAt, t])
+
+  const displayTitle = useMemo(() => {
+    const rawTitle = session?.title ?? ''
+    const sanitized = rawTitle ? sanitizeSessionTitle(rawTitle) : ''
+    if (sanitized && sanitized !== FALLBACK_SESSION_TITLE) return sanitized
+
+    if (isRecoverableDirtySessionTitle(rawTitle)) {
+      const firstUserMessage = messages.find((message) =>
+        message.type === 'user_text' && message.content.trim().length > 0
+      )
+      if (firstUserMessage?.type === 'user_text') {
+        const fromMessage = sanitizeSessionTitle(firstUserMessage.content)
+        if (fromMessage !== FALLBACK_SESSION_TITLE) return fromMessage
+      }
+    }
+
+    return sanitized || t('session.untitled')
+  }, [messages, session?.title, t])
 
   if (!activeTabId) return null
 
@@ -159,7 +189,7 @@ export function ActiveSession() {
             <div className="mx-auto flex w-full max-w-[860px] items-center border-b border-outline-variant/10 px-8 py-3">
               <div className="min-w-0 flex-1">
                 <h1 className="text-lg font-bold font-headline text-on-surface leading-tight">
-                  {session?.title || t('session.untitled')}
+                  {displayTitle}
                 </h1>
                 <div className="flex items-center gap-2 text-[10px] text-outline font-medium mt-1">
                   {isActive && (

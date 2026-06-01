@@ -19,6 +19,15 @@ import {
 } from '../../utils/context.js'
 import { getCanonicalName } from '../../utils/model/model.js'
 
+const OFFICE_TOOL_ATTACHMENT_ONLY_REQUEST_PREFIX = 'The user sent attachments only.'
+const OFFICE_TOOL_EMPTY_REQUEST = 'The user did not provide additional text.'
+
+function isOfficeToolInternalFallbackRequest(request: string): boolean {
+  const normalized = request.replace(/\s+/g, ' ').trim()
+  return normalized === OFFICE_TOOL_EMPTY_REQUEST ||
+    normalized.startsWith(OFFICE_TOOL_ATTACHMENT_ONLY_REQUEST_PREFIX)
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -447,9 +456,18 @@ export class SessionService {
       return this.stripHiddenPromptScaffolding(attachmentMatch[1])
     }
 
+    if (text.startsWith('[Office toolbox:') && text.includes('User request:')) {
+      const requestMatch = text.match(/(?:^|\n)User request:\s*\n([\s\S]*)$/)
+      if (requestMatch?.[1]?.trim()) {
+        if (isOfficeToolInternalFallbackRequest(requestMatch[1])) return ''
+        return this.stripHiddenPromptScaffolding(requestMatch[1])
+      }
+      return ''
+    }
+
     const markerMatch = text.match(/(?:^|\n)User message:\s*\n([\s\S]*)$/)
     if (markerMatch?.[1]?.trim()) {
-      return markerMatch[1].trim()
+      return this.stripHiddenPromptScaffolding(markerMatch[1])
     }
 
     return text.trim()
@@ -467,7 +485,16 @@ export class SessionService {
 
   private cleanExtractedTitle(title: string): string | null {
     const visible = this.stripHiddenPromptScaffolding(title).replace(/\s+/g, ' ').trim()
-    if (!visible || visible.startsWith('[Workflow:') || visible.includes('CE automation (binding)')) {
+    if (
+      !visible ||
+      visible.startsWith('[Workflow:') ||
+      visible.startsWith('[Agent mode:') ||
+      visible.startsWith('[Office toolbox:') ||
+      visible.includes('CE automation (binding)') ||
+      visible.includes('Default mode remains natural') ||
+      visible.includes('product-facing planning mode') ||
+      visible.includes('Gugu Agent Office Toolbox')
+    ) {
       return null
     }
     return visible.length > 80 ? `${visible.slice(0, 80)}...` : visible

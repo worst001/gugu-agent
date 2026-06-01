@@ -12,6 +12,7 @@ import { isUnsupportedAttachmentInputError } from '../utils/attachmentErrors'
 import { notifyChatTaskComplete } from '../utils/taskCompletionNotification'
 import { type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
 import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
+import { isOfficeToolInternalFallbackRequest, type OfficeToolId } from '../constants/officeTools'
 import type { MessageEntry } from '../types/session'
 import type { EffortLevel, PermissionMode } from '../types/settings'
 import type {
@@ -342,6 +343,7 @@ type ChatStore = {
     options?: {
       displayContent?: string
       displayAttachments?: AttachmentRef[]
+      officeTool?: OfficeToolId
       ceModelPreference?: CeWorkflowModelPreference
     },
   ) => void
@@ -352,6 +354,7 @@ type ChatStore = {
     options?: {
       rule?: string
       updatedInput?: Record<string, unknown>
+      message?: string
     },
   ) => void
   respondToComputerUsePermission: (
@@ -598,11 +601,22 @@ function extractAttachmentParserDisplayText(content: string): string | null {
   return match?.[1] ?? null
 }
 
+function extractOfficeToolboxDisplayText(content: string): string | null {
+  if (!content.startsWith('[Office toolbox:') || !content.includes('User request:')) {
+    return null
+  }
+  const match = content.match(/(?:^|\n)User request:\s*\n([\s\S]*)$/)
+  const request = match?.[1] ?? null
+  if (request !== null && isOfficeToolInternalFallbackRequest(request)) return ''
+  return request
+}
+
 function stripHiddenUserPromptScaffolding(content: string): string {
   let stripped = content
   for (let i = 0; i < 3; i += 1) {
-  const next = extractAgentRunModeDisplayText(stripped)
+    const next = extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
+      ?? extractOfficeToolboxDisplayText(stripped)
     if (next === null || next === stripped) return stripped
     stripped = next
   }
@@ -675,43 +689,6 @@ function appendThinkingContent(current: string, next: string): string {
 function getRawThinkingContent(message: Extract<UIMessage, { type: 'thinking' }>): string {
   if (message.rawContent !== undefined) return message.rawContent
   return BRIEF_THINKING_STATUSES.has(message.content) ? '' : message.content
-}
-
-function createPendingThinkingMessage(
-  content: string,
-  hasAttachments: boolean,
-): Extract<UIMessage, { type: 'thinking' }> {
-  const seed = hasAttachments ? '附件' : content
-  return {
-    id: nextId(),
-    type: 'thinking',
-    content: deriveBriefThinkingStatus(seed),
-    rawContent: '',
-    timestamp: Date.now(),
-  }
-}
-
-function shouldCreatePendingThinkingMessage(
-  wireContent: string,
-  userFacingContent: string,
-  hasAttachments: boolean,
-): boolean {
-  if (hasAttachments) return true
-
-  const wire = wireContent.trim()
-  if (
-    wire.startsWith('[Workflow:') ||
-    wire.startsWith('[Agent mode: plan]') ||
-    wire.startsWith('[Agent mode: default + CE pre-route]')
-  ) {
-    return true
-  }
-
-  const visible = userFacingContent.trim()
-  if (!visible) return false
-  if (visible.length >= 80) return true
-
-  return /(?:\b(?:implement|debug|fix|error|bug|test|review|plan|design|ui|frontend|component|deploy|build|refactor|file|screenshot)\b|实现|修复|错误|报错|测试|评审|计划|方案|设计|界面|组件|部署|构建|重构|文件|截图)/iu.test(visible)
 }
 
 /** Helper: immutably update a specific session within the sessions record */
@@ -873,14 +850,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       timestamp: nowMs(),
       ...(isMemberSession ? { pending: true } : {}),
     }
-    const pendingThinkingMessage = !isMemberSession && shouldCreatePendingThinkingMessage(
-      content,
-      userFacingContent,
-      Boolean(uiAttachments?.length),
-    )
-      ? createPendingThinkingMessage(userFacingContent, Boolean(uiAttachments?.length))
-      : null
-
     set((s) => {
       const session = s.sessions[sessionId] ?? createDefaultSessionState()
       if (flushTimer) {
@@ -902,9 +871,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         })
       }
       newMessages.push(localUserMessage)
-      if (pendingThinkingMessage) {
-        newMessages.push(pendingThinkingMessage)
-      }
 
       if (!isMemberSession && session.elapsedTimer) clearInterval(session.elapsedTimer)
 
@@ -921,7 +887,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             ...session,
             messages: newMessages,
             chatState: 'thinking',
-            activeThinkingId: pendingThinkingMessage?.id ?? null,
+            activeThinkingId: null,
             elapsedSeconds: 0,
             streamingText: '',
             statusVerb: '',
@@ -973,6 +939,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       allowed,
       ...(options?.rule ? { rule: options.rule } : {}),
       ...(options?.updatedInput ? { updatedInput: options.updatedInput } : {}),
+      ...(options?.message ? { message: options.message } : {}),
     })
     set((state) => {
       const session = state.sessions[sessionId]
@@ -1255,26 +1222,33 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case 'status':
         update((session) => {
           const pendingText = `${session.streamingText}${consumePendingDelta()}`
+          const incomingState =
+            msg.state === 'permission_pending' &&
+            !session.pendingPermission &&
+            !session.pendingComputerUsePermission
+              ? session.chatState
+              : msg.state
           const hasPendingStreamText =
             session.chatState === 'streaming' && pendingText.trim().length > 0
           // Background task progress can arrive while the assistant is still
           // streaming one markdown reply. Keep that turn intact so we do not
           // split formatting markers (for example backticks/strong markers)
           // across separate bubbles.
-          const preserveStreamingTurn = hasPendingStreamText && msg.state !== 'idle'
-          const shouldFlush = hasPendingStreamText && msg.state === 'idle'
+          const preserveStreamingTurn = hasPendingStreamText && incomingState !== 'idle'
+          const shouldFlush = hasPendingStreamText && incomingState === 'idle'
+          const shouldApplyVerb = msg.state !== 'permission_pending' || incomingState === 'permission_pending'
           return {
-            chatState: preserveStreamingTurn ? 'streaming' : msg.state,
+            chatState: preserveStreamingTurn ? 'streaming' : incomingState,
             // Server sends verb: "Thinking" while the model is reasoning. Clear the
             // whimsical verb from sendMessage so the indicator shows localized
             // "Thinking" / thinking stream instead of a stuck random spinner word.
-            ...(msg.verb && msg.verb !== 'Thinking'
+            ...(shouldApplyVerb && msg.verb && msg.verb !== 'Thinking'
               ? { statusVerb: msg.verb }
-              : msg.verb === 'Thinking'
+              : shouldApplyVerb && msg.verb === 'Thinking'
                 ? { statusVerb: '' }
                 : {}),
             ...(msg.tokens ? { tokenUsage: { ...session.tokenUsage, output_tokens: msg.tokens } } : {}),
-            ...(msg.state === 'idle' ? { activeThinkingId: null, statusVerb: '' } : {}),
+            ...(incomingState === 'idle' ? { activeThinkingId: null, statusVerb: '' } : {}),
             ...(shouldFlush ? {
               messages: appendAssistantTextMessage(session.messages, pendingText, Date.now()),
               streamingText: '',

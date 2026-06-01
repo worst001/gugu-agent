@@ -55,6 +55,7 @@ import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
+import { useUIStore } from '../../stores/uiStore'
 
 function seedEmptySession(
   sessionId: string,
@@ -94,6 +95,7 @@ describe('ChatInput submit', () => {
     vi.clearAllMocks()
     useAgentRunModeStore.setState({ selections: {} })
     useCeWorkflowRoleStore.setState({ selections: {} })
+    useUIStore.setState({ toasts: [] })
   })
 
   function getLastUserMessagePayload() {
@@ -190,6 +192,176 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('User message:\nplan the composer modes')
     expect(payload?.ceModelPreference).toBe('strong')
     expect(useAgentRunModeStore.getState().selections['plan-mode-session']).toBe('normal')
+  })
+
+  it('shows the office toolbox, changes placeholders, and keeps the selection local to the composer', async () => {
+    seedEmptySession('office-toolbox-placeholder-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+
+    expect(screen.getByRole('button', { name: 'Normal chat' })).toBeInTheDocument()
+    expect(screen.getByText('Everyday questions, coding, and explanations.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Coding' })).toBeInTheDocument()
+    expect(screen.getByText(/Code, logs, errors, project folders/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Summarize document' })).toBeInTheDocument()
+    expect(screen.getByText('Turn chats, notes, or material into a summary document; suitable for PDF, Word, Markdown, TXT.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Analyze spreadsheet' })).toBeInTheDocument()
+    expect(screen.getByText('Turn data, metrics, or table content into spreadsheet-style analysis; suitable for Excel, CSV.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Draft PPT' })).toBeInTheDocument()
+    expect(screen.getByText('Turn a topic, notes, or chat content into a PPT outline and speaker notes.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Write email' })).toBeInTheDocument()
+    expect(screen.getByText('Turn background, goal, and tone into an email draft. No auto-send.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Handle file' })).toBeInTheDocument()
+    expect(screen.getByText('Upload PDF, Word, Excel, PPT, CSV, TXT, images; identify type and next step.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
+
+    expect(screen.getByRole('button', { name: 'Clear office tool' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'Say what data or metrics should be analyzed...',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear office tool' }))
+
+    expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask anything...')
+    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+  })
+
+  it('routes a selected office tool through the wire prompt while keeping the user echo clean', async () => {
+    seedEmptySession('office-toolbox-ppt-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Draft PPT' }))
+    expect(screen.getByRole('button', { name: 'Clear office tool' })).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'make a launch deck', selectionStart: 18 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('make a launch deck')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Office toolbox: ppt-draft]')
+    expect(payload?.content).toContain('Create a presentation outline first')
+    expect(payload?.content).toContain('User request:\nmake a launch deck')
+    expect(screen.queryByText(/\[Office toolbox: ppt-draft\]/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+  })
+
+  it('routes coding through the office toolbox without requiring CodeGraph', async () => {
+    seedEmptySession('office-toolbox-coding-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Coding' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'fix this TypeScript error', selectionStart: 25 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('fix this TypeScript error')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Office toolbox: coding-assistant]')
+    expect(payload?.content).toContain('CodeGraph')
+    expect(payload?.content).toContain('Do not assume CodeGraph is installed or connected')
+    expect(payload?.content).toContain('User request:\nfix this TypeScript error')
+    expect(screen.queryByText(/\[Office toolbox: coding-assistant\]/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+  })
+
+  it('keeps office tools and plan mode orthogonal for a single run', async () => {
+    seedEmptySession('office-toolbox-plan-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Draft PPT' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
+    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'make a launch deck', selectionStart: 18 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('make a launch deck')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Agent mode: plan]')
+    expect(payload?.content).toContain('[Office toolbox: ppt-draft]')
+    expect(payload?.content).toContain('Create a presentation outline first')
+    expect(useAgentRunModeStore.getState().selections['office-toolbox-plan-session']).toBe('normal')
+    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+  })
+
+  it('runs document summary as an output task without requiring attachments', async () => {
+    seedEmptySession('office-toolbox-document-summary-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Summarize document' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'summarize this chat into a doc', selectionStart: 30 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('summarize this chat into a doc')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Office toolbox: document-summary]')
+    expect(payload?.content).toContain('summary document')
+    expect(payload?.content).toContain('User request:\nsummarize this chat into a doc')
+    expect(useUIStore.getState().toasts).toEqual([])
+  })
+
+  it('shows a friendly warning instead of running file handling without attachments', async () => {
+    seedEmptySession('office-toolbox-missing-attachment-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Handle file' }))
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    expect(getLastUserMessagePayload()).toBeUndefined()
+    const toasts = useUIStore.getState().toasts
+    expect(toasts[toasts.length - 1]).toMatchObject({
+      type: 'warning',
+      message: 'Add a file or choose a local file before using “Handle file”.',
+    })
+  })
+
+  it('keeps attachment-only office tool messages user-facing', async () => {
+    seedEmptySession('office-toolbox-attachment-only-session')
+    const { container } = render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Handle file' }))
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['report'], 'report.pdf', { type: 'application/pdf' })
+    fireEvent.change(input, { target: { files: [file] } })
+    expect(await screen.findByText('report.pdf')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(getLastUserMessagePayload()?.content).toContain('[Office toolbox: file-assistant]')
+    })
+    expect(screen.getByText('File')).toBeInTheDocument()
+    expect(screen.queryByText(/The user sent attachments only/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
   })
 
   it('uses a matching CE pre-route in default mode when a relevant skill is available', async () => {

@@ -105,6 +105,7 @@ vi.mock('../utils/taskCompletionNotification', () => ({
 import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } from './chatStore'
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
 import { buildPlanModeMessage } from '../constants/agentRunModes'
+import { buildOfficeToolMessage } from '../constants/officeTools'
 import { sessionsApi } from '../api/sessions'
 
 const TEST_SESSION_ID = 'test-session-1'
@@ -771,6 +772,47 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('sends permission denial feedback messages to the server', () => {
+    seedSession({
+      pendingPermission: {
+        requestId: 'perm-plan-1',
+        toolName: 'ExitPlanMode',
+        input: { plan: 'Plan' },
+      },
+      chatState: 'permission_pending',
+    })
+
+    useChatStore.getState().respondToPermission(TEST_SESSION_ID, 'perm-plan-1', false, {
+      message: 'Please revise the plan.',
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'permission_response',
+      requestId: 'perm-plan-1',
+      allowed: false,
+      message: 'Please revise the plan.',
+    })
+  })
+
+  it('ignores stale permission status heartbeats after a permission was answered', () => {
+    seedSession({
+      chatState: 'tool_executing',
+      statusVerb: '',
+      pendingPermission: null,
+      pendingComputerUsePermission: null,
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'status',
+      state: 'permission_pending',
+      verb: 'Waiting for permission',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('tool_executing')
+    expect(session?.statusVerb).toBe('')
+  })
+
   it('sends permission mode updates to the active session only', () => {
     useChatStore.getState().setSessionPermissionMode('nonexistent-session', 'acceptEdits')
     expect(sendMock).not.toHaveBeenCalled()
@@ -1118,6 +1160,79 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('strips hidden office toolbox preamble when restoring user transcript history', () => {
+    const { wire } = buildOfficeToolMessage('coding-assistant', '写个俄罗斯方块', {
+      hasAttachments: false,
+    })
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-office-tool-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: wire,
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-office-tool-1',
+        type: 'user_text',
+        content: '写个俄罗斯方块',
+      },
+    ])
+  })
+
+  it('does not show internal office toolbox fallback text for attachment-only history', () => {
+    const { wire } = buildOfficeToolMessage('file-assistant', '', {
+      hasAttachments: true,
+    })
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-office-attachment-only-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: wire,
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-office-attachment-only-1',
+        type: 'user_text',
+        content: '',
+      },
+    ])
+  })
+
+  it('strips nested plan and office toolbox scaffolding from restored transcript text', () => {
+    const { wire: officeWire } = buildOfficeToolMessage('ppt-draft', '做一份发布会 PPT', {
+      hasAttachments: false,
+    })
+    const { wire } = buildPlanModeMessage(officeWire)
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-office-plan-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: wire,
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-office-plan-1',
+        type: 'user_text',
+        content: '做一份发布会 PPT',
+      },
+    ])
+  })
+
   it('shows only the original prompt when restoring GLM attachment parser transcript text', () => {
     const messages: MessageEntry[] = [
       {
@@ -1455,11 +1570,9 @@ describe('chatStore history mapping', () => {
         type: 'user_text',
         content: prompt,
       },
-      {
-        type: 'thinking',
-        content: '正在规划步骤',
-      },
     ])
+    expect(messages?.some((message) => message.type === 'thinking')).toBe(false)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeNull()
     if (messages?.[0]?.type === 'user_text') {
       expect(messages[0].content).not.toContain('[Workflow:')
     }
@@ -1556,11 +1669,11 @@ describe('chatStore history mapping', () => {
           },
         ],
       },
-      {
-        type: 'thinking',
-        content: '正在检查附件',
-      },
     ])
+    expect(
+      useChatStore.getState().sessions[TEST_SESSION_ID]?.messages.some((message) => message.type === 'thinking'),
+    ).toBe(false)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeThinkingId).toBeNull()
   })
 
   it('resets completed CLI tasks before continuing the next user turn', () => {

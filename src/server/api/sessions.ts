@@ -249,16 +249,35 @@ async function getSessionInspection(sessionId: string, url: URL): Promise<Respon
   }
 
   if (contextEstimateOnly) {
+    const active = conversationService.hasSession(sessionId)
     const transcriptContextEstimate = await sessionService.getTranscriptContextEstimate(sessionId)
+    let liveContextEstimate: unknown = null
+    let contextError: string | null = null
+
+    if (active) {
+      try {
+        liveContextEstimate = await conversationService.requestControl(
+          sessionId,
+          { subtype: 'get_context_usage', estimateOnly: true },
+          10_000,
+        )
+      } catch (error) {
+        contextError = error instanceof Error ? error.message : String(error)
+      }
+    } else if (!transcriptContextEstimate) {
+      contextError = 'CLI session is not running'
+    }
+
+    const contextEstimate = liveContextEstimate ?? transcriptContextEstimate
     return Response.json({
-      active: conversationService.hasSession(sessionId),
+      active,
       status: {
         sessionId,
         workDir,
         permissionMode: conversationService.getSessionPermissionMode(sessionId),
       },
-      ...(transcriptContextEstimate ? { contextEstimate: transcriptContextEstimate } : {}),
-      errors: transcriptContextEstimate ? {} : { context: 'Context estimate is unavailable' },
+      ...(contextEstimate ? { contextEstimate } : {}),
+      errors: contextEstimate ? {} : { context: contextError ?? 'Context estimate is unavailable' },
     })
   }
 
