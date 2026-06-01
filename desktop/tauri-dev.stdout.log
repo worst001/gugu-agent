@@ -1,0 +1,12 @@
+[build-sidecars] scanning for missing imports...
+[scan] scanned 2218 source files
+[scan] missing 0 stub targets
+[scan] created 0 stubs, skipped 0
+[build-sidecars] Gugu Sidecar -> D:\Claude Code\claude-code-gugu\desktop\src-tauri\binaries\gugu-sidecar-x86_64-pc-windows-msvc.exe
+[build-sidecars] Built desktop sidecar for x86_64-pc-windows-msvc (bun-windows-x64)
+
+  [32m[1mVITE[22m v6.4.1[39m  [2mready in [0m[1m259[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m1420[22m/[39m
+[gugu-server] [CronScheduler] Starting — checking every 60 s
+[gugu-server] [Server] Claude Code API server running at http://127.0.0.1:55975

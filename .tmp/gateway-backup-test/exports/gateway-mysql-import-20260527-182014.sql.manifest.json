@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "generatedAt": "2026-05-27T10:20:14.412Z",
+  "dbPath": "D:\\Claude Code\\claude-code-gugu\\.tmp\\gateway-backup-test\\gateway.sqlite",
+  "target": {
+    "engine": "mysql",
+    "version": "8.4 LTS",
+    "schema": "deploy/mysql/schema.sql"
+  },
+  "batchSize": 2,
+  "tables": {
+    "devices": {
+      "rows": 0
+    },
+    "activation_codes": {
+      "rows": 1
+    },
+    "usage_events": {
+      "rows": 0
+    },
+    "orders": {
+      "rows": 0
+    },
+    "payment_notifications": {
+      "rows": 0
+    }
+  },
+  "sourceTotals": {
+    "devicesCreditsTotal": 0,
+    "devicesCreditsRemaining": 0,
+    "usageCredits": 0,
+    "usageInputTokens": 0,
+    "usageOutputTokens": 0,
+    "ordersAmountCents": 0,
+    "ordersPaidAmountCents": 0
+  },
+  "outputPath": "D:\\Claude Code\\claude-code-gugu\\.tmp\\gateway-backup-test\\exports\\gateway-mysql-import-20260527-182014.sql",
+  "manifestPath": "D:\\Claude Code\\claude-code-gugu\\.tmp\\gateway-backup-test\\exports\\gateway-mysql-import-20260527-182014.sql.manifest.json",
+  "outputBytes": 994
+}

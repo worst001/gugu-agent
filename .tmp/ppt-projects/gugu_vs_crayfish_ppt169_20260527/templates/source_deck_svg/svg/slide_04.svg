@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="1280" height="720" viewBox="0 0 1280 720"><rect x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+<g id="shape-2" data-name="矩形 1">
+<rect x="0" y="0" width="1280" height="720" fill="#07111F" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+</g>
+<g id="shape-3" data-name="矩形 2">
+<rect x="68" y="44" width="360" height="22" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="68" y="55.05" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="13" fill="#4EF4D8" font-weight="bold"><tspan fill="#4EF4D8" font-size="13" font-weight="bold">真实成本对比</tspan></text>
+</g>
+<g id="shape-4" data-name="矩形 3">
+<rect x="1138" y="44" width="42" height="24" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="1180" y="59.3" text-anchor="end" xml:space="preserve" font-family="Aptos, sans-serif" font-size="18" fill="#61728A" font-weight="bold"><tspan fill="#61728A" font-size="18" font-weight="bold">04</tspan></text>
+</g>
+<g id="shape-5" data-name="矩形 4">
+<rect x="1190" y="43" width="2" height="36" fill="#61728A" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+</g>
+<g id="shape-6" data-name="矩形 5">
+<rect x="1204" y="44" width="36" height="24" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="1204" y="59.3" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="18" fill="#61728A" font-weight="bold"><tspan fill="#61728A" font-size="18" font-weight="bold">08</tspan></text>
+</g>
+<g id="shape-7" data-name="矩形 6">
+<rect x="68" y="82" width="960" height="72" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="68" y="114.3" text-anchor="start" xml:space="preserve" font-family="&quot;Aptos Display&quot;, sans-serif" font-size="38" fill="#F7FBFF" font-weight="bold"><tspan fill="#F7FBFF" font-size="38" font-weight="bold">同样做俄罗斯方块：Gugu 7 分，Cursor 约 $0.44</tspan></text>
+</g>
+<g id="shape-8" data-name="矩形 7">
+<rect x="68" y="154" width="1040" height="44" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="68" y="170.15" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="19" fill="#9FB0C4"><tspan fill="#9FB0C4" font-size="19">实测口径：Gugu 对接 DeepSeek V4，余额从 ¥96.62 到 ¥96.55，消耗 ¥0.07；Cursor 对接 gpt-5.5-extra-high，</tspan><tspan x="68" dy="22.8" fill="#9FB0C4" font-size="19">Included Usage 2.2%，按 $20/mo 折算 $0.44。</tspan></text>
+</g>
+<g id="shape-9" data-name="圆角矩形 8">
+<rect x="74" y="218" width="344" height="370" rx="8" ry="8" fill="#0D2034" stroke-width="1" stroke="#4DB8FF"/>
+</g>
+<g id="shape-10" data-name="矩形 9">
+<rect x="98" y="242" width="296" height="32" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="246" y="262.4" text-anchor="middle" xml:space="preserve" font-family="&quot;Aptos Display&quot;, sans-serif" font-size="24" fill="#4DB8FF" font-weight="bold"><tspan fill="#4DB8FF" font-size="24" font-weight="bold">Cursor</tspan></text>
+</g>
+<g id="shape-11" data-name="矩形 10">
+<rect x="106" y="294" width="280" height="2" fill="#4DB8FF" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+</g>
+<g id="shape-12" data-name="矩形 11">
+<rect x="102" y="318" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="102" y="327.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">订阅入口</tspan></text>
+</g>
+<g id="shape-13" data-name="矩形 12">
+<rect x="204" y="316" width="180" height="50" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="204" y="326.2" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">Pro $20/mo</tspan></text>
+<text x="204" y="340.6" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">Teams $40/user/mo</tspan></text>
+<text x="204" y="355" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">Enterprise custom</tspan></text>
+</g>
+<g id="shape-14" data-name="矩形 13">
+<rect x="102" y="384" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="102" y="393.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">用量机制</tspan></text>
+</g>
+<g id="shape-15" data-name="矩形 14">
+<rect x="204" y="382" width="180" height="58" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="204" y="391.8" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11.53" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="11.53">订阅包含模型用量；Enterprise 有</tspan><tspan x="204" dy="13.84" fill="#F7FBFF" font-size="11.53"> pooled/precommitted usage；</tspan><tspan x="204" dy="13.84" fill="#F7FBFF" font-size="11.53">超出或无订单时 on-demand。</tspan></text>
+</g>
+<g id="shape-16" data-name="矩形 15">
+<rect x="102" y="462" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="102" y="471.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">团队价值</tspan></text>
+</g>
+<g id="shape-17" data-name="矩形 16">
+<rect x="204" y="460" width="180" height="48" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="204" y="469.8" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11.53" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="11.53">团队规则、skills、usage </tspan><tspan x="204" dy="13.84" fill="#F7FBFF" font-size="11.53">analytics、集中账单。</tspan></text>
+</g>
+<g id="shape-18" data-name="矩形 17">
+<rect x="102" y="526" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="102" y="535.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">商业含义</tspan></text>
+</g>
+<g id="shape-19" data-name="矩形 18">
+<rect x="204" y="524" width="180" height="44" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="204" y="533.18" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="10.8" fill="#9FB0C4"><tspan fill="#9FB0C4" font-size="10.8">本次真实任务：gpt-5.5-extra-</tspan><tspan x="204" dy="12.96" fill="#9FB0C4" font-size="10.8">high 用掉 2.2% included usage，按 </tspan><tspan x="204" dy="12.96" fill="#9FB0C4" font-size="10.8">Pro $20 折算 $0.44。</tspan></text>
+</g>
+<g id="shape-20" data-name="圆角矩形 19">
+<rect x="464" y="218" width="344" height="370" rx="8" ry="8" fill="#0D2034" stroke-width="1" stroke="#A990FF"/>
+</g>
+<g id="shape-21" data-name="矩形 20">
+<rect x="488" y="242" width="296" height="32" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="636" y="262.4" text-anchor="middle" xml:space="preserve" font-family="&quot;Aptos Display&quot;, sans-serif" font-size="24" fill="#A990FF" font-weight="bold"><tspan fill="#A990FF" font-size="24" font-weight="bold">Cursor + GPT-5.5</tspan></text>
+</g>
+<g id="shape-22" data-name="矩形 21">
+<rect x="496" y="294" width="280" height="2" fill="#A990FF" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+</g>
+<g id="shape-23" data-name="矩形 22">
+<rect x="492" y="318" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="492" y="327.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">订阅入口</tspan></text>
+</g>
+<g id="shape-24" data-name="矩形 23">
+<rect x="594" y="316" width="180" height="50" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="594" y="326.2" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">Pro 额度 $20/mo</tspan></text>
+<text x="594" y="340.6" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">本次使用 2.2%</tspan></text>
+<text x="594" y="355" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">折算 $0.44</tspan></text>
+</g>
+<g id="shape-25" data-name="矩形 24">
+<rect x="492" y="384" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="492" y="393.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">用量机制</tspan></text>
+</g>
+<g id="shape-26" data-name="矩形 25">
+<rect x="594" y="382" width="180" height="58" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="594" y="391.8" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11.53" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="11.53">Included Usage API：64万 </tspan><tspan x="594" dy="13.84" fill="#F7FBFF" font-size="11.53">tokens，占 2.2%；重度任务会直</tspan><tspan x="594" dy="13.84" fill="#F7FBFF" font-size="11.53">接体现为可计量用量。</tspan></text>
+</g>
+<g id="shape-27" data-name="矩形 26">
+<rect x="492" y="462" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="492" y="471.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">团队价值</tspan></text>
+</g>
+<g id="shape-28" data-name="矩形 27">
+<rect x="594" y="460" width="180" height="48" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="594" y="469.8" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11.53" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="11.53">同样做俄罗斯方块，效果可跑，但</tspan><tspan x="594" dy="13.84" fill="#F7FBFF" font-size="11.53">单次成本按订阅额度折算明显更高</tspan><tspan x="594" dy="13.84" fill="#F7FBFF" font-size="11.53">。</tspan></text>
+</g>
+<g id="shape-29" data-name="矩形 28">
+<rect x="492" y="526" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="492" y="535.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">商业含义</tspan></text>
+</g>
+<g id="shape-30" data-name="矩形 29">
+<rect x="594" y="524" width="180" height="44" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="594" y="533.18" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="10.8" fill="#9FB0C4"><tspan fill="#9FB0C4" font-size="10.8">本次实测：$20 × 2.2% = $0.44。</tspan></text>
+</g>
+<g id="shape-31" data-name="圆角矩形 30">
+<rect x="854" y="218" width="344" height="370" rx="8" ry="8" fill="#0D2034" stroke-width="1" stroke="#82F6A3"/>
+</g>
+<g id="shape-32" data-name="矩形 31">
+<rect x="878" y="242" width="296" height="32" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="1026" y="262.4" text-anchor="middle" xml:space="preserve" font-family="&quot;Aptos Display&quot;, sans-serif" font-size="24" fill="#82F6A3" font-weight="bold"><tspan fill="#82F6A3" font-size="24" font-weight="bold">Gugu Agent</tspan></text>
+</g>
+<g id="shape-33" data-name="矩形 32">
+<rect x="886" y="294" width="280" height="2" fill="#82F6A3" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+</g>
+<g id="shape-34" data-name="矩形 33">
+<rect x="882" y="318" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="882" y="327.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">订阅入口</tspan></text>
+</g>
+<g id="shape-35" data-name="矩形 34">
+<rect x="984" y="316" width="180" height="50" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="984" y="326.2" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">DeepSeek V4</tspan></text>
+<text x="984" y="340.6" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">本地 Agent</tspan></text>
+<text x="984" y="355" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="12" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="12">人民币余额</tspan></text>
+</g>
+<g id="shape-36" data-name="矩形 35">
+<rect x="882" y="384" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="882" y="393.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">用量机制</tspan></text>
+</g>
+<g id="shape-37" data-name="矩形 36">
+<rect x="984" y="382" width="180" height="58" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="984" y="391.8" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11.53" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="11.53">余额 ¥96.62 → ¥96.55；完成同一</tspan><tspan x="984" dy="13.84" fill="#F7FBFF" font-size="11.53">俄罗斯方块任务消耗 ¥0.07。</tspan></text>
+</g>
+<g id="shape-38" data-name="矩形 37">
+<rect x="882" y="462" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="882" y="471.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">团队价值</tspan></text>
+</g>
+<g id="shape-39" data-name="矩形 38">
+<rect x="984" y="460" width="180" height="48" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="984" y="469.8" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11.53" fill="#F7FBFF"><tspan fill="#F7FBFF" font-size="11.53">团队空间、共享 Skills、权限审计</tspan><tspan x="984" dy="13.84" fill="#F7FBFF" font-size="11.53">、飞书审批、项目记忆。</tspan></text>
+</g>
+<g id="shape-40" data-name="矩形 39">
+<rect x="882" y="526" width="90" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="882" y="535.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan fill="#9FB0C4" font-size="11" font-weight="bold">商业含义</tspan></text>
+</g>
+<g id="shape-41" data-name="矩形 40">
+<rect x="984" y="524" width="180" height="44" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="984" y="533.18" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="10.8" fill="#82F6A3"><tspan fill="#82F6A3" font-size="10.8">约 7 分人民币完成任务；成本透明、</tspan><tspan x="984" dy="12.96" fill="#82F6A3" font-size="10.8">可控，适合高频交付。</tspan></text>
+</g>
+<g id="shape-42" data-name="矩形 41">
+<rect x="112" y="602" width="1040" height="30" fill="#0A1D2F" stroke-width="1" stroke="#1D3A56"/>
+<text x="632" y="623.45" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="17" fill="#F7FBFF" font-weight="bold"><tspan fill="#F7FBFF" font-size="17" font-weight="bold">Gugu 的机会：把低成本 token 变成可高频试错的交付能力，再把团队流程、权限审计和私有化变成收费产品。</tspan></text>
+</g>
+<g id="shape-43" data-name="矩形 42">
+<rect x="68" y="644" width="1040" height="24" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="68" y="651.25" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="8.53" fill="#61728A"><tspan fill="#61728A" font-size="8.53">来源：用户本地 Cursor Included Usage 截图；Gugu 余额截图；按 $20/mo × 2.2% 折算。</tspan></text>
+</g>
+<g id="shape-44" data-name="矩形 43">
+<rect x="62" y="666" width="1156" height="1" fill="#1D3A56" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+</g>
+<g id="shape-45" data-name="矩形 44">
+<rect x="68" y="684" width="860" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="68" y="691.25" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="8.53" fill="#61728A"><tspan fill="#61728A" font-size="8.53">Gugu Agent · 商业差异化版 · 官方价格复核于 2026-05-17</tspan></text>
+</g>
+<g id="shape-46" data-name="矩形 45">
+<rect x="1130" y="684" width="84" height="18" fill="#000000" fill-opacity="0" stroke-width="0" stroke="#000000" stroke-opacity="0"/>
+<text x="1214" y="692.5" text-anchor="end" xml:space="preserve" font-family="Aptos, sans-serif" font-size="10" fill="#61728A"><tspan fill="#61728A" font-size="10">4 / 8</tspan></text>
+</g></svg>

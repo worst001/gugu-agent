@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect x="0" y="0" width="1280" height="720" fill="#07111F" />
+
+  <g id="header">
+    <text x="68" y="55.05" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="13" fill="#4EF4D8" font-weight="bold"><tspan>产品 × 小龙虾</tspan></text>
+    <text x="1180" y="59.3" text-anchor="end" xml:space="preserve" font-family="Aptos, sans-serif" font-size="18" fill="#61728A" font-weight="bold"><tspan>08</tspan></text>
+    <rect x="1190" y="43" width="2" height="36" fill="#61728A" />
+    <text x="1204" y="59.3" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="18" fill="#61728A" font-weight="bold"><tspan>08</tspan></text>
+  </g>
+
+  <g id="title">
+    <text x="68" y="114.3" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="38" fill="#F7FBFF" font-weight="bold"><tspan>像小龙虾一样：低成本只是入口，高频场景才赚钱</tspan></text>
+    <text x="68" y="170.15" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="19" fill="#9FB0C4"><tspan>Gugu Agent 的 ¥0.07 和小龙虾的低原料门槛，本质都是放大复购频次；真正值钱的是场景、流程和沉淀。</tspan></text>
+  </g>
+
+  <g id="card-product">
+    <path fill="#0D2034" stroke-width="1" stroke="#82F6A3" d="M82,218 H410 A8,8 0 0 1 418,226 V580 A8,8 0 0 1 410,588 H82 A8,8 0 0 1 74,580 V226 A8,8 0 0 1 82,218 Z" />
+    <path fill="#07111F" stroke-width="1" stroke="#82F6A3" d="M103,242 H141 A5,5 0 0 1 146,247 V267 A5,5 0 0 1 141,272 H103 A5,5 0 0 1 98,267 V247 A5,5 0 0 1 103,242 Z" />
+    <text x="108" y="262" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="13" fill="#82F6A3" font-weight="bold"><tspan>&gt;_</tspan></text>
+    <text x="246" y="262.4" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="24" fill="#82F6A3" font-weight="bold"><tspan>Gugu Agent</tspan></text>
+    <rect x="106" y="294" width="280" height="2" fill="#82F6A3" />
+
+    <text x="102" y="327.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>低成本调用</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="204" y="326.2">¥0.07 让任务敢反复跑；</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="204" y="340">调试、审查、测试都能高频发生。</text><text x="102" y="396.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>交付闭环</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="204" y="395.2">读库、改码、运行、验证、回传，</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="204" y="409">围绕结果负责。</text><text x="102" y="471.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>团队资产</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="204" y="470.2">Skills、规则、记忆、审批，</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="204" y="484">沉淀为可复用能力。</text><text x="102" y="542.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>收费点</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#82F6A3" xml:space="preserve" x="204" y="541.2">Team / Enterprise / 私有化，</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#82F6A3" xml:space="preserve" x="204" y="555">把流程变收入。</text></g>
+
+  <g id="card-formula">
+    <path fill="#0D2034" stroke-width="1" stroke="#4EF4D8" d="M472,218 H800 A8,8 0 0 1 808,226 V580 A8,8 0 0 1 800,588 H472 A8,8 0 0 1 464,580 V226 A8,8 0 0 1 472,218 Z" />
+    <text x="636" y="262.4" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="24" fill="#4EF4D8" font-weight="bold"><tspan>共同公式</tspan></text>
+    <rect x="496" y="294" width="280" height="2" fill="#4EF4D8" />
+
+    <path fill="#07111F" stroke-width="1" stroke="#4EF4D8" d="M522,327 H750 A8,8 0 0 1 758,335 V363 A8,8 0 0 1 750,371 H522 A8,8 0 0 1 514,363 V335 A8,8 0 0 1 522,327 Z" />
+    <text x="636" y="355" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="22" fill="#F7FBFF" font-weight="bold"><tspan>低成本底座</tspan></text>
+    <text x="636" y="397" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="22" fill="#61728A" font-weight="bold"><tspan>×</tspan></text>
+    <path fill="#07111F" stroke-width="1" stroke="#4DB8FF" d="M522,413 H750 A8,8 0 0 1 758,421 V449 A8,8 0 0 1 750,457 H522 A8,8 0 0 1 514,449 V421 A8,8 0 0 1 522,413 Z" />
+    <text x="636" y="441" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="22" fill="#F7FBFF" font-weight="bold"><tspan>高频消费 / 交付</tspan></text>
+    <text x="636" y="483" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="22" fill="#61728A" font-weight="bold"><tspan>×</tspan></text>
+    <path fill="#07111F" stroke-width="1" stroke="#A990FF" d="M522,499 H750 A8,8 0 0 1 758,507 V535 A8,8 0 0 1 750,543 H522 A8,8 0 0 1 514,535 V507 A8,8 0 0 1 522,499 Z" />
+    <text x="636" y="527" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="22" fill="#F7FBFF" font-weight="bold"><tspan>团队 / 社交沉淀</tspan></text>
+
+    <text x="636" y="574" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="16.5" fill="#4EF4D8" font-weight="bold"><tspan>低价不等于商业模式，复购场景才是。</tspan></text>
+  </g>
+
+  <g id="card-crayfish">
+    <path fill="#0D2034" stroke-width="1" stroke="#FFBD59" d="M862,218 H1190 A8,8 0 0 1 1198,226 V580 A8,8 0 0 1 1190,588 H862 A8,8 0 0 1 854,580 V226 A8,8 0 0 1 862,218 Z" />
+    <ellipse cx="1018" cy="255" rx="24" ry="14" fill="#E97132" stroke-width="1" stroke="#FFBD59" />
+    <ellipse cx="990" cy="255" rx="10" ry="8" fill="#E97132" stroke-width="1" stroke="#FFBD59" />
+    <ellipse cx="1046" cy="255" rx="10" ry="8" fill="#E97132" stroke-width="1" stroke="#FFBD59" />
+    <line x1="985" y1="250" x2="965" y2="238" stroke="#FFBD59" stroke-width="2" />
+    <line x1="1051" y1="250" x2="1071" y2="238" stroke="#FFBD59" stroke-width="2" />
+    <ellipse cx="959" cy="235" rx="8" ry="5" fill="#E97132" stroke-width="1" stroke="#FFBD59" />
+    <ellipse cx="1077" cy="235" rx="8" ry="5" fill="#E97132" stroke-width="1" stroke="#FFBD59" />
+    <text x="1026" y="262.4" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="24" fill="#FFBD59" font-weight="bold"><tspan>小龙虾</tspan></text>
+    <rect x="886" y="294" width="280" height="2" fill="#FFBD59" />
+
+    <text x="882" y="327.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>低门槛尝鲜</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="984" y="326.2">几十元启动一桌夜宵；</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="984" y="340">决策轻，转化快。</text><text x="882" y="396.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>高频场景</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="984" y="395.2">夜宵、聚会、啤酒、外卖，</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="984" y="409">持续制造复购。</text><text x="882" y="471.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>供应链沉淀</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="984" y="470.2">口味、采购、门店履约和品牌记忆，</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#F7FBFF" xml:space="preserve" x="984" y="484">形成壁垒。</text><text x="882" y="542.35" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="11" fill="#9FB0C4" font-weight="bold"><tspan>利润来源</tspan></text>
+    <text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#FFBD59" xml:space="preserve" x="984" y="541.2">套餐、翻台、酒水、连锁，</text><text font-family="Aptos, sans-serif" font-size="11.5" text-anchor="start" fill="#FFBD59" xml:space="preserve" x="984" y="555">把场景变毛利。</text></g>
+
+  <g id="takeaway">
+    <text x="640" y="616.45" text-anchor="middle" xml:space="preserve" font-family="Aptos, sans-serif" font-size="16.5" fill="#82F6A3" font-weight="bold"><tspan>判断：不要只看 token 单价，就像不能只看虾进价；能反复发生、被团队/社交绑定的场景，才是毛利所在。</tspan></text>
+  </g>
+
+  <g id="footer">
+    <rect x="62" y="666" width="1156" height="1" fill="#1D3A56" />
+    <text x="68" y="691.25" text-anchor="start" xml:space="preserve" font-family="Aptos, sans-serif" font-size="8.53" fill="#61728A"><tspan>Gugu Agent · 商业差异化版 · 小龙虾商业类比页</tspan></text>
+    <text x="1214" y="692.5" text-anchor="end" xml:space="preserve" font-family="Aptos, sans-serif" font-size="10" fill="#61728A"><tspan>8 / 8</tspan></text>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+[Unit]
+Description=Run Gugu Gateway health and payment monitor
+Wants=gugu-gateway.service mysqld.service
+After=gugu-gateway.service mysqld.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/root/opt/gugu
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/root/.bun/bin/bun run /root/opt/gugu/scripts/post-cutover-monitor.ts --env-file /root/opt/gugu/.env --hours 24 --recent 12
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadOnlyPaths=/root/opt/gugu

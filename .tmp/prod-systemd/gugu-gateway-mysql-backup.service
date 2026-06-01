@@ -1,0 +1,20 @@
+[Unit]
+Description=Backup Gugu Gateway MySQL database
+Wants=mysqld.service
+After=mysqld.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/root/opt/gugu
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/root/.bun/bin/bun run /root/opt/gugu/scripts/mysql-backup.ts --env-file /root/opt/gugu/.env --out-dir /var/backups/gugu-gateway --retention-days 7
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadOnlyPaths=/root/opt/gugu
+ReadWritePaths=/var/backups/gugu-gateway

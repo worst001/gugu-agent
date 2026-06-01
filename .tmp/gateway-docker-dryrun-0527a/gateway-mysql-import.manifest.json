@@ -1,0 +1,40 @@
+{
+  "ok": true,
+  "generatedAt": "2026-05-27T10:39:31.313Z",
+  "dbPath": "D:\\Claude Code\\claude-code-gugu\\.tmp\\gateway-docker-dryrun-0527a\\gateway.sqlite",
+  "target": {
+    "engine": "mysql",
+    "version": "8.4 LTS",
+    "schema": "deploy/mysql/schema.sql"
+  },
+  "batchSize": 2,
+  "tables": {
+    "devices": {
+      "rows": 1
+    },
+    "activation_codes": {
+      "rows": 3
+    },
+    "usage_events": {
+      "rows": 1
+    },
+    "orders": {
+      "rows": 3
+    },
+    "payment_notifications": {
+      "rows": 2
+    }
+  },
+  "sourceTotals": {
+    "devicesCreditsTotal": 12,
+    "devicesCreditsRemaining": 9,
+    "usageCredits": 3,
+    "usageInputTokens": 123,
+    "usageOutputTokens": 45,
+    "ordersAmountCents": 16700,
+    "ordersPaidAmountCents": 6800
+  },
+  "outputPath": "D:\\Claude Code\\claude-code-gugu\\.tmp\\gateway-docker-dryrun-0527a\\gateway-mysql-import.sql",
+  "manifestPath": "D:\\Claude Code\\claude-code-gugu\\.tmp\\gateway-docker-dryrun-0527a\\gateway-mysql-import.manifest.json",
+  "outputBytes": 4916
+}
