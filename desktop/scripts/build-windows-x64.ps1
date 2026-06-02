@@ -253,6 +253,53 @@ function Resolve-OutputDirectory {
   return $PreferredPath
 }
 
+function New-AgentPackResourceStaging {
+  param([string]$SourcePath)
+
+  if (-not (Test-Path $SourcePath)) {
+    throw "[build-windows-x64] Missing agent pack source: $SourcePath"
+  }
+
+  $repoDriveRoot = (Get-Item -LiteralPath $repoRoot).PSDrive.Root
+  $runnerTemp = if ($env:RUNNER_TEMP) { [System.IO.Path]::GetFullPath($env:RUNNER_TEMP) } else { $null }
+  $stagingBase = if ($runnerTemp -and $runnerTemp.StartsWith($repoDriveRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $runnerTemp
+  } else {
+    $repoDriveRoot
+  }
+
+  $stagingRoot = [System.IO.Path]::GetFullPath((Join-Path $stagingBase 'gugu-agent-desktop-packaging'))
+  $stagingDir = Join-Path $stagingRoot 'gugu-agent-pack'
+
+  if (-not $stagingRoot.StartsWith($stagingBase, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "[build-windows-x64] Refusing to stage agent pack outside staging base: $stagingRoot"
+  }
+
+  if (Test-Path $stagingDir) {
+    Remove-Item -LiteralPath $stagingDir -Recurse -Force
+  }
+  New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
+
+  Write-Step "Staging agent skills resource from $SourcePath to $stagingDir"
+  & robocopy `
+    $SourcePath `
+    $stagingDir `
+    /MIR `
+    /NFL `
+    /NDL `
+    /NJH `
+    /NJS `
+    /NP `
+    /XD .git node_modules .venv __pycache__ `
+    /XF .DS_Store | Out-Null
+
+  if ($LASTEXITCODE -gt 7) {
+    throw "[build-windows-x64] Failed to stage agent skills resource with robocopy (exit $LASTEXITCODE)"
+  }
+
+  return $stagingDir
+}
+
 Assert-WindowsHost
 Assert-Command bun
 
@@ -301,6 +348,9 @@ if ($env:SKIP_INSTALL -ne '1') {
   }
 }
 
+$agentPackSource = Join-Path $repoRoot '.agents\skills'
+$agentPackStagingDir = New-AgentPackResourceStaging -SourcePath $agentPackSource
+
 $tauriBuildArgs = @(
   'tauri',
   'build',
@@ -319,18 +369,25 @@ if ((-not $env:TAURI_SIGNING_PRIVATE_KEY) -and $env:TAURI_SIGNING_PRIVATE_KEY_PA
 }
 
 $hasUpdaterSigningKey = $env:TAURI_SIGNING_PRIVATE_KEY
-$tempConfigPath = $null
-if (-not $hasUpdaterSigningKey) {
-  $tempConfigPath = Join-Path ([System.IO.Path]::GetTempPath()) 'cc-haha.tauri.local.windows.json'
-  $tempConfig = @{
-    bundle = @{
-      createUpdaterArtifacts = $false
-    }
-  } | ConvertTo-Json -Depth 10
-  Set-Content -Path $tempConfigPath -Value $tempConfig -Encoding UTF8
-  Write-Step 'No Tauri updater signing key set, disabling updater artifacts for local build'
-  $tauriBuildArgs += @('--config', $tempConfigPath)
+$tempConfigPath = Join-Path ([System.IO.Path]::GetTempPath()) "gugu-agent.tauri.windows.$PID.json"
+$agentPackDriveRoot = [System.IO.Path]::GetPathRoot($agentPackStagingDir)
+$agentPackResourceSource = [System.IO.Path]::DirectorySeparatorChar + $agentPackStagingDir.Substring($agentPackDriveRoot.Length)
+$bundleConfig = @{
+  resources = @{
+    $agentPackResourceSource = 'gugu-agent-pack'
+  }
 }
+
+if (-not $hasUpdaterSigningKey) {
+  $bundleConfig.createUpdaterArtifacts = $false
+  Write-Step 'No Tauri updater signing key set, disabling updater artifacts for local build'
+}
+
+$tempConfig = @{
+  bundle = $bundleConfig
+} | ConvertTo-Json -Depth 10
+Write-Utf8NoBom -Path $tempConfigPath -Value $tempConfig
+$tauriBuildArgs += @('--config', $tempConfigPath)
 
 if ($null -ne $TauriArgs) {
   $remainingArgs = @($TauriArgs)
@@ -352,6 +409,9 @@ try {
   Pop-Location
   if ($tempConfigPath -and (Test-Path $tempConfigPath)) {
     Remove-Item -LiteralPath $tempConfigPath -Force
+  }
+  if ($agentPackStagingDir -and (Test-Path $agentPackStagingDir)) {
+    Remove-Item -LiteralPath $agentPackStagingDir -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
 

@@ -50,7 +50,7 @@ if [[ "$(uname -m)" != "arm64" ]]; then
   exit 1
 fi
 
-for command in bun cargo rustc codesign hdiutil; do
+for command in bun cargo rustc codesign hdiutil rsync; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "[build-macos-arm64] Missing required command: ${command}" >&2
     exit 1
@@ -110,6 +110,33 @@ echo "[build-macos-arm64] Rebuilding frontend (tsc + vite)..."
 echo "[build-macos-arm64] Rebuilding sidecar for ${TARGET_TRIPLE}..."
 (cd "${DESKTOP_DIR}" && TAURI_ENV_TARGET_TRIPLE="${TARGET_TRIPLE}" bun run build:sidecars)
 
+AGENT_PACK_SOURCE="${REPO_ROOT}/.agents/skills"
+AGENT_PACK_STAGING_ROOT="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gugu-agent-desktop-packaging"
+AGENT_PACK_STAGING_DIR="${AGENT_PACK_STAGING_ROOT}/gugu-agent-pack"
+TAURI_CONFIG_PATH="${AGENT_PACK_STAGING_ROOT}/tauri.macos.json"
+
+cleanup_packaging_staging() {
+  rm -f "${TAURI_CONFIG_PATH}"
+  rm -rf "${AGENT_PACK_STAGING_DIR}"
+}
+trap cleanup_packaging_staging EXIT
+
+echo "[build-macos-arm64] Staging agent skills resource..."
+rm -rf "${AGENT_PACK_STAGING_DIR}"
+mkdir -p "${AGENT_PACK_STAGING_DIR}"
+rsync -a \
+  --delete \
+  --exclude '.git/' \
+  --exclude 'node_modules/' \
+  --exclude '.venv/' \
+  --exclude '__pycache__/' \
+  "${AGENT_PACK_SOURCE}/" \
+  "${AGENT_PACK_STAGING_DIR}/"
+
+cat >"${TAURI_CONFIG_PATH}" <<EOF
+{"build":{"beforeBuildCommand":"true"},"bundle":{"resources":{"${AGENT_PACK_STAGING_DIR}":"gugu-agent-pack"}}}
+EOF
+
 TAURI_ARGS=(
   bunx
   tauri
@@ -120,7 +147,7 @@ TAURI_ARGS=(
   app,dmg
   --ci
   --config
-  '{"build":{"beforeBuildCommand":"true"}}'
+  "${TAURI_CONFIG_PATH}"
 )
 
 if [[ "${SIGN_BUILD:-0}" != "1" ]]; then
