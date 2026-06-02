@@ -32,6 +32,97 @@ function Write-Utf8NoBom {
   [System.IO.File]::WriteAllText($Path, $Value, $encoding)
 }
 
+function Invoke-MsiQuery {
+  param(
+    [object]$Database,
+    [string]$Sql,
+    [int]$FieldCount
+  )
+
+  $view = $Database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $Database, @($Sql))
+  try {
+    $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+    $rows = New-Object System.Collections.Generic.List[object]
+
+    while ($true) {
+      $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+      if ($null -eq $record) {
+        break
+      }
+
+      $fields = @()
+      for ($index = 1; $index -le $FieldCount; $index++) {
+        $fields += $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, @([int]$index))
+      }
+      $rows.Add($fields) | Out-Null
+    }
+
+    return $rows
+  } finally {
+    $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) | Out-Null
+  }
+}
+
+function Remove-AppUserModelShortcutProperty {
+  param([string]$MsiPath)
+
+  $installer = New-Object -ComObject WindowsInstaller.Installer
+  $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($MsiPath, 1))
+
+  $tables = Invoke-MsiQuery -Database $database -Sql 'SELECT Name FROM _Tables' -FieldCount 1
+  $tableNames = @($tables | ForEach-Object { $_[0] })
+  if (-not ($tableNames -contains 'MsiShortcutProperty')) {
+    Write-Step "MSI has no MsiShortcutProperty table: $MsiPath"
+    return
+  }
+
+  $before = Invoke-MsiQuery `
+    -Database $database `
+    -Sql "SELECT MsiShortcutProperty, Shortcut_, PropertyKey, PropVariantValue FROM MsiShortcutProperty WHERE PropertyKey='System.AppUserModel.ID'" `
+    -FieldCount 4
+
+  if ($before.Count -eq 0) {
+    Write-Step "MSI has no System.AppUserModel.ID shortcut property: $MsiPath"
+    return
+  }
+
+  $deleteView = $database.GetType().InvokeMember(
+    'OpenView',
+    'InvokeMethod',
+    $null,
+    $database,
+    @("DELETE FROM MsiShortcutProperty WHERE PropertyKey='System.AppUserModel.ID'")
+  )
+  try {
+    $deleteView.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $deleteView, $null) | Out-Null
+  } finally {
+    $deleteView.GetType().InvokeMember('Close', 'InvokeMethod', $null, $deleteView, $null) | Out-Null
+  }
+
+  $database.GetType().InvokeMember('Commit', 'InvokeMethod', $null, $database, $null) | Out-Null
+  Write-Step "Removed $($before.Count) System.AppUserModel.ID shortcut propert$(if ($before.Count -eq 1) { 'y' } else { 'ies' }) from MSI"
+}
+
+function Update-TauriSignature {
+  param([string]$ArtifactPath)
+
+  if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+    return
+  }
+
+  Write-Step "Re-signing updater artifact: $ArtifactPath"
+  Push-Location $desktopDir
+  try {
+    $signature = (& bunx tauri signer sign $ArtifactPath)
+    if ($LASTEXITCODE -ne 0) {
+      throw "[build-windows-x64] Failed to sign updater artifact: $ArtifactPath"
+    }
+    Write-Utf8NoBom -Path "$ArtifactPath.sig" -Value (($signature -join "`n").Trim())
+  } finally {
+    Pop-Location
+  }
+}
+
 function Assert-WindowsHost {
   if ($env:OS -ne 'Windows_NT') {
     throw '[build-windows-x64] This script must run on Windows.'
@@ -263,12 +354,26 @@ try {
   }
 }
 
-$activeOutputDir = Resolve-OutputDirectory -PreferredPath $canonicalOutputDir
-
 $bundleRoots = @(
   (Join-Path $tauriTargetDir "$targetTriple\release\bundle"),
   (Join-Path $tauriTargetDir 'release\bundle')
 )
+
+foreach ($root in $bundleRoots) {
+  if (-not (Test-Path $root)) {
+    continue
+  }
+
+  $msiArtifacts = Get-ChildItem -Path $root -Recurse -File -Filter "*.msi" -ErrorAction SilentlyContinue |
+    Where-Object { Test-ArtifactMatchesAppVersion -ArtifactName $_.Name }
+
+  foreach ($artifact in $msiArtifacts) {
+    Remove-AppUserModelShortcutProperty -MsiPath $artifact.FullName
+    Update-TauriSignature -ArtifactPath $artifact.FullName
+  }
+}
+
+$activeOutputDir = Resolve-OutputDirectory -PreferredPath $canonicalOutputDir
 
 $artifactPatterns = @('*.msi', '*.msi.sig', '*.msi.zip', '*.msi.zip.sig', 'latest.json')
 $copiedArtifacts = New-Object System.Collections.Generic.List[string]
@@ -306,7 +411,7 @@ $canonicalMsiPath = Join-Path $activeOutputDir "Gugu-Agent-${appVersion}-windows
 $canonicalMsiSignaturePath = "$canonicalMsiPath.sig"
 $canonicalLatestJsonPath = Join-Path $activeOutputDir 'latest.json'
 
-if ((Test-Path $canonicalMsiPath) -and (Test-Path $canonicalMsiSignaturePath) -and -not (Test-Path $canonicalLatestJsonPath)) {
+if ((Test-Path $canonicalMsiPath) -and (Test-Path $canonicalMsiSignaturePath)) {
   $updaterBaseUrl = if ($env:GUGU_UPDATER_BASE_URL) {
     $env:GUGU_UPDATER_BASE_URL.TrimEnd('/')
   } else {
