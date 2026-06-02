@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const check = vi.fn()
 const relaunch = vi.fn()
+const exit = vi.fn()
 const invoke = vi.fn()
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
@@ -9,6 +10,7 @@ vi.mock('@tauri-apps/plugin-updater', () => ({
 }))
 
 vi.mock('@tauri-apps/plugin-process', () => ({
+  exit,
   relaunch,
 }))
 
@@ -20,7 +22,16 @@ describe('updateStore', () => {
   beforeEach(() => {
     check.mockReset()
     relaunch.mockReset()
+    exit.mockReset()
     invoke.mockReset()
+    Object.defineProperty(window.navigator, 'platform', {
+      configurable: true,
+      value: 'Linux x86_64',
+    })
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 jsdom',
+    })
     window.localStorage.clear()
     Object.defineProperty(window, '__TAURI_INTERNALS__', {
       configurable: true,
@@ -145,5 +156,40 @@ describe('updateStore', () => {
     expect(useUpdateStore.getState().progressPercent).toBe(100)
     expect(useUpdateStore.getState().status).toBe('restarting')
     expect(relaunch).toHaveBeenCalledTimes(1)
+    expect(exit).not.toHaveBeenCalled()
+  })
+
+  it('exits instead of relaunching immediately after installing on Windows', async () => {
+    Object.defineProperty(window.navigator, 'platform', {
+      configurable: true,
+      value: 'Win32',
+    })
+
+    const download = vi.fn(async (onEvent?: (event: unknown) => void) => {
+      onEvent?.({ event: 'Started', data: { contentLength: 100 } })
+      onEvent?.({ event: 'Finished' })
+    })
+    const install = vi.fn().mockResolvedValue(undefined)
+
+    check.mockResolvedValue({
+      version: '0.2.2',
+      body: 'Notes',
+      download,
+      install,
+      close: vi.fn().mockResolvedValue(undefined),
+    })
+    invoke.mockResolvedValue(undefined)
+    exit.mockResolvedValue(undefined)
+    relaunch.mockResolvedValue(undefined)
+
+    vi.resetModules()
+    const { useUpdateStore } = await import('./updateStore')
+
+    await useUpdateStore.getState().checkForUpdates()
+    await useUpdateStore.getState().installUpdate()
+
+    expect(install).toHaveBeenCalledTimes(1)
+    expect(exit).toHaveBeenCalledWith(0)
+    expect(relaunch).not.toHaveBeenCalled()
   })
 })

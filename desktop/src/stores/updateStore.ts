@@ -86,6 +86,12 @@ function isReleaseMetadataUnavailable(error: unknown): boolean {
   )
 }
 
+function isWindowsRuntime(): boolean {
+  if (typeof navigator === 'undefined') return false
+
+  return /win/i.test(navigator.platform) || /windows/i.test(navigator.userAgent)
+}
+
 export const useUpdateStore = create<UpdateStore>((set, get) => ({
   status: 'idle',
   availableVersion: null,
@@ -219,7 +225,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
     try {
       writeDismissedUpdateVersion(null)
       const { invoke } = await import('@tauri-apps/api/core')
-      const { relaunch } = await import('@tauri-apps/plugin-process')
+      const { exit, relaunch } = await import('@tauri-apps/plugin-process')
       let totalBytes: number | null = null
       let downloadedBytes = 0
 
@@ -262,6 +268,11 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         status: 'restarting',
         progressPercent: 100,
       }))
+
+      if (isWindowsRuntime()) {
+        await exit(0)
+        return
+      }
 
       await relaunch()
     } catch (error) {
