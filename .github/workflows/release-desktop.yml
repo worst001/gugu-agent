@@ -51,13 +51,20 @@ jobs:
       - name: Build Windows artifacts
         shell: pwsh
         run: |
-          if ("${{ github.event_name }}" -eq "push" -or "${{ inputs.publish }}" -eq "true" -or "${{ inputs.require_updater }}" -eq "true") {
-            if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
-              throw "TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
+          try {
+            if ("${{ github.event_name }}" -eq "push" -or "${{ inputs.publish }}" -eq "true" -or "${{ inputs.require_updater }}" -eq "true") {
+              if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+                throw "TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
+              }
             }
+
+            cd desktop
+            .\scripts\build-windows-x64.ps1
+          } catch {
+            $message = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Host "::error title=Windows desktop build failed::$message"
+            throw
           }
-          cd desktop
-          .\scripts\build-windows-x64.ps1
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
