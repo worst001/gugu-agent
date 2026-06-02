@@ -124,7 +124,8 @@ function Update-TauriSignature {
 }
 
 function Assert-WindowsHost {
-  if ($env:OS -ne 'Windows_NT') {
+  $isWindows = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) -or ($env:OS -eq 'Windows_NT')
+  if (-not $isWindows) {
     throw '[build-windows-x64] This script must run on Windows.'
   }
 }
