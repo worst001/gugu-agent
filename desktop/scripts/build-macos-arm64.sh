@@ -334,6 +334,56 @@ sign_canonical_app_bundle() {
   codesign --verify --deep --strict --verbose=2 "${app_bundle}"
 }
 
+create_updater_archive() {
+  local app_bundle="$1"
+  local archive_output="$2"
+  local app_parent
+  local app_name
+
+  app_parent="$(dirname "${app_bundle}")"
+  app_name="$(basename "${app_bundle}")"
+
+  rm -f "${archive_output}" "${archive_output}.sig"
+  COPYFILE_DISABLE=1 LC_ALL=C tar -czf "${archive_output}" -C "${app_parent}" "${app_name}"
+}
+
+sign_updater_archive() {
+  local archive="$1"
+
+  (
+    cd "${DESKTOP_DIR}"
+    bunx tauri signer sign "${archive}"
+  )
+
+  if [[ ! -s "${archive}.sig" ]]; then
+    echo "[build-macos-arm64] ERROR: updater signature was not generated: ${archive}.sig" >&2
+    exit 1
+  fi
+}
+
+verify_updater_archive() {
+  local archive="$1"
+  local extract_dir
+  local extracted_app
+
+  extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/gugu-agent-updater-verify.XXXXXX")"
+  COPYFILE_DISABLE=1 LC_ALL=C tar -xzf "${archive}" -C "${extract_dir}"
+  extracted_app="${extract_dir}/${APP_BUNDLE_NAME}"
+
+  if [[ ! -d "${extracted_app}" ]]; then
+    echo "[build-macos-arm64] ERROR: updater archive does not contain ${APP_BUNDLE_NAME}" >&2
+    rm -rf "${extract_dir}"
+    exit 1
+  fi
+
+  if ! codesign --verify --deep --strict --verbose=2 "${extracted_app}"; then
+    rm -rf "${extract_dir}"
+    exit 1
+  fi
+
+  rm -rf "${extract_dir}"
+}
+
 if [[ -n "${LATEST_DMG}" ]]; then
   cp -f "${LATEST_DMG}" "${CANONICAL_OUTPUT_DIR}/"
 fi
@@ -355,10 +405,9 @@ if [[ -n "${LATEST_APP}" ]]; then
 fi
 
 if [[ "${SIGN_BUILD:-0}" == "1" ]]; then
-  if [[ -z "${LATEST_UPDATER_ARCHIVE}" || -z "${LATEST_UPDATER_SIGNATURE}" ]]; then
-    echo "[build-macos-arm64] ERROR: signed updater artifacts are incomplete." >&2
-    echo "[build-macos-arm64] archive=${LATEST_UPDATER_ARCHIVE:-not found}" >&2
-    echo "[build-macos-arm64] signature=${LATEST_UPDATER_SIGNATURE:-not found}" >&2
+  CANONICAL_APP_BUNDLE="${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}"
+  if [[ ! -d "${CANONICAL_APP_BUNDLE}" ]]; then
+    echo "[build-macos-arm64] ERROR: canonical app bundle is missing: ${CANONICAL_APP_BUNDLE}" >&2
     exit 1
   fi
 
@@ -366,10 +415,14 @@ if [[ "${SIGN_BUILD:-0}" == "1" ]]; then
   CANONICAL_UPDATER_SIGNATURE="${CANONICAL_UPDATER_ARCHIVE}.sig"
   UPDATER_BASE_URL="${GUGU_UPDATER_BASE_URL:-https://gxy-download.oss-cn-shanghai.aliyuncs.com}"
   UPDATER_BASE_URL="${UPDATER_BASE_URL%/}"
-  UPDATER_SIGNATURE_VALUE="$(tr -d '\r\n' < "${LATEST_UPDATER_SIGNATURE}")"
 
-  cp -f "${LATEST_UPDATER_ARCHIVE}" "${CANONICAL_UPDATER_ARCHIVE}"
-  cp -f "${LATEST_UPDATER_SIGNATURE}" "${CANONICAL_UPDATER_SIGNATURE}"
+  # Build the updater archive from the canonical signed app. The Tauri
+  # generated macOS updater archive can omit Contents/_CodeSignature even when
+  # the DMG app is valid, leaving the updated app with an invalid resource seal.
+  create_updater_archive "${CANONICAL_APP_BUNDLE}" "${CANONICAL_UPDATER_ARCHIVE}"
+  verify_updater_archive "${CANONICAL_UPDATER_ARCHIVE}"
+  sign_updater_archive "${CANONICAL_UPDATER_ARCHIVE}"
+  UPDATER_SIGNATURE_VALUE="$(tr -d '\r\n' < "${CANONICAL_UPDATER_SIGNATURE}")"
 
   cat > "${CANONICAL_OUTPUT_DIR}/latest.json" <<EOF
 {
