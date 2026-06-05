@@ -21,11 +21,35 @@ import { getCanonicalName } from '../../utils/model/model.js'
 
 const OFFICE_TOOL_ATTACHMENT_ONLY_REQUEST_PREFIX = 'The user sent attachments only.'
 const OFFICE_TOOL_EMPTY_REQUEST = 'The user did not provide additional text.'
+const CLAUDE_MEM_OBSERVER_TITLE_PREFIX =
+  'Hello memory agent, you are continuing to observe the primary Claude session'
+const CLAUDE_MEM_OBSERVER_DIR_FRAGMENT = '/.claude-mem/observer-sessions'
 
 function isOfficeToolInternalFallbackRequest(request: string): boolean {
   const normalized = request.replace(/\s+/g, ' ').trim()
   return normalized === OFFICE_TOOL_EMPTY_REQUEST ||
     normalized.startsWith(OFFICE_TOOL_ATTACHMENT_ONLY_REQUEST_PREFIX)
+}
+
+function normalizeSessionPathForInternalMatch(value: string): string {
+  return value.replace(/\\/g, '/').toLowerCase()
+}
+
+function normalizeSanitizedSessionPathForInternalMatch(value: string): string {
+  return normalizeSessionPathForInternalMatch(value).replace(/-/g, '/')
+}
+
+function looksLikeClaudeMemObserverPath(value: string | null | undefined): boolean {
+  if (!value) return false
+  const normalized = normalizeSessionPathForInternalMatch(value)
+  if (normalized.includes(CLAUDE_MEM_OBSERVER_DIR_FRAGMENT)) return true
+
+  const sanitizedNormalized = normalizeSanitizedSessionPathForInternalMatch(value)
+  return sanitizedNormalized.includes(CLAUDE_MEM_OBSERVER_DIR_FRAGMENT)
+}
+
+function looksLikeClaudeMemObserverTitle(title: string | null | undefined): boolean {
+  return Boolean(title?.trim().startsWith(CLAUDE_MEM_OBSERVER_TITLE_PREFIX))
 }
 
 // ============================================================================
@@ -292,6 +316,16 @@ export class SessionService {
     }
 
     return fallbackProjectDir ? this.desanitizePath(fallbackProjectDir) : null
+  }
+
+  private isInternalObserverSession(params: {
+    projectDir?: string | null
+    workDir?: string | null
+    title?: string | null
+  }): boolean {
+    return looksLikeClaudeMemObserverPath(params.workDir) ||
+      looksLikeClaudeMemObserverPath(params.projectDir) ||
+      looksLikeClaudeMemObserverTitle(params.title)
   }
 
   // --------------------------------------------------------------------------
@@ -1213,6 +1247,9 @@ export class SessionService {
         ).length
 
         const title = this.extractTitle(entries)
+        if (this.isInternalObserverSession({ projectDir, workDir, title })) {
+          continue
+        }
 
         // Find the earliest timestamp from entries, fallback to file birthtime
         let createdAt = stat.birthtime.toISOString()
@@ -1271,6 +1308,9 @@ export class SessionService {
     )
     const title = this.extractTitle(entries)
     const workDir = this.resolveWorkDirFromEntries(entries, projectDir)
+    if (this.isInternalObserverSession({ projectDir, workDir, title })) {
+      return null
+    }
     const workDirExists = await this.pathExists(workDir)
 
     let createdAt = stat.birthtime.toISOString()
@@ -1304,6 +1344,12 @@ export class SessionService {
     }
 
     const entries = await this.readJsonlFile(found.filePath)
+    const title = this.extractTitle(entries)
+    const workDir = this.resolveWorkDirFromEntries(entries, found.projectDir)
+    if (this.isInternalObserverSession({ projectDir: found.projectDir, workDir, title })) {
+      throw ApiError.notFound(`Session not found: ${sessionId}`)
+    }
+
     return await this.appendSubagentToolMessages(
       found.projectDir,
       sessionId,

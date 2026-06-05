@@ -242,6 +242,30 @@ describe('SessionService', () => {
     expect(resultA.sessions[0]!.id).toBe(id1)
   })
 
+  it('should hide claude-mem observer sessions from normal session lists and details', async () => {
+    const visibleId = 'aaaaaaaa-3333-cccc-dddd-eeeeeeeeeeee'
+    const observerId = 'aaaaaaaa-4444-cccc-dddd-eeeeeeeeeeee'
+    const observerWorkDir = path.join(os.homedir(), '.claude-mem', 'observer-sessions')
+
+    await writeSessionFile('-project-visible', visibleId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry('/tmp/visible-project'),
+      makeUserEntry('Visible user task'),
+    ])
+    await writeSessionFile(sanitizePath(observerWorkDir), observerId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry(observerWorkDir),
+      makeUserEntry('Hello memory agent, you are continuing to observe the primary Claude session. <observation>'),
+      makeAssistantEntry('MEMORY PROCESSING CONTINUED'),
+    ])
+
+    const result = await service.listSessions()
+    expect(result.total).toBe(1)
+    expect(result.sessions.map((session) => session.id)).toEqual([visibleId])
+    await expect(service.getSession(observerId)).resolves.toBeNull()
+    await expect(service.getSessionMessages(observerId)).rejects.toThrow('Session not found')
+  })
+
   // --------------------------------------------------------------------------
   // getSession
   // --------------------------------------------------------------------------

@@ -15,7 +15,7 @@
 - 本地健康检查 `http://127.0.0.1:18787/health` 和公网健康检查 `https://gugu.guxingyao.com/health` 都返回 `{"ok":true}`。
 - 生产数据源已经切到 MySQL：`GUGU_STORE_DRIVER=mysql`。
 - Redis limiter/circuit 已启用：`GUGU_REDIS_LIMITER_ENABLED=1`、`GUGU_REDIS_CIRCUIT_ENABLED=1`。
-- Phase 4 attachment task 已进入 memory-only 小流量灰度：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`。admin metrics 显示 `attachmentTasks.enabled=true`、`redisEnabled=false`、`backend=memory`、`fallbackActive=false`。
+- Phase 4 attachment task 已进入 Redis metadata/lease 小流量灰度：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`。admin metrics 显示 `attachmentTasks.enabled=true`、`redisEnabled=true`、`backend=redis`、`fallbackActive=false`。
 - 生产 monitor timer 每 5 分钟运行一次；最近查看到的运行时间是 `2026-05-29 00:11:24 CST`，日志结尾 `issues=[]`。
 - MySQL backup timer 已启用，下一次计划运行时间是 `2026-05-29 03:38:35 CST`。
 
@@ -71,6 +71,19 @@
 - smoke 后 admin metrics：`enabled=true`、`redisEnabled=false`、`backend=memory`、`fallbackActive=false`、`queued=0`、`running=0`、`completed=1`、`queueLimit=16`、`workerConcurrency=2`。
 - `gugu-gateway-alert.service` 在 `2026-06-01 19:07:54 CST` 返回 `ok=true`、`issues=[]`；`post-cutover-monitor` 在 `2026-06-01 19:08:00 CST` 返回 `ok=true`、`issues=[]`。
 - `systemctl list-timers 'gugu-gateway*'` 显示 monitor、alert、MySQL backup timers 均继续调度；最近 30 分钟 gateway 日志只看到重启时预期的 SIGTERM 和 smoke 请求日志，没有 Redis fallback、支付异常或上游错误。
+
+`2026-06-02 22:42-22:46 CST` Phase 4 Redis metadata/lease 灰度启用：
+
+- 24h memory-only 观察通过：`gugu-gateway`、`mysqld`、`redis` 和三组 timer 均为 `active`，local health `{"ok":true}`。
+- `gateway-alert-check` 返回 `ok=true`、`issues=[]`；最新 MySQL backup 为 `/var/backups/gugu-gateway/gateway-mysql-20260602-034027.sql`，`sha256Matches=true`，表计数 `devices=20`、`activation_codes=14`、`usage_events=2387`、`orders=42`、`payment_notifications=2`。
+- `post-cutover-monitor --hours 24 --recent 12` 返回 `ok=true`、`issues=[]`；spool 目录 `/var/lib/gugu-gateway/attachment-tasks` 没有残留 `.json`。
+- Redis URL 已确认存在；生产 `.env` 已备份为 `/root/opt/gugu/.env.phase4-redis-20260602224317.bak`。
+- 已设置 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_ALERT_EXPECT_REDIS_ATTACHMENT_TASKS_ENABLED=1`，并重启 `gugu-gateway`。
+- 重启后 admin metrics：`enabled=true`、`redisEnabled=true`、`backend=redis`、`fallbackActive=false`、`queued=0`、`running=0`、`completed=0`。
+- Redis task smoke 通过：`POST /v1/attachments/tasks` 返回 `202`、`Retry-After=1`、`provider=glm`；轮询后按预期 `failed`，`responseStatus=400`、`errorCode=UNSUPPORTED_FILE_TYPE`，spool 为空。
+- smoke 后 admin metrics：`backend=redis`、`fallbackActive=false`、`completed=1`；Redis 中出现 `gugu:attachment-task:<id>` 和 `gugu:attachment-tasks:status:failed`。
+- `gugu-gateway-alert.service` 在 `2026-06-02 22:45:47 CST` 返回 `ok=true`、`issues=[]`；`post-cutover-monitor` 在 `2026-06-02 22:45:56 CST` 返回 `ok=true`、`issues=[]`。
+- 首轮自然 alert timer 在 `2026-06-02 22:51:09 CST` 自动运行成功，仍为 `ok=true`、`issues=[]`，下一轮显示为 `2026-06-02 22:56:12 CST`。
 
 ## 生产运行图
 
@@ -227,14 +240,14 @@ GUGU_MAINTENANCE_DISABLE_ORDERS=0
 GUGU_MAINTENANCE_DISABLE_WRITES=0
 ```
 
-Phase 4 memory-only 灰度当前显式打开 task API，但 Redis task metadata/lease 仍关闭：
+Phase 4 Redis metadata/lease 灰度当前显式打开：
 
 ```bash
 GUGU_ATTACHMENT_TASKS_ENABLED=1
-GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0
+GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1
 GUGU_ATTACHMENT_TASK_SPOOL_DIR=/var/lib/gugu-gateway/attachment-tasks
 GUGU_ALERT_EXPECT_ATTACHMENT_TASKS_ENABLED=1
-GUGU_ALERT_EXPECT_REDIS_ATTACHMENT_TASKS_ENABLED=0
+GUGU_ALERT_EXPECT_REDIS_ATTACHMENT_TASKS_ENABLED=1
 ```
 
 metrics 中的 task 快照：
@@ -242,12 +255,12 @@ metrics 中的 task 快照：
 ```json
 {
   "enabled": true,
-  "redisEnabled": false,
-  "backend": "memory",
+  "redisEnabled": true,
+  "backend": "redis",
   "fallbackActive": false,
   "queued": 0,
   "running": 0,
-  "completed": 1,
+  "completed": 0,
   "queueLimit": 16,
   "workerConcurrency": 2,
   "retentionMs": 3600000,
@@ -256,6 +269,114 @@ metrics 中的 task 快照：
   "spoolCleaned": 0
 }
 ```
+
+## 2026-06-04 Redis task 24h+ 观察
+
+Phase 4 Redis metadata/status/lease 灰度已完成 24h+ 观察，可按单机生产阶段收口：
+
+- 生产时间 `2026-06-04T14:31:34+08:00`，`gugu-gateway`、`mysqld`、`redis`、`gugu-gateway-monitor.timer`、`gugu-gateway-alert.timer`、`gugu-gateway-mysql-backup.timer` 均为 `active`。
+- local health `http://127.0.0.1:18787/health` 返回 `{"ok":true}`。
+- `gugu-gateway-alert.timer` 最近自然运行在 `2026-06-04 14:32:34 CST`，结果 `ok=true`、`issues=[]`、`webhook.sent=false`。外部 webhook 按用户决定继续跳过。
+- `gugu-gateway-monitor.service` 最近运行在 `2026-06-04 14:30:02 CST`，结果 `ok=true`、`issues=[]`。
+- 最新 MySQL 备份为 `/var/backups/gugu-gateway/gateway-mysql-20260604-034031.sql`，SQL、`.manifest.json`、`.sha256` 三件套存在；`sha256sum -c` 返回 `OK`。
+- 最新备份 manifest：`bytes=579551`，`devices=29`、`activation_codes=20`、`usage_events=2756`、`orders=42`、`payment_notifications=2`，计数合理。
+- admin metrics 中 `attachmentTasks.enabled=true`、`redisEnabled=true`、`backend=redis`、`fallbackActive=false`、`queued=0`、`running=0`、`completed=0`、`queueLimit=16`、`workerConcurrency=2`。
+- `/var/lib/gugu-gateway/attachment-tasks` 下没有残留 `.json` spool 文件；Redis `gugu:attachment-task*` 扫描为空，说明上一轮 smoke key 已按 TTL/保留策略清理。
+- 最近 48h gateway 日志未发现 `fallbackActive` 或 `ATTACHMENT_TASK_FAILED` 关键词。
+- 当前负载仍很低：gateway 本轮启动后约 39.8h 累计 `2814` 个请求，约 `1.2 req/min`；主机 load average `0.35/0.14/0.09`，内存 available 约 `1.28 GiB`，根盘使用率 `41%`。
+
+结论：Phase 4 在当前单机架构下已完成。后续不要急着上 OSS、多实例或 Docker；先保留 Redis task 开关和告警，继续看真实用户流量。
+
+## 2026-06-04 Phase 5A 本地 Docker 沙盒
+
+已在本地 `gateway/` 目录新增 Phase 5A 沙盒，不影响线上生产：
+
+- `Dockerfile`：构建 Bun gateway runtime image，运行用户为 `bun`，runtime 数据写入 `/var/lib/gugu-gateway` 和 `/var/backups/gugu-gateway` volume。
+- `compose.yaml`：本地启动 `gateway + mysql:8.4 + redis:7.4-alpine`，端口为 gateway `18787`、MySQL `3307`、Redis `6380`。
+- `.dockerignore`：排除 `.env`、证书、SQLite、数据目录、`node_modules` 等敏感或本地运行产物。
+- `deploy/docker/gateway.sandbox.env`：本地占位配置，使用 MySQL store、Redis limiter/circuit/task metadata，admin token 为 `local-admin-token`；DeepSeek/GLM 使用 dummy key 和 `127.0.0.1:9` dummy base URL，避免误打真实上游。
+- `deploy/docker/README.md`：记录启动、health、metrics、schema check、task smoke、backup 和 reset 命令。
+
+本地验收结果：
+
+- `docker compose up -d --build` 成功，三个容器均 healthy。
+- `GET http://127.0.0.1:18787/health` 返回 `{"ok":true}`。
+- `bun run mysql-schema-check` 返回 `ok=true`，MySQL `8.4.9`，`missingTables=[]`、`missingIndexes=[]`。
+- `bun run phase4-attachment-task-smoke --spool-dir /var/lib/gugu-gateway/attachment-tasks` 返回 `ok=true`，task `backend=redis`、`fallbackActive=false`、`queued=0`、`running=0`，spool 为空。
+- `bun run mysql-backup --backup-dir /var/backups/gugu-gateway` 成功；容器内无 `mysqldump`，脚本按设计 fallback 到 JS logical dump。
+- `bun run gateway-alert-check --backup-dir /var/backups/gugu-gateway` 返回 `ok=true`、`issues=[]`、`sha256Matches=true`。
+
+生产仍保持 `/root/opt/gugu` + systemd，不要因为本地沙盒存在就直接切生产 Docker。下一步如继续 Phase 5，应先做 Compose 预演/生产切换预案，而不是直接多实例。
+
+## 2026-06-04 Phase 5B Compose 预演件
+
+已新增 Phase 5B 的本地自动验收和单机服务器 Compose 示例，仍未触碰线上生产：
+
+- `gateway/scripts/docker-sandbox-check.ts`：host 侧验收脚本，串起 Compose config、容器运行状态、gateway health、admin metrics Redis 状态、MySQL schema、attachment task smoke、spool 空目录、MySQL backup 和 alert check。
+- `package.json` 新增 `docker-sandbox-check` 脚本。
+- `gateway/deploy/docker/compose.single-host.example.yaml`：未来单机服务器 Docker 化示例；只把 gateway 暴露到 `127.0.0.1:${GUGU_GATEWAY_HOST_PORT}`，MySQL/Redis 留在 Compose 网络内；带 `gateway-backup` 和 `gateway-alert` job profile，后续可映射到 systemd/cron 或 K8s CronJob。
+- `gateway/deploy/docker/compose.single-host.env.example`：服务器 Compose 示例的占位变量模板，真实副本必须放私有路径，不要提交。
+- `gateway/deploy/docker/README.md` 已补 Phase 5B 使用说明。
+
+本地验收：
+
+- `docker compose config --quiet` 通过。
+- `docker compose --env-file deploy/docker/compose.single-host.env.example -f deploy/docker/compose.single-host.example.yaml config --quiet` 通过。
+- `bun run docker-sandbox-check` 返回 `ok=true`，包含：三服务 running、health OK、Redis task/circuit `backend=redis` 且 `fallbackActive=false`、MySQL schema OK、attachment smoke OK、spool 空、backup 成功、alert `issues=[]`。
+
+注意：单机服务器 Compose 文件只是预演模板，不是生产切换完成。生产切换前还需要私有 env、host volume、备份恢复校验、Nginx/public health、停机/回滚窗口和数据迁移计划。
+
+## 2026-06-04 Phase 5C Docker 切换预案
+
+已新增生产 Docker 切换预案，但没有执行生产切换：
+
+- `gateway/deploy/docker/compose.gateway-only.example.yaml`：推荐的第一步生产 Docker 形态，只容器化 Bun gateway，宿主机 MySQL、Redis、Nginx、备份目录和证书/支付密钥不动；Linux 上使用 `network_mode: host`，继续复用 `127.0.0.1` MySQL/Redis 和 Nginx `127.0.0.1:18787` 回源。
+- `docs/runbooks/gateway-docker-cutover-runbook.md`：Phase 5C draft runbook，覆盖 preflight、私有 env、镜像 build、可选 one-off dry-run、维护窗口切换、验证、回滚和明确禁止事项。
+- `gateway/deploy/docker/README.md` 已补 gateway-only cutover 路线。
+
+验证：
+
+- `docker compose --env-file deploy/docker/compose.single-host.env.example -f deploy/docker/compose.gateway-only.example.yaml config --quiet` 通过。
+- `git diff --check` 通过。
+
+重要边界：不要把 MySQL/Redis 容器迁移和 gateway runtime 容器切换放在同一个生产窗口里。第一步如果真要切，也应只切 gateway-only；full-stack Docker 或 K8s 需要单独的数据迁移和回滚演练。
+
+## 2026-06-04 Phase 5D 生产 readiness/预警/扩容/交接
+
+已完成 Phase 5D 准备工作，没有执行生产切换：
+
+- 生产 Docker 条件已只读确认：Alibaba Cloud Linux 3，Docker Engine `26.1.3`，Docker Compose `v2.27.0`，Docker service `active`，storage driver `overlay2`，Docker root `/var/lib/docker`，当前已有 9 个非 gateway 运行容器，不能盲目 prune。
+- 主机资源：2 CPU、约 `3.5GiB` 内存，根盘 `/dev/nvme0n1p3` ext4，`40G` 总量、`22G` 可用、`41%` 使用；Docker root 约 `5.3G`，MySQL 数据约 `218M`，gateway backups 约 `10M`，日志约 `1.8G`。
+- 端口拓扑：Nginx 监听 `80/443`，gateway `127.0.0.1:18787`，MySQL `127.0.0.1:3306`，Redis `127.0.0.1:6379`。
+- 真实存储位置已沉淀：`/root/opt/gugu`、`/root/opt/gugu/.env`、`/etc/gugu-gateway`、`/var/lib/gugu-gateway`、`/var/lib/gugu-gateway/attachment-tasks`、`/var/lib/mysql`、`/var/lib/redis`、`/var/backups/gugu-gateway`、`/var/lib/docker`。这些观测到的路径都在同一块根盘上，尚无独立离线/异地备份目标。
+- 新增 `docs/runbooks/gateway-warning-dashboard.md`：当前 journald/admin-metrics 预警面板规格，覆盖 health、service、timer、backup、Redis fallback、queue、5xx/429、host saturation、Docker storage。
+- 新增 `docs/runbooks/gateway-phase5d-production-readiness.md`：生产只读检查结果、真实存储 map、离线备份策略、扩容路线、运维交接、Phase 5A-5D review。
+
+Phase 5A-5D review 结论：本地 Docker 沙盒、Compose 自动验收、gateway-only 切换预案、生产 readiness/预警/扩容/交接都已准备好；生产尚未切 Docker。下一步不要贸然切换，优先补 off-host backup 策略或继续 DeepSeek V4 provider/worker 准备。
+
+## 2026-06-04 Phase 5E off-host backup 准备
+
+已完成 off-host backup 准备件，没有连接真实外部存储、没有上传生产备份：
+
+- 新增 `gateway/scripts/mysql-offhost-stage.ts`：复用现有 MySQL backup 的 SQL、manifest、sha256 三件套，stage 到指定目标目录，写入 portable `.sha256` 和 `.offhost-manifest.json`，并校验 source/target sha、size 和 source/target 是否同 filesystem device。
+- `package.json` 新增 `mysql-offhost-stage`。
+- 新增 `gateway/deploy/env/offhost-backup.env.example`。
+- 新增 systemd 模板：`gugu-gateway-mysql-offhost-backup.service/timer` 和 root layout 版本 `gugu-gateway-mysql-offhost-backup.root.service/timer`。模板未部署。
+- 新增 `docs/runbooks/gateway-offhost-backup-runbook.md`，覆盖配置、手动 stage/verify、restore rehearsal、告警面板补充、运维策略和 systemd timer 安装边界。
+- `docs/runbooks/gateway-warning-dashboard.md` 已补 off-host backup panel 和 critical alert。
+
+本地沙盒验证：
+
+- `bun run mysql-offhost-stage --help` OK。
+- 容器内 `mysql-backup` 生成测试 SQL 备份后，`mysql-offhost-stage --out-dir /tmp/gugu-gateway-offhost-stage --target-label local-sandbox-stage` 返回 `ok=true`。
+- `mysql-offhost-stage --verify-only --require-different-device` 返回 `ok=true`、`targetSha256Matches=true`、`targetSizeMatches=true`、`sameFilesystemDevice=false`。
+- staged 目录内 `sha256sum -c gateway-mysql-20260604-134239.sql.sha256` 返回 `OK`。
+
+仍未完成：选择真实 off-host target、配置私有凭据或挂载、部署 timer、执行生产 restore rehearsal。
+
+## 2026-06-04 运维交接文档
+
+新增 `docs/runbooks/gateway-ops-handoff.md`，面向运维接手人，覆盖当前生产事实、日常巡检、预警面板、admin metrics、备份恢复、常见事件处理、Docker 状态、扩容路线、交接清单和 30 秒口头版。该文档不包含真实 token 或密钥。
 
 ## 当前部署方式
 
@@ -309,11 +430,12 @@ curl -fsS https://gugu.guxingyao.com/health
 3. attachment async task 继续按三段灰度：
    - 已完成：代码部署但 `GUGU_ATTACHMENT_TASKS_ENABLED=0`，确认桌面回退同步解析。
    - 已完成：小流量打开 `GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，production smoke 验证创建、轮询、失败路径、spool 删除和 metrics。
-   - 下一步：继续观察 memory-only 真实流量；稳定后再打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，验证 `backend=redis`、`fallbackActive=false`。
+   - 已完成：打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，验证 `backend=redis`、`fallbackActive=false`、Redis task key 写入和 spool 清理。
+   - 已完成：Redis task 24h+ 观察，`fallbackActive=false`、队列不堆积、spool 无残留、alert/monitor 无 issue。
 4. DeepSeek V4 多模态接入时，把 worker/provider 从 `glm` 平滑扩展到 `deepseek-v4`，不要改客户端 task 协议。
 5. 再做生产目录规范化：`/opt/gugu-gateway`、`/etc/gugu-gateway/gateway.env`、非 root `gugu` 用户。
 6. Docker、多实例、SLB/Nginx 多后端放最后，等单机指标和真实压力证明需要再推进。
 
 ## 给下一位 gateway agent 的 prompt
 
-请从 `docs/runbooks/gateway-agent-handoff-2026-05-29.md` 接手 gateway。当前生产在 `139.196.214.54`，运行目录 `/root/opt/gugu`，服务 `gugu-gateway.service`，MySQL `gugu_gateway` 已是 active store，Redis limiter/circuit 已启用，微信和支付宝真实支付已验证。Phase 2 alert check 已部署到生产并由 `gugu-gateway-alert.timer` 每 5 分钟运行；用户已决定跳过外部 webhook 配置，因此先依赖 journald JSON 和 systemd failure。Phase 4 attachment task 已进入 memory-only 小流量灰度：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，admin metrics 应显示 `attachmentTasks.enabled=true`、`redisEnabled=false`、`backend=memory`、`fallbackActive=false`。不要把用户附件 payload 放 OSS；单机阶段只用本机私有 spool `/var/lib/gugu-gateway/attachment-tasks`。下一步优先观察 memory-only 真实流量、alert/monitor 和 spool 清理；稳定后再决定是否打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`。DeepSeek V4 多模态后续会上线，task 协议必须保持 provider-neutral。
+请从 `docs/runbooks/gateway-agent-handoff-2026-05-29.md` 接手 gateway。当前生产在 `139.196.214.54`，运行目录 `/root/opt/gugu`，服务 `gugu-gateway.service`，MySQL `gugu_gateway` 已是 active store，Redis limiter/circuit 已启用，微信和支付宝真实支付已验证。Phase 2 alert check 已部署到生产并由 `gugu-gateway-alert.timer` 每 5 分钟运行；用户已决定跳过外部 webhook 配置，因此先依赖 journald JSON 和 systemd failure。Phase 4 attachment task 已完成 Redis metadata/status/lease 小流量灰度和 24h+ 观察：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，admin metrics 应显示 `attachmentTasks.enabled=true`、`redisEnabled=true`、`backend=redis`、`fallbackActive=false`。Phase 5A-5E 已完成准备：本地 Docker 沙盒、Compose 自动验收、gateway-only 切换/回滚 runbook、生产 Docker readiness、预警面板、真实存储 map、扩容路线、运维交接、off-host backup staging/verify 脚本和 runbook；生产尚未切 Docker，也未连接真实 off-host backup target。不要把用户附件 payload 放 OSS；单机阶段仍只用本机私有 spool `/var/lib/gugu-gateway/attachment-tasks`。下一步优先选择真实 off-host backup target 并做一次生产 restore rehearsal，或继续 DeepSeek V4 provider-neutral worker 扩展；不要马上推进多实例或 OSS。DeepSeek V4 多模态后续会上线，task 协议必须保持 provider-neutral。

@@ -365,7 +365,11 @@ function noteTurnActivity(sessionId: string, cliMsg: any): void {
       monitor.phase = 'tool_executing'
       monitor.currentMessageHasToolUse = true
     } else if (eventType === 'content_block_delta') {
-      monitor.phase = cliMsg.event?.delta?.type === 'thinking_delta' ? 'thinking' : 'streaming'
+      if (monitor.currentMessageHasToolUse || monitor.phase === 'tool_executing') {
+        monitor.phase = 'tool_executing'
+      } else {
+        monitor.phase = cliMsg.event?.delta?.type === 'thinking_delta' ? 'thinking' : 'streaming'
+      }
     } else if (eventType === 'message_delta') {
       if (typeof cliMsg.event?.delta?.stop_reason === 'string') {
         monitor.lastStopReason = cliMsg.event.delta.stop_reason
@@ -388,7 +392,16 @@ function noteTurnActivity(sessionId: string, cliMsg: any): void {
     return
   }
   if (cliMsg?.type === 'assistant') {
-    monitor.phase = 'streaming'
+    const content = cliMsg.message?.content ?? cliMsg.content
+    const hasToolUse = Array.isArray(content)
+      ? content.some((block: any) => block?.type === 'tool_use')
+      : false
+    if (hasToolUse) {
+      monitor.phase = 'tool_executing'
+      monitor.currentMessageHasToolUse = true
+    } else if (monitor.phase !== 'tool_executing') {
+      monitor.phase = 'streaming'
+    }
     return
   }
   if (cliMsg?.type === 'user' && Array.isArray(cliMsg.message?.content)) {

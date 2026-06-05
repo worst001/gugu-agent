@@ -64,7 +64,7 @@ V1 明确不做这些事情：
 
 ### 做PPT
 
-不强制附件。把主题、笔记、粘贴内容或当前聊天整理成 PPT 大纲。优先输出受众、故事线、页结构、每页要点和讲稿。计划模式下只给制作方案，不能直接写文件。
+不强制附件。把主题、笔记、粘贴内容或当前聊天整理成 PPT 大纲。优先输出受众、故事线、页结构、每页要点和讲稿。计划模式下只给制作方案，不能直接写文件。用户明确要求生成、修改或导出真实 PPT/PPTX/HTML 幻灯片时，进入 `ppt-master` 质量工作流，先定义视觉系统和版式约束，再落文件；不能交付重叠、裁切、低对比、花字或粗糙 mockup。
 
 ### 写邮件
 
@@ -87,9 +87,28 @@ V1 复用现有 `attachment-parser`：
 
 ## Skill 策略
 
-新增 `.agents/skills/office-suite/SKILL.md` 作为轻量入口，只保存短索引、路由表、安全规则和输出风格。V1 不创建六个重 Skill，也不在初始上下文里加载大量 Office 说明。
+新增 `.agents/skills/office-suite/SKILL.md` 作为轻量入口，只保存短索引、路由表、安全规则和输出风格。为了避免真实办公产物质量不稳定，V1 同时保留几个轻量专用质量 Skill，但它们不作为重解析器，也不在初始上下文里全量加载。
 
-未来如果某个办公任务变得足够复杂，再拆成独立 Skill 或脚本能力。
+当前需要随桌面包一起打入的办公 Skill：
+
+- `.agents/skills/document-master/SKILL.md`：总结、纪要、报告、PRD、说明文档等文档产物质量门槛。
+- `.agents/skills/spreadsheet-master/SKILL.md`：表格分析、字段画像、数据质量、公式和表格化输出质量门槛。
+- `.agents/skills/ppt-master/SKILL.md`：真实 PPT/PPTX/HTML 幻灯片产物的版式、字体、留白、对比度和重叠检查质量门槛。
+- `.agents/skills/mail-master/SKILL.md`：邮件草稿、回复、语气变体和商务沟通质量门槛。
+- `.agents/skills/file-master/SKILL.md`：上传/选择文件后的类型识别、安全处理、解析限制说明和不覆盖原文件规则。
+- `.agents/skills/local-office-files/SKILL.md`：上传/选择本地 Office 文件时的统一入口、安全边界和格式分流。
+- `.agents/skills/pdf-master/SKILL.md`：PDF 摘要、页级结构、OCR/解析限制和 PDF 派生文档处理。
+- `.agents/skills/excel-master/SKILL.md`：Excel/XLSX/CSV 的字段画像、数据质量、公式、透视和表格输出。
+- `.agents/skills/word-master/SKILL.md`：Word/DOCX 的结构保留、摘要、改写和文档安全输出。
+
+这些 Skill 都放在 `.agents/skills` 下，由 `desktop/src-tauri/tauri.conf.json` 的 `../../.agents/skills -> gugu-agent-pack` 资源映射统一打包。后续如果新增办公能力，必须同时检查：Skill 文件是否在 `.agents/skills` 下、`office-suite` 路由是否索引、`desktop/src/constants/officeTools.ts` 是否在 wire prompt 中显式加载、测试是否覆盖。意图层 Skill 负责用户任务类型，格式层 Skill 负责本地文件、PDF、Excel、Word 等具体格式。
+
+路由优先级必须固定：
+
+1. 用户明确指定的最终产物类型优先级最高。比如“把 PDF 做成 PPT”，`pdf-master` 只负责读取/分析来源，最终产物走 `ppt-master`。
+2. 工具箱选择代表任务意图，不是硬性输出格式。比如选了“总结文档”，但用户要求“整理成 Excel”，最终应以 Excel/表格产物为准。
+3. 格式层 Skill 默认是输入/来源辅助，只有用户明确要求输出为该格式时才成为最终产物工作流。
+4. 安全规则永远最高：不覆盖原文件、不自动发邮件、不运行宏、不默认要求用户安装宿主命令。
 
 ## 后续增强
 
@@ -106,7 +125,7 @@ V1 稳定后再考虑：
 - 选「总结文档」并输入“把这段聊天总结成文档”，能得到结构化摘要文档。
 - 选「分析表格」并输入数据或指标，能得到表格化分析；上传 xlsx/csv 时也能得到字段和数据概览。
 - 选「编码」，能进入代码/日志/报错理解流程，CodeGraph 不可用时也能正常继续。
-- 选「做PPT」并打开计划模式，先产出 PPT 制作方案，不直接写文件。
+- 选「做PPT」并打开计划模式，先产出 PPT 制作方案，不直接写文件；要求真实生成幻灯片时，走 `ppt-master`，并在完成前检查重叠、裁切、对比度和字体一致性。
 - 选「写邮件」，输出可复制邮件草稿。
 - 选需要附件的工具但未上传文件，前端提示“请先添加文件或选择本地文件”，不报 raw error。
 - qmd、Python、sh 未安装时，办公工具箱仍可正常进入基础流程。

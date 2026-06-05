@@ -55,10 +55,20 @@ The current `.agents/skills` pack contains:
   - `api-and-interface-design`
   - `codegraph`
   - `context-engineering`
+  - `document-master`
   - `doubt-driven-development`
+  - `excel-master`
+  - `file-master`
+  - `local-office-files`
+  - `mail-master`
+  - `office-suite`
+  - `pdf-master`
+  - `ppt-master`
   - `rtk-token-saver`
   - `source-driven-development`
+  - `spreadsheet-master`
   - `test-driven-development`
+  - `word-master`
 - Third-party pack:
   - `.agents/skills/third-party/compound-engineering-plugin`
 - Bundled plugin marketplace entries from `.claude-plugin/marketplace.json`:
@@ -140,6 +150,15 @@ Office Toolbox packaging decision:
 - `office-suite` is a lightweight bundled Skill under `.agents/skills`, not a
   host-command MCP server. Desktop packages must include it through the existing
   `gugu-agent-pack` resource mapping.
+- Office Toolbox concrete outputs must also include the bundled quality skills:
+  `document-master`, `spreadsheet-master`, `ppt-master`, `mail-master`,
+  `file-master`, `local-office-files`, `pdf-master`, `excel-master`, and
+  `word-master`. These are lightweight workflow gates, not host-command MCP
+  servers.
+- Routing precedence must be explicit: the user's requested final output type
+  wins over the selected toolbox intent and source file format. Format-specific
+  workflows such as `pdf-master` and `excel-master` are input helpers unless the
+  user asks for that format as the final output.
 - Office Toolbox V1 is frontend task routing plus prompt scaffolding and the
   existing attachment-parser pipeline. It must not require users to install
   Python, qmd, sh, Office, LibreOffice, `npx`, or any other host command.

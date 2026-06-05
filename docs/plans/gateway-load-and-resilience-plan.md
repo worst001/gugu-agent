@@ -293,11 +293,14 @@ Dashboard 先展示关键水位，不追求复杂图表。
 - 已补本地 payload spool：任务请求体会写入 `GUGU_ATTACHMENT_TASK_SPOOL_DIR` 下的临时 JSON 文件，worker 执行时读回，完成后删除；超出 `GUGU_ATTACHMENT_TASK_SPOOL_MAX_BYTES` 会在上游调用前返回 413；`GUGU_ATTACHMENT_TASK_SPOOL_CLEANUP_INTERVAL_MS` 控制启动/运行期清理守护扫描间隔，守护只清理超过安全窗口的 orphan `.json`，并跳过当前进程正在引用的 payload。
 - async task 失败退款边界已用回归测试固定：任务执行复用 `forwardAttachment`，上游 5xx/网络/超时/空结果会沿用同步路径退款并把剩余额度透传给 task status；自动重试暂不启用，避免在缺少幂等 reservation 前制造重复扣费/重复退款。
 - 2026-06-01 已在生产进入 memory-only 小流量灰度：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，spool 目录为 `/var/lib/gugu-gateway/attachment-tasks`。production smoke 验证 task 创建/轮询、本地失败路径、spool 删除和 metrics，alert/monitor 均 `ok=true`、`issues=[]`。
+- 2026-06-02 已在生产进入 Redis metadata/lease 小流量灰度：`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，admin metrics 显示 `backend=redis`、`fallbackActive=false`。production smoke 验证 Redis task key 写入、status zset、轮询、本地失败路径和 spool 删除，alert/monitor 均 `ok=true`、`issues=[]`。
+- 2026-06-04 Redis metadata/status/lease 完成 24h+ 观察：服务和 timer active，alert/monitor 均 `ok=true`、`issues=[]`，admin metrics 显示 `backend=redis`、`fallbackActive=false`、`queued=0`、`running=0`，spool 无残留，Redis task key 已清理。
 - 灰度验证顺序：
   1. 已完成：先部署代码但保持 `GUGU_ATTACHMENT_TASKS_ENABLED=0`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，验证 `/v1/attachments/tasks` 返回 `404 ATTACHMENT_TASKS_DISABLED`，桌面端自动回退同步 `/v1/attachments/parse`。
   2. 已完成：内测小流量打开 `GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0`，验证 task 创建/轮询/失败路径、`Retry-After`、spool 完成删除和 metrics。
-  3. 下一步：继续观察 memory-only 真实流量；稳定后再打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，验证 admin metrics 里 attachment task `backend=redis`、`fallbackActive=false`，Redis 异常时能回退本机状态且不影响同步 parse。
-  4. 回滚只需要把 `GUGU_ATTACHMENT_TASKS_ENABLED=0` 后重启 gateway，桌面端会自动回到同步解析；清理守护会继续处理历史 stale spool 文件。
+  3. 已完成：打开 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，验证 admin metrics 里 attachment task `backend=redis`、`fallbackActive=false`，Redis task key/status 写入，且 spool 仍会删除。
+  4. 已完成：继续观察 Redis task 真实流量 24h+；稳定后再评估 DeepSeek V4 provider/worker 扩展或生产目录规范化，不要把 payload 放 OSS。
+  5. 回滚只需要把 `GUGU_ATTACHMENT_TASKS_ENABLED=0` 后重启 gateway，桌面端会自动回到同步解析；只回滚 Redis metadata/lease 则把 `GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=0` 后重启 gateway。
 - 当前仍不能直接当作多实例正式队列：payload 仍在本机 spool，共享文件系统/私有对象存储未规范化。
 - 成本边界：内测和单机阶段不把用户上传附件 payload 写入 OSS，避免对象数量、流量、隐私和生命周期管理失控。
 
@@ -424,7 +427,8 @@ Redis 不需要一次性替换进程内状态，按风险递增迁移：
 - `GUGU_REDIS_LIMITER_ENABLED=1` 后，设备/IP token bucket 会优先使用 Redis，Redis 命令失败时回落进程内 token bucket。
 - `GUGU_REDIS_CIRCUIT_ENABLED=1` 后，DeepSeek/GLM circuit 状态会优先使用 Redis，Redis 命令失败时回落进程内 circuit。
 - 生产已打开 Redis limiter/circuit；admin metrics 已确认 DeepSeek/GLM circuit `backend=redis`、`fallbackActive=false`。
-- GLM 队列状态和 worker lease 尚未迁入 Redis。
+- attachment task metadata/status/worker lease 已在生产打开 Redis 模式，并于 `2026-06-04` 完成 24h+ 观察：admin metrics 为 `enabled=true`、`redisEnabled=true`、`backend=redis`、`fallbackActive=false`、`queued=0`、`running=0`。
+- 更大的 DeepSeek V4 多模态 worker/provider 扩展尚未启动；task 协议保持 provider-neutral，等上游和产品入口明确后再接。
 
 ### 支付链路迁移保护
 
@@ -476,6 +480,50 @@ Redis 不需要一次性替换进程内状态，按风险递增迁移：
 
 Docker 值得做，但不是第一优先级。它解决部署一致性和回滚，不直接解决限流、扣点、超时和观测。
 
+`2026-06-04` 当前生产负载仍未触发 Phase 5：gateway 约 39.8h 累计 `2814` 个请求，约 `1.2 req/min`；主机 load average `0.35/0.14/0.09`，根盘使用率 `41%`，内存 available 约 `1.28 GiB`。在这个量级下，优先继续观察和做小维护窗口规范化，不建议直接多实例或容器化。
+
+`2026-06-04` 已完成 Phase 5A 本地 Docker 沙盒：
+
+- 新增 `gateway/Dockerfile`、`gateway/compose.yaml`、`gateway/.dockerignore`、`gateway/deploy/docker/gateway.sandbox.env` 和 `gateway/deploy/docker/README.md`。
+- 本地 Compose 启动 `gateway + mysql:8.4 + redis:7.4-alpine`，gateway 端口 `18787`、MySQL host 端口 `3307`、Redis host 端口 `6380`。
+- 沙盒使用 MySQL store、Redis limiter/circuit/task metadata；DeepSeek/GLM 使用 dummy key 和本地不可达 URL，避免误打真实上游。
+- 本地验收已通过：Compose config、build/up、container health、gateway health、MySQL schema check、Phase 4 attachment task smoke、MySQL backup、gateway alert check。
+- 这一步只证明镜像和单机 Compose 边界可行，不代表生产已切 Docker；生产切换还需要单独的 env/volume/backup/rollback 预案。
+
+`2026-06-04` 已完成 Phase 5B Compose 预演件：
+
+- 新增 `gateway/scripts/docker-sandbox-check.ts` 和 `package.json` 脚本 `docker-sandbox-check`，把本地沙盒验收自动化为一个命令。
+- 新增 `gateway/deploy/docker/compose.single-host.example.yaml` 和 `gateway/deploy/docker/compose.single-host.env.example`，作为未来单机服务器 Docker 化的模板；gateway 只监听 `127.0.0.1` host port，MySQL/Redis 不直接暴露公网。
+- 单机 Compose 示例包含 `gateway-backup` 和 `gateway-alert` job profile，后续可以落到 host systemd/cron，或迁移为 K8s CronJob。
+- 本地 `bun run docker-sandbox-check` 已通过：Compose config、三服务 running、health、Redis metrics、MySQL schema、attachment smoke、spool、backup、alert 全部 `ok=true`。
+- 这一步仍不是生产切换；下一步如要继续 Docker 路线，应做“生产切换预案/演练清单”，明确 env/secrets、host volume、Nginx 回源、backup restore check、停止 systemd 和回滚顺序。
+
+`2026-06-04` 已完成 Phase 5C 生产 Docker 切换预案：
+
+- 新增 `gateway/deploy/docker/compose.gateway-only.example.yaml`，推荐第一步只容器化 gateway，继续使用宿主机 MySQL/Redis/Nginx/备份/证书，避免把数据库迁移和 runtime 切换绑在一个窗口里。
+- 新增 `docs/runbooks/gateway-docker-cutover-runbook.md`，覆盖 read-only preflight、私有 env、image build、one-off dry-run、维护窗口、验证、回滚、禁止事项和后续 full-stack/K8s 边界。
+- `gateway-only` Compose 示例使用 Linux `network_mode: host`，让容器内 gateway 继续连接 `127.0.0.1` MySQL/Redis，并保持 Nginx `127.0.0.1:18787` 回源模型。
+- `docker compose --env-file deploy/docker/compose.single-host.env.example -f deploy/docker/compose.gateway-only.example.yaml config --quiet` 已通过。
+- 这一步仍没有执行生产切换；真正切换前还需要用户确认维护窗口，并先重新做生产 read-only preflight 和最新备份校验。
+
+`2026-06-04` 已完成 Phase 5D 生产 readiness、预警面板、扩容和运维交接准备：
+
+- 只读确认生产 Docker 条件：Docker Engine `26.1.3`、Docker Compose `v2.27.0`、Docker service `active`、Docker root `/var/lib/docker`、overlay2；机器已有 9 个非 gateway 运行容器，不能盲目 prune。
+- 只读确认生产资源和端口：2 CPU、约 `3.5GiB` 内存，根盘 `/dev/nvme0n1p3` ext4、`41%` 使用；Nginx `80/443`，gateway `127.0.0.1:18787`，MySQL `127.0.0.1:3306`，Redis `127.0.0.1:6379`。
+- 只读确认真实存储：gateway code/env、gateway runtime/spool、MySQL、Redis、backups、Docker root、logs 当前都落在同一块根盘；本地 SQL backup 不是离线/异地备份，需要补 off-host backup 策略。
+- 新增 `docs/runbooks/gateway-warning-dashboard.md`，定义当前 journald/admin-metrics 预警面板、阈值、响应动作和未来 Grafana 映射。
+- 新增 `docs/runbooks/gateway-phase5d-production-readiness.md`，包含生产只读检查结果、真实存储 map、离线备份建议、扩容路线、运维交接和 Phase 5A-5D review。
+- Phase 5A-5D 至此均为“准备完成，生产未切 Docker”。下一步如果继续 Docker，优先补 off-host backup 和维护窗口演练；如果继续产品能力，则转 DeepSeek V4 provider/worker 扩展。
+
+`2026-06-04` 已完成 Phase 5E off-host backup 准备：
+
+- 新增 `gateway/scripts/mysql-offhost-stage.ts` 和 `package.json` 脚本 `mysql-offhost-stage`，可以把最新 MySQL SQL backup、manifest、sha256 stage 到目标目录，写 portable sha256 和 `.offhost-manifest.json`，并校验 source/target sha、size 和 filesystem device。
+- 新增 `gateway/deploy/env/offhost-backup.env.example`。
+- 新增 off-host backup systemd 模板：normalized layout 和 current root layout 各一套 service/timer；模板未部署。
+- 新增 `docs/runbooks/gateway-offhost-backup-runbook.md`，覆盖手动 stage/verify、restore rehearsal、warning dashboard additions、retention/ops policy 和 timer 安装边界。
+- 本地沙盒验证通过：`mysql-offhost-stage --out-dir /tmp/gugu-gateway-offhost-stage`、`--verify-only --require-different-device`、portable `sha256sum -c` 均 OK。
+- 这一步仍没有真实 off-host target；正式启用前必须选择私有目标、配置凭据/挂载、部署 timer，并从目标副本做一次生产 restore rehearsal。
+
 触发条件：
 
 - DAU 稳定超过 800-1000。
@@ -506,10 +554,10 @@ Docker 值得做，但不是第一优先级。它解决部署一致性和回滚�
 2. 给 `/v1/attachments/parse` 补大小、MIME 白名单和扣点前校验。已完成。
 3. 增加 message/GLM 独立并发池和 429 `GATEWAY_BUSY`。已完成。
 4. 增加单设备、单 IP、套餐维度限流。已完成。
-5. 增加上游熔断和流式 idle timeout。
-6. 增加结构化日志和 admin metrics。
-7. 增加 SQLite busy_timeout、checkpoint、备份脚本。
-8. 根据真实指标决定是否进入 GLM 任务队列。
+5. 增加上游熔断和流式 idle timeout。已完成。
+6. 增加结构化日志和 admin metrics。已完成。
+7. 增加 SQLite/MySQL 备份和生产 MySQL 自动备份 timer。已完成。
+8. 根据真实指标决定是否进入 GLM/attachment 异步任务队列。已完成 Phase 4 Redis metadata/status/lease 灰度；DeepSeek V4 provider 扩展另排。
 
 ## Phase 1 代码改动清单
 

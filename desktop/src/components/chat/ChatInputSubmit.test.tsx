@@ -249,10 +249,35 @@ describe('ChatInput submit', () => {
     const payload = getLastUserMessagePayload()
     expect(payload?.content).toContain('[Office toolbox: ppt-draft]')
     expect(payload?.content).toContain('Create a presentation outline first')
+    expect(payload?.content).toContain('$ppt-master')
+    expect(payload?.content).toContain('Never ship rough slide mockups')
     expect(payload?.content).toContain('User request:\nmake a launch deck')
     expect(screen.queryByText(/\[Office toolbox: ppt-draft\]/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+  })
+
+  it('includes office routing precedence so explicit output type wins over source format', async () => {
+    seedEmptySession('office-toolbox-routing-precedence-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Summarize document' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'turn this PDF into a PPT deck', selectionStart: 29 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('turn this PDF into a PPT deck')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('Routing precedence:')
+    expect(payload?.content).toContain('The final output type explicitly requested by the user has highest priority')
+    expect(payload?.content).toContain('use PDF-related skills only to read the source and use the PPT workflow for the final artifact')
+    expect(payload?.content).toContain('Format-specific skills are source/input helpers')
+    expect(payload?.content).toContain('User request:\nturn this PDF into a PPT deck')
   })
 
   it('routes coding through the office toolbox without requiring CodeGraph', async () => {
@@ -300,6 +325,7 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('[Agent mode: plan]')
     expect(payload?.content).toContain('[Office toolbox: ppt-draft]')
     expect(payload?.content).toContain('Create a presentation outline first')
+    expect(payload?.content).toContain('$ppt-master')
     expect(useAgentRunModeStore.getState().selections['office-toolbox-plan-session']).toBe('normal')
     expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
   })
@@ -321,9 +347,66 @@ describe('ChatInput submit', () => {
 
     const payload = getLastUserMessagePayload()
     expect(payload?.content).toContain('[Office toolbox: document-summary]')
+    expect(payload?.content).toContain('$document-master')
+    expect(payload?.content).toContain('$local-office-files')
+    expect(payload?.content).toContain('$pdf-master')
+    expect(payload?.content).toContain('$word-master')
     expect(payload?.content).toContain('summary document')
+    expect(payload?.content).toContain('known facts from assumptions')
     expect(payload?.content).toContain('User request:\nsummarize this chat into a doc')
     expect(useUIStore.getState().toasts).toEqual([])
+  })
+
+  it('routes spreadsheet analysis through the spreadsheet quality skill', async () => {
+    seedEmptySession('office-toolbox-spreadsheet-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'analyze monthly revenue by region', selectionStart: 33 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('analyze monthly revenue by region')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Office toolbox: spreadsheet-analysis]')
+    expect(payload?.content).toContain('$spreadsheet-master')
+    expect(payload?.content).toContain('$excel-master')
+    expect(payload?.content).toContain('$local-office-files')
+    expect(payload?.content).toContain('missing values, duplicates, outliers')
+    expect(payload?.content).toContain('User request:\nanalyze monthly revenue by region')
+    expect(screen.queryByText(/\[Office toolbox: spreadsheet-analysis\]/)).not.toBeInTheDocument()
+  })
+
+  it('routes email drafting through the mail quality skill without external side effects', async () => {
+    seedEmptySession('office-toolbox-mail-session')
+    render(<ActiveSession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Write email' }))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'write a polite renewal reminder', selectionStart: 31 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('write a polite renewal reminder')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Office toolbox: mail-draft]')
+    expect(payload?.content).toContain('$mail-master')
+    expect(payload?.content).toContain('$local-office-files')
+    expect(payload?.content).toContain('$pdf-master')
+    expect(payload?.content).toContain('$excel-master')
+    expect(payload?.content).toContain('$word-master')
+    expect(payload?.content).toContain('Do not send email')
+    expect(payload?.content).toContain('User request:\nwrite a polite renewal reminder')
+    expect(screen.queryByText(/\[Office toolbox: mail-draft\]/)).not.toBeInTheDocument()
   })
 
   it('shows a friendly warning instead of running file handling without attachments', async () => {
@@ -359,6 +442,13 @@ describe('ChatInput submit', () => {
     await waitFor(() => {
       expect(getLastUserMessagePayload()?.content).toContain('[Office toolbox: file-assistant]')
     })
+    expect(getLastUserMessagePayload()?.content).toContain('$file-master')
+    expect(getLastUserMessagePayload()?.content).toContain('$local-office-files')
+    expect(getLastUserMessagePayload()?.content).toContain('$pdf-master')
+    expect(getLastUserMessagePayload()?.content).toContain('$excel-master')
+    expect(getLastUserMessagePayload()?.content).toContain('$word-master')
+    expect(getLastUserMessagePayload()?.content).toContain('$ppt-master')
+    expect(getLastUserMessagePayload()?.content).toContain('safer next step')
     expect(screen.getByText('File')).toBeInTheDocument()
     expect(screen.queryByText(/The user sent attachments only/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()

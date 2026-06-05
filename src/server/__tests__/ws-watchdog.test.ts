@@ -215,4 +215,76 @@ describe('desktop WebSocket watchdog', () => {
 
     expect(__testing.shouldRecoverForModelIdle(SESSION_ID, 2_100)).toBe(false)
   })
+
+  test('keeps tool-use input deltas in the tool execution phase', () => {
+    process.env.CC_HAHA_MODEL_IDLE_TIMEOUT_MS = '1000'
+    __testing.setTurnMonitor(SESSION_ID)
+
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: { type: 'message_start' },
+    })
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        content_block: { type: 'tool_use', name: 'Bash' },
+      },
+    })
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        delta: { type: 'input_json_delta', partial_json: '{"command":"' },
+      },
+    })
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: { type: 'message_stop' },
+    })
+
+    const snapshot = __testing.getTurnMonitorSnapshot(SESSION_ID)
+    expect(snapshot?.phase).toBe('tool_executing')
+    expect(__testing.shouldRecoverForModelIdle(
+      SESSION_ID,
+      (snapshot?.lastProgressAt ?? 0) + 2_000,
+    )).toBe(false)
+
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'user',
+      message: { content: [{ type: 'tool_result' }] },
+    })
+
+    expect(__testing.getTurnMonitorSnapshot(SESSION_ID)?.phase).toBe('thinking')
+  })
+
+  test('assistant tool-use messages do not overwrite active tool execution as streaming', () => {
+    process.env.CC_HAHA_MODEL_IDLE_TIMEOUT_MS = '1000'
+    __testing.setTurnMonitor(SESSION_ID, {
+      phase: 'tool_executing',
+    })
+
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', name: 'Bash' }],
+      },
+    })
+
+    expect(__testing.getTurnMonitorSnapshot(SESSION_ID)?.phase).toBe('tool_executing')
+
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'text', text: 'still waiting' }],
+      },
+    })
+
+    const snapshot = __testing.getTurnMonitorSnapshot(SESSION_ID)
+    expect(snapshot?.phase).toBe('tool_executing')
+    expect(__testing.shouldRecoverForModelIdle(
+      SESSION_ID,
+      (snapshot?.lastProgressAt ?? 0) + 2_000,
+    )).toBe(false)
+  })
 })
