@@ -46,6 +46,7 @@ type Options = {
   includeUpdater: boolean
   latestJson: string
   objectPrefix: string
+  onlyUpdaterMetadata: boolean
   publish: boolean
   releaseJson: string
   requireUpdater: boolean
@@ -99,6 +100,7 @@ Options:
   --include-updater               Upload latest.json and referenced updater artifacts when present. Default.
   --no-updater                    Skip latest.json and updater artifacts.
   --require-updater               Fail if latest.json or updater artifacts are missing.
+  --only-updater-metadata         Upload only latest.json and updater .sig files, skipping large artifacts/installers.
   --allow-partial                 Allow uploading only one installer platform.
   --skip-release-notes-check      Do not require release-notes/v<version>.md.
   --acl <acl>                     Optional x-oss-object-acl value, for example public-read.
@@ -168,6 +170,7 @@ function parseArgs(argv: string[]): Options {
     includeUpdater: true,
     latestJson: join(desktopDir, 'build-artifacts', 'latest.json'),
     objectPrefix: envFirst(['GUGU_OSS_OBJECT_PREFIX', 'OSS_OBJECT_PREFIX']),
+    onlyUpdaterMetadata: false,
     publish: false,
     releaseJson: join(desktopDir, 'build-artifacts', 'release.json'),
     requireUpdater: false,
@@ -240,6 +243,11 @@ function parseArgs(argv: string[]): Options {
       case '--require-updater':
         options.requireUpdater = true
         options.includeUpdater = true
+        break
+      case '--only-updater-metadata':
+        options.onlyUpdaterMetadata = true
+        options.includeUpdater = true
+        options.requireUpdater = true
         break
       case '--allow-partial':
         options.allowPartial = true
@@ -433,6 +441,7 @@ function collectUpdaterUploads(options: Options): UploadItem[] {
   }
 
   const manifest = readJsonFile<UpdaterManifest>(options.latestJson)
+  assertUpdaterManifestSignatures(manifest, options.latestJson)
   const searchDirs = [
     join(desktopDir, 'build-artifacts', 'windows-x64'),
     join(desktopDir, 'build-artifacts', 'macos-arm64'),
@@ -456,13 +465,15 @@ function collectUpdaterUploads(options: Options): UploadItem[] {
       continue
     }
 
-    uploads.push({
-      cacheControl: 'public, max-age=31536000, immutable',
-      contentType: contentTypeFor(artifactName),
-      description: 'updater artifact',
-      objectKey: objectKey(options, artifactName),
-      sourcePath: artifactPath,
-    })
+    if (!options.onlyUpdaterMetadata) {
+      uploads.push({
+        cacheControl: 'public, max-age=31536000, immutable',
+        contentType: contentTypeFor(artifactName),
+        description: 'updater artifact',
+        objectKey: objectKey(options, artifactName),
+        sourcePath: artifactPath,
+      })
+    }
 
     const signatureName = `${artifactName}.sig`
     const signaturePath = findFileByName(searchDirs, signatureName)
@@ -484,6 +495,49 @@ function collectUpdaterUploads(options: Options): UploadItem[] {
   }
 
   return uploads
+}
+
+function assertUpdaterManifestSignatures(manifest: UpdaterManifest, manifestPath: string) {
+  const signatures: Array<[string, string | undefined]> = []
+
+  if (manifest.signature) signatures.push(['root', manifest.signature])
+  if (manifest.platforms) {
+    for (const [platform, entry] of Object.entries(manifest.platforms)) {
+      signatures.push([platform, entry.signature])
+    }
+  }
+
+  for (const [label, signature] of signatures) {
+    const normalized = normalizeUpdaterSignature(signature, `${manifestPath} ${label}`)
+    if (signature?.trim() !== normalized) {
+      throw new Error(`Updater signature in ${manifestPath} ${label} includes signer log text. Use only the Public signature value.`)
+    }
+  }
+}
+
+function normalizeUpdaterSignature(signature: string | undefined, source: string): string {
+  if (!signature) {
+    throw new Error(`Missing updater signature in ${source}`)
+  }
+
+  let normalized = signature.trim()
+  const publicSignature = normalized.match(/Public signature:\s*([A-Za-z0-9+/=]+)/s)
+
+  if (publicSignature) {
+    normalized = publicSignature[1].trim()
+  }
+
+  if (!normalized || /\s/.test(normalized) || !/^[A-Za-z0-9+/=]+$/.test(normalized)) {
+    throw new Error(`Updater signature in ${source} must be a single-line base64 value`)
+  }
+
+  try {
+    atob(normalized)
+  } catch {
+    throw new Error(`Updater signature in ${source} is invalid base64`)
+  }
+
+  return normalized
 }
 
 function updaterArtifactNames(manifest: UpdaterManifest): string[] {
@@ -637,6 +691,9 @@ function formatBytes(bytes: number): string {
 function printPlan(options: Options, release: ReleaseJson, uploads: UploadItem[]) {
   console.log(`[upload-release-oss] Version: ${options.version}`)
   console.log(`[upload-release-oss] Mode: ${options.publish ? 'publish' : 'dry-run'}`)
+  if (options.onlyUpdaterMetadata) {
+    console.log('[upload-release-oss] Scope: updater metadata only')
+  }
   console.log(`[upload-release-oss] Bucket: ${options.bucket}`)
   console.log(`[upload-release-oss] Endpoint: ${options.endpoint}`)
   console.log(`[upload-release-oss] Public base URL: ${options.baseUrl}`)
@@ -657,12 +714,18 @@ async function main() {
   try {
     const options = parseArgs(process.argv.slice(2))
     assertVersionFiles(options)
-    const artifacts = existingInstallerArtifacts(options)
-    const release = buildReleaseJson(options, artifacts)
-    const uploads = dedupeUploads([
-      ...collectInstallerUploads(options, artifacts),
-      ...collectUpdaterUploads(options),
-    ])
+    const artifacts = options.onlyUpdaterMetadata
+      ? {}
+      : existingInstallerArtifacts(options)
+    const release = options.onlyUpdaterMetadata
+      ? { version: options.version, publishedAt: new Date().toISOString() }
+      : buildReleaseJson(options, artifacts)
+    const uploads = dedupeUploads(options.onlyUpdaterMetadata
+      ? collectUpdaterUploads(options)
+      : [
+          ...collectInstallerUploads(options, artifacts),
+          ...collectUpdaterUploads(options),
+        ])
 
     printPlan(options, release, uploads)
 

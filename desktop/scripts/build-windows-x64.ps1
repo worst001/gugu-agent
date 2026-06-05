@@ -32,6 +32,36 @@ function Write-Utf8NoBom {
   [System.IO.File]::WriteAllText($Path, $Value, $encoding)
 }
 
+function Get-TauriPublicSignature {
+  param(
+    [string]$Value,
+    [string]$Source
+  )
+
+  $trimmed = $Value.Trim()
+  $publicSignatureMatch = [regex]::Match($trimmed, 'Public signature:\s*([A-Za-z0-9+/=]+)', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+
+  if ($publicSignatureMatch.Success) {
+    $trimmed = $publicSignatureMatch.Groups[1].Value.Trim()
+  }
+
+  if ($trimmed -match '\s') {
+    throw "[build-windows-x64] Updater signature contains whitespace in $Source. Expected the single-line Public signature value only."
+  }
+
+  if ($trimmed -notmatch '^[A-Za-z0-9+/=]+$') {
+    throw "[build-windows-x64] Updater signature is not base64 in $Source."
+  }
+
+  try {
+    [Convert]::FromBase64String($trimmed) | Out-Null
+  } catch {
+    throw "[build-windows-x64] Updater signature is invalid base64 in $Source."
+  }
+
+  return $trimmed
+}
+
 function Assert-WindowsHost {
   if ($env:OS -ne 'Windows_NT') {
     throw '[build-windows-x64] This script must run on Windows.'
@@ -312,7 +342,7 @@ if ((Test-Path $canonicalMsiPath) -and (Test-Path $canonicalMsiSignaturePath) -a
   } else {
     'https://gxy-download.oss-cn-shanghai.aliyuncs.com'
   }
-  $signature = (Get-Content -Path $canonicalMsiSignaturePath -Raw).Trim()
+  $signature = Get-TauriPublicSignature -Value (Get-Content -Path $canonicalMsiSignaturePath -Raw) -Source $canonicalMsiSignaturePath
   $manifest = @{
     version = $appVersion
     pub_date = [DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')

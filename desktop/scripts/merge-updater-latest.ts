@@ -284,15 +284,47 @@ function selectSignatureFile(files: string[], artifactPath: string): string {
   throw new Error(`Missing signature file for ${artifactName}`)
 }
 
-function assertSignatureMatches(signaturePath: string, signature: string) {
-  const signatureFromFile = readFileSync(signaturePath, 'utf8').trim()
+function normalizeSignature(signature: string, source: string): string {
+  let normalized = signature.trim()
+  const publicSignature = normalized.match(/Public signature:\s*([A-Za-z0-9+/=]+)/s)
+
+  if (publicSignature) {
+    normalized = publicSignature[1].trim()
+  }
+
+  if (!normalized) {
+    throw new Error(`Signature is empty: ${source}`)
+  }
+
+  if (/\s/.test(normalized)) {
+    throw new Error(`Signature contains whitespace in ${source}; expected the single-line Public signature value`)
+  }
+
+  if (!/^[A-Za-z0-9+/=]+$/.test(normalized)) {
+    throw new Error(`Signature is not base64 in ${source}`)
+  }
+
+  try {
+    atob(normalized)
+  } catch {
+    throw new Error(`Signature is invalid base64 in ${source}`)
+  }
+
+  return normalized
+}
+
+function assertSignatureMatches(signaturePath: string, signature: string): string {
+  const signatureFromFile = normalizeSignature(readFileSync(signaturePath, 'utf8'), signaturePath)
+  const signatureFromManifest = normalizeSignature(signature, 'input latest.json')
   if (!signatureFromFile) {
     throw new Error(`Signature file is empty: ${signaturePath}`)
   }
 
-  if (signatureFromFile !== signature.trim()) {
+  if (signatureFromFile !== signatureFromManifest) {
     throw new Error(`Signature mismatch between ${signaturePath} and latest.json`)
   }
+
+  return signatureFromFile
 }
 
 function publicArtifactUrl(baseUrl: string, artifactPath: string): string {
@@ -409,11 +441,11 @@ function mergeManifests(options: Options) {
 
       const artifactPath = selectUpdaterArtifact(dir, files, options.version, platform, entry)
       const signaturePath = selectSignatureFile(files, artifactPath)
-      assertSignatureMatches(signaturePath, entry.signature)
+      const signature = assertSignatureMatches(signaturePath, entry.signature)
 
       const nextEntry = {
         url: publicArtifactUrl(options.baseUrl, artifactPath),
-        signature: entry.signature.trim(),
+        signature,
       }
 
       for (const alias of aliasesForPlatform(platform, basePlatform)) {
