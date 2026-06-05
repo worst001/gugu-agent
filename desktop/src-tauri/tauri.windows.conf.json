@@ -2,7 +2,7 @@
   "app": {
     "windows": [
       {
-        "title": "gugu-agent",
+        "title": "Gugu Agent",
         "width": 1440,
         "height": 960,
         "minWidth": 960,

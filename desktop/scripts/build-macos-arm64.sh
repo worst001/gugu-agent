@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "${DESKTOP_DIR}/.." && pwd)"
 TARGET_TRIPLE="aarch64-apple-darwin"
 TAURI_TARGET_DIR="${DESKTOP_DIR}/src-tauri/target"
 CANONICAL_OUTPUT_DIR="${DESKTOP_DIR}/build-artifacts/macos-arm64"
-APP_BUNDLE_NAME="gugu-agent.app"
+APP_BUNDLE_NAME="Gugu Agent.app"
 APP_BUNDLE_ID="com.guxingyao.guguagent.desktop"
 APP_VERSION="$(grep -m1 '"version"' "${DESKTOP_DIR}/src-tauri/tauri.conf.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 
@@ -217,7 +217,7 @@ build_canonical_dmg() {
 
   # Create a read-write DMG first so we can customize the Finder layout
   hdiutil create \
-  -volname "gugu-agent" \
+  -volname "Gugu Agent" \
     -srcfolder "${staging_dir}" \
     -ov \
     -format UDRW \
@@ -238,7 +238,7 @@ build_canonical_dmg() {
   # 所以这里允许 osascript 非零退出,只 warn,不让 set -e 炸掉整个脚本。
   if ! osascript <<APPLESCRIPT
 tell application "Finder"
-  tell disk "gugu-agent"
+  tell disk "Gugu Agent"
     open
     set current view of container window to icon view
     set toolbar visible of container window to false

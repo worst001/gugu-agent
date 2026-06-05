@@ -2275,11 +2275,11 @@ function formatBillingDate(value: string): string {
 const OFFICIAL_SITE_URL = 'https://gugu.guxingyao.com/'
 const OFFICIAL_DOWNLOAD_URL = `${OFFICIAL_SITE_URL}download`
 const FEEDBACK_ISSUES_URL = 'https://gitee.com/xiyouwangluo/claude-code-gugu/issues'
-const STUDIO_NAME = '谷星曜共创社'
 const SOCIAL_LINKS = [
-  { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/3706994158471525', label: STUDIO_NAME },
-  { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAAtP2n0WPCHMetPNLXfKnYOvHlNeL8wtTxXyNZT6_mmIk', label: STUDIO_NAME },
-  { name: 'Xiaohongshu', icon: '/icons/xiaohongshu.svg', url: 'https://www.xiaohongshu.com/user/profile/6a0ef24c0000000002002005', label: STUDIO_NAME },
+  { name: 'Bilibili', icon: '/icons/bilibili.svg', url: 'https://space.bilibili.com/1168466292', label: 'Gugu进化日志' },
+  { name: 'Douyin', icon: '/icons/douyin.svg', url: 'https://www.douyin.com/user/MS4wLjABAAAAf54DrXvWUC7ehvvl5ZFdP7QMNGOgBc6dq3BipD7pazc', label: '咕咕AI助手' },
+  { name: 'Xiaohongshu', icon: '/icons/xiaohongshu.svg', url: 'https://www.xiaohongshu.com/user/profile/650679f300000000120075a1', label: '咕咕AI助手' },
+  { name: 'Kuaishou', icon: '/icons/kuaishou.svg', url: 'https://v.kuaishou.com/JDkX0UKZ', label: '咕咕Agent助手' },
 ] as const
 
 function AboutSettings() {

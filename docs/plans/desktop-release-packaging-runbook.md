@@ -32,7 +32,7 @@
 3. **Windows 真实冒烟环境**
    - 至少一台干净 Windows 机器或 VM。
    - 能安装上一个公开版本，再走应用内热更新到当前版本。
-   - 能验证 `C:\Program Files\gugu-agent\gugu-agent.exe`、开始菜单快捷方式、桌面快捷方式、sidecar、版本号。
+   - 能验证应用展示名为 `Gugu Agent`，并确认 `C:\Program Files\gugu-agent\gugu-agent.exe`、开始菜单快捷方式、桌面快捷方式、sidecar、版本号。
 
 4. **macOS 真实冒烟环境**
    - 至少一台 Apple Silicon Mac。
@@ -202,7 +202,7 @@ Windows 是本次事故风险最高的平台。以下任何一项失败，都不
 
 用 Windows Installer 表检查新旧 MSI：
 
-- `ProductName` 稳定，例如 `gugu-agent`。
+- `ProductName` 用户可见展示名稳定为 `Gugu Agent`。
 - `ProductVersion` 等于 `X.Y.Z`。
 - `UpgradeCode` 与历史版本一致。
 - `ProductCode` 每个版本不同。
