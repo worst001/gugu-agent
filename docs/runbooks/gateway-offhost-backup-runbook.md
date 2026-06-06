@@ -2,6 +2,12 @@
 
 Status: Phase 5E preparation, not connected to a real off-host target yet.
 
+2026-06-06 update: Docker cutover remains frozen. Off-host backup is the next
+infrastructure item to push, but production execution still requires SSH access
+and a real target path or upload job. A read-only SSH attempt from this thread
+failed with `Permission denied (publickey...)`, so no production staging or
+restore rehearsal was executed here.
+
 The current production MySQL backup timer creates local SQL backups under
 `/var/backups/gugu-gateway`. Local backups are useful for fast restore, but they
 are not disaster recovery because the observed backup directory, MySQL data, and
@@ -177,6 +183,20 @@ Not yet done:
 - provisioning credentials or mounts,
 - deploying a timer/upload job,
 - running a production restore rehearsal.
+
+Required operator input before the next attempt:
+
+- target type: mounted disk, private object storage mount, rsync destination, or
+  an operator-approved upload job,
+- production-visible target directory, for example
+  `/mnt/gugu-gateway-offhost`,
+- target label for manifests, for example `aliyun-oss-private` or
+  `nas-private-disk`,
+- confirmation that the target is on a different filesystem device, or that a
+  same-disk staging directory is followed by an already-approved off-host upload
+  job,
+- scratch MySQL restore URL whose database name contains `restore`, `scratch`,
+  `dryrun`, `backup`, `contract`, or `test`.
 
 ## Optional systemd Timer
 

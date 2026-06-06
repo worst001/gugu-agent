@@ -374,6 +374,28 @@ Phase 5A-5D review 结论：本地 Docker 沙盒、Compose 自动验收、gatewa
 
 仍未完成：选择真实 off-host target、配置私有凭据或挂载、部署 timer、执行生产 restore rehearsal。
 
+## 2026-06-06 首发优惠/推荐奖励与 off-host backup 推进决策
+
+用户明确：Docker 正式切换先不用推；可以继续推进：
+
+1. 首发优惠 + 自动推荐奖励上线包。
+2. 真实 off-host backup + restore rehearsal。
+
+当前状态：
+
+- Gateway 本地已实现首发套餐和 referral 后端：`launch-pro-monthly` 29 元/600 点、`launch-max-monthly` 69 元/1500 点；`GET /v1/referrals/me`；`POST /v1/orders` 可接 `referralCode`；激活首单付费订单后按规则发 100 点，推荐人每自然月最多 500 点。默认 `GUGU_REFERRAL_ENABLED=0`。
+- 客户端分支 `fix/bug-from-master` 已补订阅页“复制邀请链接”入口，经本地 `/api/billing/referral` 代理 gateway，不暴露设备 token；仅当 gateway 返回 `enabled=true` 时显示。
+- 新增 `docs/runbooks/gateway-launch-referral-rollout.md`，记录生产上线顺序：代码先带 `GUGU_REFERRAL_ENABLED=0` 部署；先让首发价生效；再做 MySQL migration `deploy/mysql/002-referrals.sql`；验证后再小窗口打开 referral flag。
+- 新增/更新 `docs/runbooks/gateway-offhost-backup-runbook.md`，明确下一次 off-host backup 执行需要真实目标路径/凭据、target label、不同 filesystem device 确认、scratch MySQL restore URL。
+- 本线程尝试生产 read-only SSH 到 `root@139.196.214.54`，但返回 `Permission denied (publickey...)`，因此没有执行生产 preflight、没有上传/部署、没有执行真实 off-host staging 或 restore rehearsal。
+
+关键上线边界：
+
+- 不要在 MySQL migration 002 验证前打开 `GUGU_REFERRAL_ENABLED=1`。
+- 首发价套餐不受 referral flag 控制；gateway 代码部署后 `/buy` 会直接展示首发价。
+- off-host backup 如果 target 仍和 `/var/backups/gugu-gateway` 同盘，只能算 staging/rehearsal，不算灾备。
+- 主 Agent 打包整体测试完成前，不要开启 referral 灰度。
+
 ## 2026-06-04 运维交接文档
 
 新增 `docs/runbooks/gateway-ops-handoff.md`，面向运维接手人，覆盖当前生产事实、日常巡检、预警面板、admin metrics、备份恢复、常见事件处理、Docker 状态、扩容路线、交接清单和 30 秒口头版。该文档不包含真实 token 或密钥。
