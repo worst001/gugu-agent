@@ -503,6 +503,8 @@ function getMaxTurnsReachedPrompt(message: string): string | null {
 function getAgentRecoveryPrompt(message: string): string | null {
   if (
     message.includes('模型长时间没有返回内容') ||
+    message.includes('本轮响应长时间未恢复') ||
+    (message.includes('已自动停止') && message.includes('尚未得到最终回复')) ||
     message.includes('已中止本轮以恢复会话') ||
     message.includes('Agent 连接长时间没有心跳') ||
     message.includes('工具长时间没有返回结果')
@@ -518,7 +520,8 @@ function isNonTerminalAgentRecovery(data: unknown): boolean {
   return (
     reason === 'model_stream_stalled' ||
     reason === 'agent_connection_lost' ||
-    reason === 'agent_connection_restored'
+    reason === 'agent_connection_restored' ||
+    reason === 'agent_restored_without_progress'
   )
 }
 

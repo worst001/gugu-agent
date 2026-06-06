@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
@@ -339,6 +339,31 @@ describe('chat blocks', () => {
 
     expect(screen.getByText('Parsing attachments for 55s')).toBeTruthy()
     expect(screen.getByText(/OCR, vision, audio, PDF, and Office files/i)).toBeTruthy()
+  })
+
+  it('explains temporary model recovery states before tools start', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    const onStopTurn = vi.fn()
+    const onContinueFromHere = vi.fn()
+
+    render(
+      <AgentActivityPanel
+        chatState="thinking"
+        elapsedSeconds={65}
+        statusVerb="Model response interrupted, waiting for recovery"
+        messages={[]}
+        resultMap={new Map()}
+        onStopTurn={onStopTurn}
+        onContinueFromHere={onContinueFromHere}
+      />,
+    )
+
+    expect(screen.getAllByText('Model response interrupted, waiting for recovery').length).toBeGreaterThan(0)
+    expect(screen.getByText(/stop this turn and retry/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /stop turn/i }))
+    fireEvent.click(screen.getByRole('button', { name: /continue from here/i }))
+    expect(onStopTurn).toHaveBeenCalledTimes(1)
+    expect(onContinueFromHere).toHaveBeenCalledTimes(1)
   })
 
   it('shows tool previews only after expanding the tool block', () => {

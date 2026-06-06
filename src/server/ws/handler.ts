@@ -249,11 +249,42 @@ function getFirstActiveClient(sessionId: string): ServerWebSocket<WebSocketData>
   return clients?.values().next().value ?? null
 }
 
-function getTurnStatusVerb(phase: TurnPhase): string {
-  if (phase === 'tool_executing') return '工具仍在执行中'
+function formatElapsedMs(ms: number): string {
+  const totalSeconds = Math.max(1, Math.round(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes <= 0) return `${seconds} 秒`
+  if (seconds === 0) return `${minutes} 分钟`
+  return `${minutes}分${seconds}秒`
+}
+
+function getTurnStageLabel(phase: TurnPhase): string {
+  if (phase === 'tool_executing') return '等待工具返回结果'
   if (phase === 'permission_pending') return '等待权限确认'
-  if (phase === 'streaming') return '仍在接收模型输出'
-  return '仍在等待模型响应'
+  if (phase === 'streaming') return '等待模型继续输出'
+  return '等待模型开始或继续响应'
+}
+
+function getTurnProgressVerb(monitor: TurnMonitor, noProgressMs: number): string {
+  const elapsed = formatElapsedMs(noProgressMs)
+  if (monitor.phase === 'tool_executing') return `仍在等待工具返回结果，已等待 ${elapsed}`
+  if (monitor.phase === 'permission_pending') return '等待权限确认'
+  if (monitor.phase === 'streaming') return `正在等待模型继续输出，已等待 ${elapsed}`
+  return `正在等待模型响应，已等待 ${elapsed}`
+}
+
+function getTerminalRecoveryMessage(monitor: TurnMonitor, cause: 'agent_lost' | 'agent_restored_idle' | 'model_idle' | 'tool_idle'): string {
+  const stage = getTurnStageLabel(monitor.phase)
+  if (cause === 'agent_lost') {
+    return `Agent 连接长时间没有心跳，已自动停止本轮。当前停在：${stage}；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。`
+  }
+  if (cause === 'agent_restored_idle') {
+    return `Agent 连接已恢复，但本轮长时间没有新进展，已自动停止。当前停在：${stage}；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。`
+  }
+  if (cause === 'tool_idle') {
+    return `工具长时间没有返回结果，已自动停止本轮。当前停在：${stage}；尚未得到最终回复。你可以重新运行，或缩小任务范围后再试。`
+  }
+  return `本轮响应长时间未恢复，已自动停止。当前停在：${stage}；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。`
 }
 
 function startAttachmentParseProgress(sessionId: string): () => void {
@@ -426,12 +457,12 @@ function tickTurnMonitor(sessionId: string): void {
     now,
     conversationService.hasSdkConnection(sessionId),
   )) {
-    recoverStalledTurn(sessionId, 'Agent 连接长时间没有心跳，已中止本轮以恢复会话。')
+    recoverStalledTurn(sessionId, getTerminalRecoveryMessage(monitor, 'agent_lost'))
     return
   }
 
   if (shouldRecoverForRestoredAgentIdle(monitor, now)) {
-    recoverStalledTurn(sessionId, 'Agent 连接恢复后仍长时间没有新进展，已中止本轮以恢复会话。')
+    recoverStalledTurn(sessionId, getTerminalRecoveryMessage(monitor, 'agent_restored_idle'))
     return
   }
 
@@ -439,7 +470,8 @@ function tickTurnMonitor(sessionId: string): void {
     broadcastToSession(sessionId, {
       type: 'status',
       state: monitor.phase,
-      verb: getTurnStatusVerb(monitor.phase),
+      verb: getTurnProgressVerb(monitor, noProgressMs),
+      elapsed: Math.round(noProgressMs / 1000),
     })
     monitor.nextNoticeAt = now + getEnvMs('CC_HAHA_TURN_PROGRESS_REMINDER_MS', DEFAULT_TURN_PROGRESS_REMINDER_MS)
   }
@@ -449,7 +481,7 @@ function tickTurnMonitor(sessionId: string): void {
     broadcastToSession(sessionId, {
       type: 'system_notification',
       subtype: 'agent_recovery',
-      message: 'Agent 连接暂时中断，正在等待自动重连。你可以继续等待，或手动停止后重试。',
+      message: 'Agent 连接暂时中断，正在等待自动重连。你可以继续等待，或点击停止后重试。',
       data: { reason: 'agent_connection_lost' },
     })
   }
@@ -466,7 +498,7 @@ function tickTurnMonitor(sessionId: string): void {
     broadcastToSession(sessionId, {
       type: 'system_notification',
       subtype: 'agent_recovery',
-      message: 'Agent 连接已恢复，但本轮还没有新的输出；Gugu 会继续等待，并在超时后自动恢复会话。',
+      message: 'Agent 连接已恢复，但本轮还没有新的输出；Gugu 会继续等待，长时间没有进展时会自动停止并给出下一步。',
       data: {
         reason: 'agent_restored_without_progress',
         reconnects: monitor.sdkReconnectCount,
@@ -481,15 +513,21 @@ function tickTurnMonitor(sessionId: string): void {
   ) {
     monitor.modelStallNoticeSent = true
     broadcastToSession(sessionId, {
+      type: 'status',
+      state: monitor.phase,
+      verb: `模型响应暂时中断，正在等待恢复（已等待 ${formatElapsedMs(noProgressMs)}）`,
+      elapsed: Math.round(noProgressMs / 1000),
+    })
+    broadcastToSession(sessionId, {
       type: 'system_notification',
       subtype: 'agent_recovery',
-      message: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+      message: '模型响应暂时中断，正在等待恢复。你可以继续等待，或点击停止后重试。',
       data: { reason: 'model_stream_stalled', idleMs: noProgressMs },
     })
   }
 
   if (shouldRecoverForModelIdle(monitor, now)) {
-    recoverStalledTurn(sessionId, '模型长时间没有返回任何内容，已中止本轮以恢复会话。')
+    recoverStalledTurn(sessionId, getTerminalRecoveryMessage(monitor, 'model_idle'))
     return
   }
 
@@ -500,13 +538,14 @@ function tickTurnMonitor(sessionId: string): void {
       broadcastToSession(sessionId, {
         type: 'status',
         state: 'tool_executing',
-        verb: '工具执行时间较长，仍在等待结果',
+        verb: `工具执行时间较长，仍在等待结果（已等待 ${formatElapsedMs(noProgressMs)}）`,
+        elapsed: Math.round(noProgressMs / 1000),
       })
     }
 
     const toolTimeoutMs = getEnvMs('CC_HAHA_TOOL_IDLE_TIMEOUT_MS', DEFAULT_TOOL_IDLE_TIMEOUT_MS)
     if (toolTimeoutMs > 0 && noProgressMs >= toolTimeoutMs) {
-      recoverStalledTurn(sessionId, '工具长时间没有返回结果，已中止本轮以恢复会话。')
+      recoverStalledTurn(sessionId, getTerminalRecoveryMessage(monitor, 'tool_idle'))
     }
   }
 }
@@ -571,7 +610,7 @@ function noteSdkConnected(sessionId: string): void {
   broadcastToSession(sessionId, {
     type: 'status',
     state: monitor.phase,
-    verb: getTurnStatusVerb(monitor.phase),
+    verb: getTurnProgressVerb(monitor, Date.now() - monitor.lastProgressAt),
   })
 }
 
@@ -607,7 +646,7 @@ function syncTurnMonitorStatus(ws: ServerWebSocket<WebSocketData>, sessionId: st
   sendMessage(ws, {
     type: 'status',
     state: monitor.phase,
-    verb: getTurnStatusVerb(monitor.phase),
+    verb: getTurnProgressVerb(monitor, Date.now() - monitor.lastProgressAt),
   })
 }
 

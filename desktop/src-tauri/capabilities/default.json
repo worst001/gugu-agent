@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/tauri-capabilities-schema-v2.json",
   "identifier": "default",
-  "description": "Default capabilities for gugu-agent Desktop",
+  "description": "Default capabilities for Gugu Agent Desktop",
   "windows": ["main"],
   "permissions": [
     "core:default",

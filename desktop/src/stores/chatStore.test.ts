@@ -991,7 +991,7 @@ describe('chatStore history mapping', () => {
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
       subtype: 'agent_recovery',
-      message: '模型长时间没有返回内容，已中止本轮以恢复会话。',
+      message: '本轮响应长时间未恢复，已自动停止。当前停在：等待模型继续输出；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。',
       data: { reason: 'agent_stalled' },
     })
 
@@ -1001,7 +1001,7 @@ describe('chatStore history mapping', () => {
     expect(session?.messages).toMatchObject([
       {
         type: 'system',
-        content: '模型长时间没有返回内容，已中止本轮以恢复会话。',
+        content: '本轮响应长时间未恢复，已自动停止。当前停在：等待模型继续输出；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。',
       },
     ])
   })
@@ -1016,7 +1016,7 @@ describe('chatStore history mapping', () => {
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
       subtype: 'agent_recovery',
-      message: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+      message: '模型响应暂时中断，正在等待恢复。你可以继续等待，或点击停止后重试。',
       data: { reason: 'model_stream_stalled' },
     })
 
@@ -1027,7 +1027,32 @@ describe('chatStore history mapping', () => {
     expect(session?.messages).toMatchObject([
       {
         type: 'system',
-        content: '模型已经较长时间没有返回内容，正在等待上游恢复或自动超时收口。',
+        content: '模型响应暂时中断，正在等待恢复。你可以继续等待，或点击停止后重试。',
+      },
+    ])
+  })
+
+  it('keeps the turn active after a restored connection still has no progress', () => {
+    seedSession({
+      chatState: 'thinking',
+      streamingText: '',
+      activeThinkingId: 'thinking-1',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'agent_recovery',
+      message: 'Agent 连接已恢复，但本轮还没有新的输出；Gugu 会继续等待，长时间没有进展时会自动停止并给出下一步。',
+      data: { reason: 'agent_restored_without_progress', reconnects: 1 },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.activeThinkingId).toBe('thinking-1')
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: 'Agent 连接已恢复，但本轮还没有新的输出；Gugu 会继续等待，长时间没有进展时会自动停止并给出下一步。',
       },
     ])
   })
@@ -1388,7 +1413,7 @@ describe('chatStore history mapping', () => {
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'error',
       code: 'CLI_ERROR',
-      message: '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。',
+      message: '本轮响应长时间未恢复，已自动停止。当前停在：等待上游模型继续输出；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。',
     })
 
     const session = useChatStore.getState().sessions[TEST_SESSION_ID]
@@ -1396,7 +1421,7 @@ describe('chatStore history mapping', () => {
     expect(session?.messages).toHaveLength(1)
     expect(session?.messages[0]).toMatchObject({
       type: 'system',
-      content: '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。',
+      content: '本轮响应长时间未恢复，已自动停止。当前停在：等待上游模型继续输出；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。',
     })
   })
 

@@ -257,13 +257,13 @@ fn show_main_window(app: &AppHandle) {
 
 fn setup_system_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
-        .text(TRAY_SHOW_ID, "Show gugu-agent")
+        .text(TRAY_SHOW_ID, "Show Gugu Agent")
         .separator()
-        .text(TRAY_QUIT_ID, "Quit gugu-agent")
+        .text(TRAY_QUIT_ID, "Quit Gugu Agent")
         .build()?;
 
     let mut tray = TrayIconBuilder::with_id("main-tray")
-        .tooltip("gugu-agent")
+        .tooltip("Gugu Agent")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -1501,7 +1501,7 @@ pub fn run() {
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
 
-            let app_submenu = SubmenuBuilder::new(app, "gugu-agent")
+            let app_submenu = SubmenuBuilder::new(app, "Gugu Agent")
                 .item(&about_item)
                 .separator()
                 .item(&settings_item)

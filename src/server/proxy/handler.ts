@@ -36,7 +36,7 @@ const DEFAULT_PROXY_STREAM_CONNECT_TIMEOUT_MS = 0
 const DEFAULT_PROXY_STREAM_IDLE_TIMEOUT_MS = 300_000
 const DEFAULT_PROXY_STREAM_PING_INTERVAL_MS = 15_000
 const DEFAULT_PROXY_REQUEST_TIMEOUT_MS = 300_000
-const PROXY_STREAM_IDLE_MESSAGE = '模型长时间没有返回内容，已中止本轮以恢复会话。你可以重新发送请求，或稍后再试。'
+const PROXY_STREAM_IDLE_MESSAGE = '本轮响应长时间未恢复，已自动停止。当前停在：等待上游模型继续输出；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。'
 
 const DEFAULT_GUGU_MANAGED_MAX_REQUEST_BYTES = 8 * 1024 * 1024
 

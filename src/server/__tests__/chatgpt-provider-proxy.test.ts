@@ -654,7 +654,8 @@ describe('ChatGPT provider integration', () => {
     expect(upstreamSignal?.aborted).toBe(true)
     expect(text).toContain('event: ping')
     expect(text).toContain('event: error')
-    expect(text).toContain('已中止本轮以恢复会话')
+    expect(text).toContain('本轮响应长时间未恢复')
+    expect(text).toContain('从这里继续')
   })
 
   test('Gugu Managed stream returns an SSE error when gateway is misconfigured', async () => {

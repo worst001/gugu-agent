@@ -365,9 +365,46 @@ export const getClaudeTempDir = memoize(function getClaudeTempDir(): string {
 export const getBundledSkillsRoot = memoize(
   function getBundledSkillsRoot(): string {
     const nonce = randomBytes(16).toString('hex')
-    return join(getClaudeTempDir(), 'bundled-skills', MACRO.VERSION, nonce)
+    const version =
+      typeof MACRO !== 'undefined'
+        ? MACRO.VERSION
+        : (process.env.npm_package_version ?? 'dev')
+    return join(getClaudeTempDir(), 'bundled-skills', version, nonce)
   },
 )
+
+function getConfiguredBundledAgentPackRoot(): string | null {
+  const configuredRoot = process.env.GUGU_AGENT_PACK_DIR?.trim()
+  if (!configuredRoot) return null
+
+  const root = normalize(expandPath(configuredRoot))
+  try {
+    const sentinel = join(root, 'api-and-interface-design', 'SKILL.md')
+    if (!getFsImplementation().existsSync(sentinel)) return null
+  } catch {
+    return null
+  }
+
+  return root
+}
+
+function isConfiguredBundledAgentPackPath(normalizedPath: string): boolean {
+  const root = getConfiguredBundledAgentPackRoot()
+  if (!root) return false
+
+  const normalizedRoot = normalize(root)
+  const rootWithSep = normalizedRoot.endsWith(sep)
+    ? normalizedRoot
+    : normalizedRoot + sep
+
+  const pathForComparison = normalizeCaseForComparison(normalizedPath)
+  const rootForComparison = normalizeCaseForComparison(normalizedRoot)
+  const rootWithSepForComparison = normalizeCaseForComparison(rootWithSep)
+  return (
+    pathForComparison === rootForComparison ||
+    pathForComparison.startsWith(rootWithSepForComparison)
+  )
+}
 
 /**
  * Returns the project temp directory path with trailing separator.
@@ -1752,6 +1789,19 @@ export function checkReadableInternalPath(
       decisionReason: {
         type: 'other',
         reason: 'Team files are allowed for reading',
+      },
+    }
+  }
+
+  // Bundled desktop agent pack resources (skills/plugins/agents) are app-owned
+  // product files. Reading them should not prompt as user file access.
+  if (isConfiguredBundledAgentPackPath(normalizedPath)) {
+    return {
+      behavior: 'allow',
+      updatedInput: input,
+      decisionReason: {
+        type: 'other',
+        reason: 'Bundled agent pack files are allowed for reading',
       },
     }
   }

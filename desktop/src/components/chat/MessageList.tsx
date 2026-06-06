@@ -403,6 +403,19 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const [planUpdateText, setPlanUpdateText] = useState('')
   const dismissedPlanConfirmationIdsRef = useRef<Set<string>>(new Set())
 
+  const stopActiveTurn = useCallback(() => {
+    if (!resolvedSessionId || isMemberSession) return
+    stopGeneration(resolvedSessionId)
+  }, [isMemberSession, resolvedSessionId, stopGeneration])
+
+  const continueFromCurrentRecoveryPoint = useCallback(() => {
+    if (!resolvedSessionId || isMemberSession) return
+    stopGeneration(resolvedSessionId)
+    setTimeout(() => {
+      sendMessage(resolvedSessionId, '从这里继续')
+    }, 0)
+  }, [isMemberSession, resolvedSessionId, sendMessage, stopGeneration])
+
   const updateAutoScrollState = useCallback(() => {
     const container = scrollContainerRef.current
     if (!container) return
@@ -893,6 +906,8 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
             messages={messages}
             resultMap={toolResultMap}
             pendingPermission={pendingPermission}
+            onStopTurn={!isMemberSession ? stopActiveTurn : undefined}
+            onContinueFromHere={!isMemberSession ? continueFromCurrentRecoveryPoint : undefined}
             showAwaitingThinkingHint={
               chatState === 'thinking' && (!activeThinkingId || !hasActiveThinkingBlock)
             }

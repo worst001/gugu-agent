@@ -34,6 +34,8 @@ type AgentActivityPanelProps = {
   pendingPermission?: PendingPermissionRequest | null
   showAwaitingThinkingHint?: boolean
   showPreResponseHint?: boolean
+  onStopTurn?: () => void
+  onContinueFromHere?: () => void
 }
 
 const MAX_TOOL_ITEMS = 6
@@ -60,6 +62,8 @@ export function AgentActivityPanel({
   pendingPermission = null,
   showAwaitingThinkingHint = false,
   showPreResponseHint = false,
+  onStopTurn,
+  onContinueFromHere,
 }: AgentActivityPanelProps) {
   const t = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
@@ -100,6 +104,7 @@ export function AgentActivityPanel({
   const displayItems = recentToolItems.length > 0
     ? recentToolItems
     : [buildNoToolActivityItem(chatState, elapsedSeconds, statusVerb, t)]
+  const showRecoveryActions = isRecoveryStatus(statusVerb) && Boolean(onStopTurn || onContinueFromHere)
 
   return (
     <section
@@ -157,6 +162,30 @@ export function AgentActivityPanel({
                   ? t('streaming.preResponseHint')
                   : t('streaming.longRunningHint')}
             </p>
+          )}
+          {showRecoveryActions && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {onStopTurn && (
+                <button
+                  type="button"
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-container-high)]"
+                  onClick={onStopTurn}
+                >
+                  <span className="material-symbols-outlined text-[14px]">stop_circle</span>
+                  {t('chat.activity.stopTurn')}
+                </button>
+              )}
+              {onContinueFromHere && (
+                <button
+                  type="button"
+                  className="inline-flex h-7 items-center gap-1 rounded-md bg-[var(--color-brand)] px-2 text-[11px] font-semibold text-white hover:opacity-90"
+                  onClick={onContinueFromHere}
+                >
+                  <span className="material-symbols-outlined text-[14px]">redo</span>
+                  {t('chat.activity.continueFromHere')}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -457,6 +486,15 @@ function buildNoToolActivityItem(
     }
   }
 
+  if (isRecoveryStatus(statusVerb)) {
+    return {
+      id: 'recovery-wait',
+      status: 'warning',
+      label: statusVerb.trim(),
+      detail: t('chat.activity.recoveryDetail'),
+    }
+  }
+
   const isLongThinking = elapsedSeconds >= LONG_RUNNING_HINT_SECONDS
   if (chatState === 'thinking') {
     return {
@@ -489,6 +527,13 @@ function isAttachmentParsingStatus(statusVerb: string): boolean {
   return /attachment|file parsing|parsing file/i.test(statusVerb) ||
     statusVerb.includes('附件') ||
     statusVerb.includes('解析')
+}
+
+function isRecoveryStatus(statusVerb: string): boolean {
+  return /reconnect|recover|interrupted|restored/i.test(statusVerb) ||
+    statusVerb.includes('中断') ||
+    statusVerb.includes('重连') ||
+    statusVerb.includes('恢复')
 }
 
 function findLastThinking(messages: UIMessage[], activeThinkingId: string | null): string | undefined {
