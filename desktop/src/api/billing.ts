@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { BillingConfigResponse, BillingStatusResponse } from '../types/billing'
+import type { BillingConfigResponse, BillingReferralSummaryResponse, BillingStatusResponse } from '../types/billing'
 
 export const billingApi = {
   getStatus() {
@@ -8,6 +8,10 @@ export const billingApi = {
 
   getConfig() {
     return api.get<BillingConfigResponse>('/api/billing/config')
+  },
+
+  getReferral() {
+    return api.get<BillingReferralSummaryResponse>('/api/billing/referral')
   },
 
   activateLicense(licenseKey: string) {

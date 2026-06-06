@@ -6,6 +6,7 @@ import { Modal } from '../components/shared/Modal'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { Input } from '../components/shared/Input'
 import { Button } from '../components/shared/Button'
+import { CopyButton } from '../components/shared/CopyButton'
 import { Dropdown } from '../components/shared/Dropdown'
 import type { PermissionMode, EffortLevel, ThemeMode } from '../types/settings'
 import type { Locale } from '../i18n'
@@ -2029,6 +2030,7 @@ function BillingSettings() {
   const t = useTranslation()
   const status = useBillingStore((s) => s.status)
   const config = useBillingStore((s) => s.config)
+  const referral = useBillingStore((s) => s.referral)
   const isLoading = useBillingStore((s) => s.isLoading)
   const isSaving = useBillingStore((s) => s.isSaving)
   const error = useBillingStore((s) => s.error)
@@ -2062,6 +2064,11 @@ function BillingSettings() {
   const transientMessage = getVisibleBillingMessage(message)
   const statusMessage = getVisibleBillingMessage(status?.message)
   const billingMessage = transientMessage || statusMessage || (currentStatus === 'active' ? null : t('settings.billing.defaultMessage'))
+  const showReferral = referral?.enabled === true
+  const canCopyReferral = showReferral && referral?.eligible === true && Boolean(referral.inviteUrl)
+  const referralRewardCredits = referral?.rewardCredits ?? 100
+  const referralMonthlyCapCredits = referral?.monthlyCapCredits ?? 500
+  const referralRemainingCredits = referral?.remainingAwardCreditsThisMonth ?? referralMonthlyCapCredits
 
   const handleActivate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -2193,6 +2200,53 @@ function BillingSettings() {
             </Button>
           </div>
         </section>
+
+        {showReferral && (
+          <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{t('settings.billing.referralTitle')}</h3>
+                <p className="mt-1 text-sm text-[var(--color-text-tertiary)]">
+                  {canCopyReferral
+                    ? t('settings.billing.referralReady', {
+                      reward: referralRewardCredits,
+                      cap: referralMonthlyCapCredits,
+                    })
+                    : t('settings.billing.referralUnavailable')}
+                </p>
+                {canCopyReferral && referral?.code && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                    <span>{t('settings.billing.referralCode')}</span>
+                    <code className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-[var(--color-text-primary)]">
+                      {referral.code}
+                    </code>
+                    <span>{t('settings.billing.referralRemaining', { remaining: referralRemainingCredits })}</span>
+                  </div>
+                )}
+              </div>
+              {canCopyReferral && referral?.inviteUrl && (
+                <CopyButton
+                  text={referral.inviteUrl}
+                  label={t('settings.billing.referralCopy')}
+                  copiedLabel={t('settings.billing.referralCopied')}
+                  displayLabel={(
+                    <>
+                      <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                      {t('settings.billing.referralCopy')}
+                    </>
+                  )}
+                  displayCopiedLabel={(
+                    <>
+                      <span className="material-symbols-outlined text-[16px]">check</span>
+                      {t('settings.billing.referralCopied')}
+                    </>
+                  )}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-medium text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                />
+              )}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
           <form onSubmit={handleActivate} className="space-y-3">

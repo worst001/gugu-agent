@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import { billingApi } from '../api/billing'
-import type { BillingConfigResponse, BillingStatusResponse } from '../types/billing'
+import type { BillingConfigResponse, BillingReferralSummaryResponse, BillingStatusResponse } from '../types/billing'
 
 type BillingStore = {
   status: BillingStatusResponse | null
   config: BillingConfigResponse | null
+  referral: BillingReferralSummaryResponse | null
   isLoading: boolean
   isSaving: boolean
   error: string | null
@@ -19,32 +20,43 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+async function fetchReferralSafely(): Promise<BillingReferralSummaryResponse | null> {
+  try {
+    return await billingApi.getReferral()
+  } catch {
+    return null
+  }
+}
+
 export const useBillingStore = create<BillingStore>((set, get) => ({
   status: null,
   config: null,
+  referral: null,
   isLoading: false,
   isSaving: false,
   error: null,
   message: null,
 
   fetchBilling: async () => {
-    set({ isLoading: true, error: null })
+    set({ isLoading: true, error: null, referral: null })
     try {
       const [status, config] = await Promise.all([
         billingApi.getStatus(),
         billingApi.getConfig(),
       ])
       set({ status, config, isLoading: false, error: null, message: status.message })
+      void fetchReferralSafely().then((referral) => set({ referral }))
     } catch (error) {
       set({ isLoading: false, error: errorMessage(error) })
     }
   },
 
   activateLicense: async (licenseKey) => {
-    set({ isSaving: true, error: null, message: null })
+    set({ isSaving: true, error: null, message: null, referral: null })
     try {
       const status = await billingApi.activateLicense(licenseKey)
       set({ status, isSaving: false, error: null, message: status.message })
+      void fetchReferralSafely().then((referral) => set({ referral }))
     } catch (error) {
       set({ isSaving: false, error: errorMessage(error) })
       throw error
@@ -52,10 +64,11 @@ export const useBillingStore = create<BillingStore>((set, get) => ({
   },
 
   refresh: async () => {
-    set({ isSaving: true, error: null, message: null })
+    set({ isSaving: true, error: null, message: null, referral: null })
     try {
       const status = await billingApi.refresh()
       set({ status, isSaving: false, error: null, message: status.message })
+      void fetchReferralSafely().then((referral) => set({ referral }))
     } catch (error) {
       set({ isSaving: false, error: errorMessage(error) })
     }
@@ -65,7 +78,7 @@ export const useBillingStore = create<BillingStore>((set, get) => ({
     set({ isSaving: true, error: null, message: null })
     try {
       const status = await billingApi.clearLicense()
-      set({ status, isSaving: false, error: null, message: status.message })
+      set({ status, referral: null, isSaving: false, error: null, message: status.message })
       void get().fetchBilling()
     } catch (error) {
       set({ isSaving: false, error: errorMessage(error) })

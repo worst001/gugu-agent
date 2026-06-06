@@ -26,3 +26,16 @@ export type BillingConfigResponse = {
   verifyUrlConfigured: boolean
   gatewayUrlConfigured: boolean
 }
+
+export type BillingReferralSummaryResponse = {
+  enabled: boolean
+  eligible: boolean
+  code: string | null
+  inviteUrl: string | null
+  rewardCredits: number
+  monthlyCapCredits: number
+  month: string
+  awardedCreditsThisMonth: number
+  remainingAwardCreditsThisMonth: number
+  message: string
+}

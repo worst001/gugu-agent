@@ -35,6 +35,10 @@ export async function handleBillingApi(
         if (req.method !== 'POST') throw methodNotAllowed(req.method)
         return Response.json(await billingService.refresh())
 
+      case 'referral':
+        if (req.method !== 'GET') throw methodNotAllowed(req.method)
+        return Response.json(await billingService.getReferralSummary())
+
       default:
         throw ApiError.notFound(`Unknown billing endpoint: ${sub}`)
     }

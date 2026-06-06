@@ -33,6 +33,19 @@ export type BillingConfigResponse = {
   gatewayUrlConfigured: boolean
 }
 
+export type BillingReferralSummaryResponse = {
+  enabled: boolean
+  eligible: boolean
+  code: string | null
+  inviteUrl: string | null
+  rewardCredits: number
+  monthlyCapCredits: number
+  month: string
+  awardedCreditsThisMonth: number
+  remainingAwardCreditsThisMonth: number
+  message: string
+}
+
 export type GatewayDeviceAuth = {
   gatewayUrl: string
   deviceId: string
@@ -85,6 +98,19 @@ type GatewayDeviceResponse = {
   entitlement?: GatewayEntitlement
 }
 
+type GatewayReferralSummary = {
+  enabled?: unknown
+  eligible?: unknown
+  code?: unknown
+  inviteUrl?: unknown
+  rewardCredits?: unknown
+  monthlyCapCredits?: unknown
+  month?: unknown
+  awardedCreditsThisMonth?: unknown
+  remainingAwardCreditsThisMonth?: unknown
+  message?: unknown
+}
+
 type GatewayErrorResponse = {
   error?: {
     code?: string
@@ -101,6 +127,8 @@ const BILLING_FILE = 'billing.json'
 const VERIFY_TIMEOUT_MS = 20_000
 const MAX_LICENSE_KEY_LENGTH = 512
 const BUILTIN_GATEWAY_URL = 'https://gugu.guxingyao.com'
+const DEFAULT_REFERRAL_REWARD_CREDITS = 100
+const DEFAULT_REFERRAL_MONTHLY_CAP_CREDITS = 500
 
 export class BillingService {
   constructor(private readonly fetchFn: FetchLike = fetch) {}
@@ -120,6 +148,29 @@ export class BillingService {
     }
     const data = await this.readBillingFile()
     return this.toPublicStatus(data)
+  }
+
+  async getReferralSummary(): Promise<BillingReferralSummaryResponse> {
+    const gatewayUrl = readGatewayUrl()
+    if (!gatewayUrl) {
+      return defaultReferralSummary('Referral rewards are unavailable because Gugu Gateway is not configured.')
+    }
+
+    try {
+      const auth = await this.ensureGatewayDevice()
+      const response = await this.fetchFn(joinUrl(auth.gatewayUrl, '/v1/referrals/me'), {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${auth.deviceToken}` },
+        signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+      })
+      const body = await response.json().catch(() => ({})) as GatewayReferralSummary & GatewayErrorResponse
+      if (!response.ok) {
+        return defaultReferralSummary(readGatewayErrorMessage(body) || `Referral check failed (${response.status}).`)
+      }
+      return normalizeGatewayReferralSummary(body)
+    } catch (error) {
+      return defaultReferralSummary(error instanceof Error ? error.message : 'Failed to check referral rewards.')
+    }
   }
 
   async activateLicense(licenseKey: string): Promise<BillingStatusResponse> {
@@ -642,6 +693,53 @@ function stringOrNull(value: unknown): string | null {
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function nonNegativeIntegerOr(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.max(0, Math.trunc(value))
+}
+
+function currentReferralMonth(): string {
+  return new Date().toISOString().slice(0, 7)
+}
+
+function defaultReferralSummary(message: string): BillingReferralSummaryResponse {
+  return {
+    enabled: false,
+    eligible: false,
+    code: null,
+    inviteUrl: null,
+    rewardCredits: DEFAULT_REFERRAL_REWARD_CREDITS,
+    monthlyCapCredits: DEFAULT_REFERRAL_MONTHLY_CAP_CREDITS,
+    month: currentReferralMonth(),
+    awardedCreditsThisMonth: 0,
+    remainingAwardCreditsThisMonth: DEFAULT_REFERRAL_MONTHLY_CAP_CREDITS,
+    message,
+  }
+}
+
+function normalizeGatewayReferralSummary(value: GatewayReferralSummary): BillingReferralSummaryResponse {
+  const rewardCredits = nonNegativeIntegerOr(value.rewardCredits, DEFAULT_REFERRAL_REWARD_CREDITS)
+  const monthlyCapCredits = nonNegativeIntegerOr(value.monthlyCapCredits, DEFAULT_REFERRAL_MONTHLY_CAP_CREDITS)
+  const awardedCreditsThisMonth = nonNegativeIntegerOr(value.awardedCreditsThisMonth, 0)
+  const remainingAwardCreditsThisMonth = nonNegativeIntegerOr(
+    value.remainingAwardCreditsThisMonth,
+    Math.max(0, monthlyCapCredits - awardedCreditsThisMonth),
+  )
+
+  return {
+    enabled: value.enabled === true,
+    eligible: value.eligible === true,
+    code: stringOrNull(value.code),
+    inviteUrl: stringOrNull(value.inviteUrl),
+    rewardCredits,
+    monthlyCapCredits,
+    month: stringOrNull(value.month) || currentReferralMonth(),
+    awardedCreditsThisMonth,
+    remainingAwardCreditsThisMonth,
+    message: stringOrNull(value.message) || 'Referral rewards are available.',
+  }
 }
 
 function defaultStatusMessage(status: BillingStatus): string {

@@ -8,7 +8,7 @@ import { useUIStore } from '../stores/uiStore'
 import { useUpdateStore } from '../stores/updateStore'
 import type { SavedProvider } from '../types/provider'
 import type { ProviderPreset } from '../types/providerPreset'
-import type { BillingConfigResponse, BillingStatusResponse } from '../types/billing'
+import type { BillingConfigResponse, BillingReferralSummaryResponse, BillingStatusResponse } from '../types/billing'
 
 const MOCK_DELETE_PROVIDER = vi.fn()
 const MOCK_GET_SETTINGS = vi.fn()
@@ -48,6 +48,7 @@ const providerStoreState = {
 const billingStoreState = {
   status: null as BillingStatusResponse | null,
   config: null as BillingConfigResponse | null,
+  referral: null as BillingReferralSummaryResponse | null,
   isLoading: false,
   isSaving: false,
   error: null as string | null,
@@ -720,6 +721,7 @@ describe('Settings > Billing tab', () => {
       verifyUrlConfigured: false,
       gatewayUrlConfigured: false,
     }
+    billingStoreState.referral = null
     billingStoreState.isLoading = false
     billingStoreState.isSaving = false
     billingStoreState.error = null
@@ -824,10 +826,58 @@ describe('Settings > Billing tab', () => {
     expect(screen.queryByText('Trial credits are active on this device.')).not.toBeInTheDocument()
     expect(screen.queryByText('Gateway entitlement is active.')).not.toBeInTheDocument()
   })
+
+  it('shows and copies the referral invite link when referral rewards are enabled', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    billingStoreState.status = {
+      ...billingStoreState.status!,
+      status: 'active',
+      plan: 'Pro',
+      creditsTotal: 600,
+      creditsRemaining: 600,
+      message: 'Gateway entitlement is active.',
+    }
+    billingStoreState.config = {
+      purchaseUrl: 'https://gugu.example.com/buy',
+      verifyUrlConfigured: false,
+      gatewayUrlConfigured: true,
+    }
+    billingStoreState.referral = {
+      enabled: true,
+      eligible: true,
+      code: 'GUGU1234',
+      inviteUrl: 'https://gugu.example.com/buy?ref=GUGU1234',
+      rewardCredits: 100,
+      monthlyCapCredits: 500,
+      month: '2026-06',
+      awardedCreditsThisMonth: 100,
+      remainingAwardCreditsThisMonth: 400,
+      message: 'Referral rewards are available.',
+    }
+    useSettingsStore.setState({ locale: 'zh' })
+
+    render(<Settings />)
+
+    expect(await screen.findByRole('heading', { name: '订阅' })).toBeInTheDocument()
+    expect(screen.getByText('推荐码')).toBeInTheDocument()
+    expect(screen.getByText('GUGU1234')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '复制邀请链接' }))
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('https://gugu.example.com/buy?ref=GUGU1234')
+    })
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeInTheDocument()
+  })
 })
 
 describe('Settings > About tab', () => {
   beforeEach(() => {
+    useSettingsStore.setState({ locale: 'en' })
     useUIStore.setState({ pendingSettingsTab: 'about' })
     useUpdateStore.setState({
       status: 'available',

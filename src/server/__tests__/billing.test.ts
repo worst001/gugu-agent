@@ -107,6 +107,63 @@ describe('BillingService', () => {
     expect(status.purchaseUrl).toBe('https://buy.example.com')
   })
 
+  test('proxies gateway referral summary without exposing device tokens', async () => {
+    process.env.CC_GUGU_GATEWAY_URL = 'https://gateway.example.com'
+    await writeJson(path.join(tmpDir, 'cc-haha', 'billing.json'), {
+      deviceId: 'device-1',
+      deviceToken: 'token-1',
+      status: 'active',
+      plan: 'pro',
+      creditsTotal: 600,
+      creditsRemaining: 600,
+      isTrial: false,
+    })
+    const calls: Array<{ url: string; authorization: string | null }> = []
+    const service = new BillingService((async (url, init) => {
+      calls.push({
+        url: String(url),
+        authorization: new Headers(init?.headers).get('Authorization'),
+      })
+      if (String(url).endsWith('/v1/entitlement')) {
+        return jsonResponse({
+          status: 'active',
+          plan: 'pro',
+          creditsTotal: 600,
+          creditsRemaining: 600,
+          isTrial: false,
+        })
+      }
+      if (String(url).endsWith('/v1/referrals/me')) {
+        return jsonResponse({
+          enabled: true,
+          eligible: true,
+          code: 'GUGU1234',
+          inviteUrl: 'https://gugu.example.com/buy?ref=GUGU1234',
+          rewardCredits: 100,
+          monthlyCapCredits: 500,
+          month: '2026-06',
+          awardedCreditsThisMonth: 100,
+          remainingAwardCreditsThisMonth: 400,
+          message: 'Referral rewards are available.',
+        })
+      }
+      return jsonResponse({}, { status: 404 })
+    }) as typeof fetch)
+
+    const summary = await service.getReferralSummary()
+    const serialized = JSON.stringify(summary)
+
+    expect(calls).toEqual([
+      { url: 'https://gateway.example.com/v1/entitlement', authorization: 'Bearer token-1' },
+      { url: 'https://gateway.example.com/v1/referrals/me', authorization: 'Bearer token-1' },
+    ])
+    expect(summary.enabled).toBe(true)
+    expect(summary.eligible).toBe(true)
+    expect(summary.inviteUrl).toBe('https://gugu.example.com/buy?ref=GUGU1234')
+    expect(summary.remainingAwardCreditsThisMonth).toBe(400)
+    expect(serialized).not.toContain('token-1')
+  })
+
   test('uses build-time default gateway when runtime gateway is absent', async () => {
     process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = 'https://built.example.com/base/'
     const service = new BillingService(async (url) => {
@@ -282,6 +339,19 @@ describe('BillingService', () => {
     expect(response.status).toBe(200)
     expect(body.status).toBe('not_configured')
     expect(body.maskedLicenseKey).toBe(null)
+  })
+
+  test('routes billing referral summary through the API router', async () => {
+    const response = await handleApiRequest(
+      new Request('http://localhost/api/billing/referral'),
+      new URL('http://localhost/api/billing/referral'),
+    )
+    const body = await response.json() as { enabled: boolean; eligible: boolean; inviteUrl: string | null }
+
+    expect(response.status).toBe(200)
+    expect(body.enabled).toBe(false)
+    expect(body.eligible).toBe(false)
+    expect(body.inviteUrl).toBe(null)
   })
 })
 
