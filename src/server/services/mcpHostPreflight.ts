@@ -2,7 +2,7 @@ import { constants } from 'node:fs'
 import { access } from 'node:fs/promises'
 import path from 'node:path'
 import { getCwd } from '../../utils/cwd.js'
-import { which } from '../../utils/which.js'
+import { getHostCommandPath } from '../../utils/hostCommandEnv.js'
 
 type HostCommandCheckResult =
   | {
@@ -148,10 +148,10 @@ export async function inspectMcpHostCommand(
     }
   }
 
-  const resolvedCommand =
-    env?.PATH
-      ? await resolveCommandFromPath(trimmedCommand, env.PATH)
-      : await which(trimmedCommand)
+  const resolvedCommand = await resolveCommandFromPath(
+    trimmedCommand,
+    getHostCommandPath(env ? { ...process.env, ...env } : process.env),
+  )
   if (resolvedCommand) {
     return {
       ok: true,

@@ -73,6 +73,7 @@ import { getMCPUserAgent } from '../../utils/http.js'
 import { maybeNotifyIDEConnected } from '../../utils/ide.js'
 import { maybeResizeAndDownsampleImageBuffer } from '../../utils/imageResizer.js'
 import { logMCPDebug, logMCPError } from '../../utils/log.js'
+import { withHostCommandPath } from '../../utils/hostCommandEnv.js'
 import {
   getBinaryBlobSavedMessage,
   getFormatDescription,
@@ -946,10 +947,10 @@ export const connectToServer = memoize(
         transport = new StdioClientTransport({
           command: finalCommand,
           args: finalArgs,
-          env: {
+          env: withHostCommandPath({
             ...subprocessEnv(),
             ...serverRef.env,
-          } as Record<string, string>,
+          }),
           stderr: 'pipe', // prevents error output from the MCP server from printing to the UI
         })
       } else {
