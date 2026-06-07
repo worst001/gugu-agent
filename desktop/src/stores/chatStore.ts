@@ -257,6 +257,26 @@ function shouldKeepCurrentHistory(currentMessages: UIMessage[], incomingMessages
   )
 }
 
+function hasProgressAfterLatestUserMessage(messages: UIMessage[]): boolean {
+  let latestUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.type === 'user_text') {
+      latestUserIndex = index
+      break
+    }
+  }
+  if (latestUserIndex < 0) return messages.length > 0
+  return messages.slice(latestUserIndex + 1).some((message) => message.type !== 'user_text')
+}
+
+function isIncomingHistoryAhead(currentMessages: UIMessage[], incomingMessages: UIMessage[]): boolean {
+  if (incomingMessages.length === 0) return false
+  if (currentMessages.length === 0) return true
+  if (shouldKeepCurrentHistory(currentMessages, incomingMessages)) return false
+  if (incomingMessages.length > currentMessages.length) return true
+  return hasProgressAfterLatestUserMessage(incomingMessages)
+}
+
 function areHistoryMessagesEquivalent(a: UIMessage | undefined, b: UIMessage): boolean {
   if (!a || a.type !== b.type) return false
   return getHistoryComparablePayload(a) === getHistoryComparablePayload(b)
@@ -1043,13 +1063,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (!session) return state
         const mergedMessages = mergeLocalUserEchoes(sessionId, uiMessages)
         const hasLiveTurn = hasActiveTurn(session)
-        if (hasLiveTurn) {
+        const incomingHistoryAhead = isIncomingHistoryAhead(session.messages, mergedMessages)
+        if (hasLiveTurn && !incomingHistoryAhead) {
           return { sessions: updateSessionIn(state.sessions, sessionId, () => ({
             historyLoading: false,
             historyLoadError: null,
           })) }
         }
-        if (shouldKeepCurrentHistory(session.messages, mergedMessages)) {
+        if (!incomingHistoryAhead && shouldKeepCurrentHistory(session.messages, mergedMessages)) {
           return { sessions: updateSessionIn(state.sessions, sessionId, () => ({
             historyLoading: false,
             historyLoadError: null,

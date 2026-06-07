@@ -39,6 +39,64 @@ afterEach(() => {
 })
 
 describe('ActiveSession task polling', () => {
+  it('reconciles session history when the window regains focus', () => {
+    const sessionId = 'focus-reconcile-session'
+    const loadHistorySpy = vi.spyOn(useChatStore.getState(), 'loadHistory').mockResolvedValue(undefined)
+
+    useSessionStore.setState({
+      sessions: [{
+        id: sessionId,
+        title: 'Focus Session',
+        createdAt: '2026-06-07T00:00:00.000Z',
+        modifiedAt: '2026-06-07T00:00:00.000Z',
+        messageCount: 1,
+        projectPath: '',
+        workDir: null,
+        workDirExists: true,
+      }],
+      activeSessionId: sessionId,
+      isLoading: false,
+      error: null,
+    })
+    useTabStore.setState({
+      tabs: [{ sessionId, title: 'Focus Session', type: 'session', status: 'idle' }],
+      activeTabId: sessionId,
+    })
+    useChatStore.setState({
+      sessions: {
+        [sessionId]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    const { unmount } = render(<ActiveSession />)
+    loadHistorySpy.mockClear()
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    expect(loadHistorySpy).toHaveBeenCalledWith(sessionId)
+    unmount()
+    loadHistorySpy.mockRestore()
+  })
+
   it('refreshes CLI tasks repeatedly while a turn is active', async () => {
     vi.useFakeTimers()
 

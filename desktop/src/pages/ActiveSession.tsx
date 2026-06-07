@@ -30,6 +30,7 @@ export function ActiveSession() {
   const activeTabId = useTabStore((s) => s.activeTabId)
   const sessions = useSessionStore((s) => s.sessions)
   const connectToSession = useChatStore((s) => s.connectToSession)
+  const loadHistory = useChatStore((s) => s.loadHistory)
   const sessionState = useChatStore((s) => activeTabId ? s.sessions[activeTabId] : undefined)
   const pendingComputerUsePermission = sessionState?.pendingComputerUsePermission ?? null
   const fetchSessionTasks = useCLITaskStore((s) => s.fetchSessionTasks)
@@ -48,6 +49,22 @@ export function ActiveSession() {
       connectToSession(activeTabId)
     }
   }, [activeTabId, isMemberSession, connectToSession])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) return
+
+    const reconcileVisibleSession = () => {
+      if (document.visibilityState === 'hidden') return
+      void loadHistory(activeTabId)
+    }
+
+    window.addEventListener('focus', reconcileVisibleSession)
+    document.addEventListener('visibilitychange', reconcileVisibleSession)
+    return () => {
+      window.removeEventListener('focus', reconcileVisibleSession)
+      document.removeEventListener('visibilitychange', reconcileVisibleSession)
+    }
+  }, [activeTabId, isMemberSession, loadHistory])
 
   useEffect(() => {
     if (!activeTabId || isMemberSession) return

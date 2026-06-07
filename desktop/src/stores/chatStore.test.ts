@@ -423,6 +423,55 @@ describe('chatStore history mapping', () => {
     )).toBe(true)
   })
 
+  it('accepts richer transcript history while the local turn still appears active', async () => {
+    seedSession({
+      chatState: 'thinking',
+      activeThinkingId: 'thinking-1',
+      messages: [
+        {
+          id: 'local-user-1',
+          type: 'user_text',
+          content: 'summarize the project',
+          timestamp: 1,
+        },
+        {
+          id: 'thinking-1',
+          type: 'thinking',
+          content: 'Thinking',
+          rawContent: 'Thinking',
+          timestamp: 2,
+        },
+      ],
+    })
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'history-user-1',
+          type: 'user',
+          timestamp: '2026-06-07T00:00:00.000Z',
+          content: 'summarize the project',
+        },
+        {
+          id: 'history-assistant-1',
+          type: 'assistant',
+          timestamp: '2026-06-07T00:00:01.000Z',
+          content: 'Project summary is ready.',
+        },
+      ],
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'assistant_text',
+        content: 'Project summary is ready.',
+      }),
+    ]))
+    expect(session?.messages.some((message) => message.id === 'thinking-1')).toBe(false)
+  })
+
   it('does not resurrect a forgotten local echo after rewind history reloads', async () => {
     seedSession()
 
