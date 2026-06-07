@@ -836,7 +836,7 @@ async function assertMacArchiveHasCodeResources(gate: Gate, paths: ReleasePaths)
 
   const hasCodeResources = result.stdout
     .split(/\r?\n/)
-    .some((line) => line.endsWith('gugu-agent.app/Contents/_CodeSignature/CodeResources'))
+    .some((line) => /(^|\/)[^/]+\.app\/Contents\/_CodeSignature\/CodeResources$/.test(line))
 
   gate.check(
     hasCodeResources,
