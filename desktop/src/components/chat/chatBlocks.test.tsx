@@ -337,8 +337,26 @@ describe('chat blocks', () => {
       />,
     )
 
-    expect(screen.getByText('Parsing attachments for 55s')).toBeTruthy()
+    expect(screen.getAllByText('Parsing attachments for 55s').length).toBeGreaterThan(0)
     expect(screen.getByText(/OCR, vision, audio, PDF, and Office files/i)).toBeTruthy()
+  })
+
+  it('uses live status elapsed time instead of stale attachment parsing text', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="thinking"
+        elapsedSeconds={300}
+        statusElapsedSeconds={320}
+        statusVerb="Parsing attachments, waited 15s"
+        messages={[]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getAllByText('Parsing attachments for 5m 20s').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/15s/)).toBeNull()
   })
 
   it('explains temporary model recovery states before tools start', () => {

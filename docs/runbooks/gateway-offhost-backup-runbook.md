@@ -134,6 +134,23 @@ Pass criteria:
 - `issues=[]`
 - sha matches the staged `.sha256`
 
+2026-06-06 production note:
+
+- No real off-host target was present on the server. `/var/backups/gugu-gateway`,
+  `/mnt`, `/data`, MySQL data, and Redis data were still on the same root
+  filesystem device, and `/etc/gugu-gateway` had no off-host target env or
+  credentials.
+- A scratch restore rehearsal was still completed from the latest local backup
+  `/var/backups/gugu-gateway/gateway-mysql-20260606-184213.sql`.
+- `mysql-restore-check.ts` returned `ok=true`, `countMismatches=[]`, and
+  `issues=[]`; table counts matched for devices, activation_codes, usage_events,
+  orders, and payment_notifications.
+- The scratch database and temporary restore user were removed afterward.
+
+This proves the current local backup can be restored, but it does not satisfy
+the off-host disaster-recovery requirement until a different filesystem,
+private object storage mount, rsync target, or approved upload job exists.
+
 ## Warning Dashboard Additions
 
 Add these panels to `docs/runbooks/gateway-warning-dashboard.md` when the target
@@ -182,7 +199,13 @@ Not yet done:
 - choosing the actual off-host target,
 - provisioning credentials or mounts,
 - deploying a timer/upload job,
-- running a production restore rehearsal.
+- running a production restore rehearsal from a real off-host copy.
+
+Partially done on 2026-06-06:
+
+- production scratch restore rehearsal from the local backup passed;
+- real off-host staging/copy stayed blocked because no independent target was
+  available.
 
 Required operator input before the next attempt:
 

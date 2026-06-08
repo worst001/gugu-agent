@@ -56,6 +56,7 @@ export type PerSessionState = {
   tokenUsage: TokenUsage
   elapsedSeconds: number
   statusVerb: string
+  statusElapsedSeconds?: number
   slashCommands: Array<{ name: string; description: string }>
   agentTaskNotifications: Record<string, AgentTaskNotification>
   elapsedTimer: ReturnType<typeof setInterval> | null
@@ -83,6 +84,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   tokenUsage: { input_tokens: 0, output_tokens: 0 },
   elapsedSeconds: 0,
   statusVerb: '',
+  statusElapsedSeconds: 0,
   slashCommands: [],
   agentTaskNotifications: {},
   elapsedTimer: null,
@@ -109,6 +111,23 @@ const LOCAL_USER_ECHO_MAX_PER_SESSION = 12
 
 function nowMs() {
   return Date.now()
+}
+
+function parseStatusElapsedSeconds(value: string): number | null {
+  const normalized = value.trim()
+  const zhMatch = normalized.match(/(\d+)\s*分钟(?:\s*(\d+)\s*秒)?|(\d+)\s*秒/)
+  if (zhMatch) {
+    const minutes = Number.parseInt(zhMatch[1] || '0', 10)
+    const seconds = Number.parseInt(zhMatch[2] || zhMatch[3] || '0', 10)
+    return minutes * 60 + seconds
+  }
+  const compactMatch = normalized.match(/(\d+)\s*m(?:in)?(?:\s*(\d+)\s*s)?|(\d+)\s*s(?:ec(?:ond)?s?)?/i)
+  if (compactMatch) {
+    const minutes = Number.parseInt(compactMatch[1] || '0', 10)
+    const seconds = Number.parseInt(compactMatch[2] || compactMatch[3] || '0', 10)
+    return minutes * 60 + seconds
+  }
+  return null
 }
 
 function refreshBillingIfTracked() {
@@ -899,7 +918,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
       const timer = !isMemberSession
         ? setInterval(() => {
-            set((st) => ({ sessions: updateSessionIn(st.sessions, sessionId, (sess) => ({ elapsedSeconds: sess.elapsedSeconds + 1 })) }))
+            set((st) => ({
+              sessions: updateSessionIn(st.sessions, sessionId, (sess) => ({
+                elapsedSeconds: sess.elapsedSeconds + 1,
+                statusElapsedSeconds: sess.statusVerb
+                  ? (sess.statusElapsedSeconds ?? 0) + 1
+                  : 0,
+              })),
+            }))
           }, 1000)
         : null
 
@@ -914,6 +940,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             elapsedSeconds: 0,
             streamingText: '',
             statusVerb: '',
+            statusElapsedSeconds: 0,
             elapsedTimer: timer,
             connectionState: isMemberSession ? 'connected' : session.connectionState,
           },
@@ -1037,6 +1064,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             elapsedTimer: null,
+            statusElapsedSeconds: 0,
           },
         },
       }
@@ -1139,6 +1167,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             pendingComputerUsePermission: null,
             elapsedTimer: null,
             statusVerb: '',
+            statusElapsedSeconds: 0,
             historyLoading: false,
             historyLoadError: null,
           })),
@@ -1210,6 +1239,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         pendingComputerUsePermission: null,
         elapsedTimer: null,
         statusVerb: '',
+        statusElapsedSeconds: 0,
         historyLoading: false,
         historyLoadError: null,
       })),
@@ -1261,18 +1291,32 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           const preserveStreamingTurn = hasPendingStreamText && incomingState !== 'idle'
           const shouldFlush = hasPendingStreamText && incomingState === 'idle'
           const shouldApplyVerb = msg.state !== 'permission_pending' || incomingState === 'permission_pending'
+          const nextStatusVerb = shouldApplyVerb && msg.verb && msg.verb !== 'Thinking'
+            ? msg.verb
+            : shouldApplyVerb && msg.verb === 'Thinking'
+              ? ''
+              : session.statusVerb
+          const statusChanged = nextStatusVerb !== session.statusVerb
+          const statusElapsedSeconds = nextStatusVerb
+            ? Math.max(
+                0,
+                msg.elapsed ??
+                  parseStatusElapsedSeconds(nextStatusVerb) ??
+                  (statusChanged ? 0 : session.statusElapsedSeconds ?? 0),
+              )
+            : 0
           return {
             chatState: preserveStreamingTurn ? 'streaming' : incomingState,
             // Server sends verb: "Thinking" while the model is reasoning. Clear the
             // whimsical verb from sendMessage so the indicator shows localized
             // "Thinking" / thinking stream instead of a stuck random spinner word.
             ...(shouldApplyVerb && msg.verb && msg.verb !== 'Thinking'
-              ? { statusVerb: msg.verb }
+              ? { statusVerb: msg.verb, statusElapsedSeconds }
               : shouldApplyVerb && msg.verb === 'Thinking'
-                ? { statusVerb: '' }
+                ? { statusVerb: '', statusElapsedSeconds: 0 }
                 : {}),
             ...(msg.tokens ? { tokenUsage: { ...session.tokenUsage, output_tokens: msg.tokens } } : {}),
-            ...(incomingState === 'idle' ? { activeThinkingId: null, statusVerb: '' } : {}),
+            ...(incomingState === 'idle' ? { activeThinkingId: null, statusVerb: '', statusElapsedSeconds: 0 } : {}),
             ...(shouldFlush ? {
               messages: appendAssistantTextMessage(session.messages, pendingText, Date.now()),
               streamingText: '',
@@ -1485,6 +1529,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           pendingPermissionQueue: [],
           pendingComputerUsePermission: null,
           elapsedTimer: null,
+          statusVerb: '',
+          statusElapsedSeconds: 0,
         }))
         refreshBillingIfTracked()
         if (shouldNotifyCompletion) {
@@ -1519,6 +1565,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               pendingPermission: null,
               pendingPermissionQueue: [],
               pendingComputerUsePermission: null,
+              statusVerb: '',
+              statusElapsedSeconds: 0,
             }
           })
           useTabStore.getState().updateTabStatus(sessionId, unsupportedAttachmentPrompt || maxTurnsReachedPrompt || agentRecoveryPrompt ? 'idle' : 'error')
@@ -1571,6 +1619,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             elapsedTimer: null,
             elapsedSeconds: 0,
             statusVerb: '',
+            statusElapsedSeconds: 0,
             tokenUsage: { input_tokens: 0, output_tokens: 0 },
             slashCommands: [],
           }))
@@ -1621,6 +1670,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             elapsedTimer: null,
+            statusVerb: '',
+            statusElapsedSeconds: 0,
           }))
           useTabStore.getState().updateTabStatus(sessionId, 'idle')
         }
@@ -1648,6 +1699,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               pendingPermissionQueue: [],
               pendingComputerUsePermission: null,
               elapsedTimer: null,
+              statusVerb: '',
+              statusElapsedSeconds: 0,
             }))
             useTabStore.getState().updateTabStatus(sessionId, 'idle')
           }
@@ -1670,6 +1723,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             elapsedTimer: null,
+            statusVerb: '',
+            statusElapsedSeconds: 0,
           }))
           useTabStore.getState().updateTabStatus(sessionId, 'idle')
         }

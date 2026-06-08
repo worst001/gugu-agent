@@ -128,6 +128,7 @@ function seedSession(overrides: Partial<PerSessionState> = {}) {
         tokenUsage: { input_tokens: 0, output_tokens: 0 },
         elapsedSeconds: 0,
         statusVerb: '',
+        statusElapsedSeconds: 0,
         slashCommands: [],
         agentTaskNotifications: {},
         elapsedTimer: null,
@@ -421,6 +422,33 @@ describe('chatStore history mapping', () => {
       message.type === 'assistant_text' &&
       message.content.includes('identify the product')
     )).toBe(true)
+  })
+
+  it('keeps status elapsed time moving after an attachment parsing notice', () => {
+    vi.useFakeTimers()
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, '处理附件', [])
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'status',
+      state: 'thinking',
+      verb: '正在解析附件，已等待 15 秒',
+      elapsed: 15,
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.statusElapsedSeconds).toBe(15)
+
+    vi.advanceTimersByTime(2000)
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.elapsedSeconds).toBe(2)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.statusElapsedSeconds).toBe(17)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'status',
+      state: 'idle',
+    })
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
   })
 
   it('accepts richer transcript history while the local turn still appears active', async () => {

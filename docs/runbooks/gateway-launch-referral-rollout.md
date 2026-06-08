@@ -1,10 +1,18 @@
 # Gateway Launch Offer And Referral Rollout
 
-Status: prepared on 2026-06-06. Production deployment not executed in this
-thread because SSH access returned `Permission denied (publickey...)`.
+Status: production code deploy, MySQL migration 002, and referral feature flag
+enablement executed on 2026-06-06.
 
 Docker cutover is explicitly out of scope. Keep production on the current
 `/root/opt/gugu` + systemd layout.
+
+2026-06-06 18:22-18:32 CST update: production code deploy and MySQL migration
+002 were executed with Docker still untouched. Launch offer packages are visible
+on `/buy`.
+
+2026-06-06 18:37-18:43 CST update: `GUGU_REFERRAL_ENABLED=1` was enabled after
+the packaged client was reported ready. Sanitized smoke passed for a free device
+and an existing paid device.
 
 ## Scope
 
@@ -86,6 +94,15 @@ Expected behavior after this deploy:
 - `GET /v1/referrals/me` returns `enabled=false`.
 - No referral reward is awarded because the flag is off.
 
+Production result on 2026-06-06:
+
+- deployed gateway `c20c6a3 feat: add launch referrals`;
+- rollback directories:
+  - `/root/opt/gugu-prev-launch-referral-20260606182730`
+  - `/root/opt/gugu-backups/gugu-before-launch-referral-20260606182730`
+- local/public health OK after restart;
+- `GUGU_REFERRAL_ENABLED=0` confirmed.
+
 ### 3. Apply MySQL Migration 002
 
 Take a fresh backup immediately before the migration:
@@ -115,6 +132,10 @@ SELECT * FROM gateway_schema_migrations WHERE version = '002';
 
 Do not enable `GUGU_REFERRAL_ENABLED=1` unless these checks pass.
 
+Production result on 2026-06-06: migration 002 applied successfully; guarded
+check returned `ordersReferralCode=1`, `referralCodes=1`, `referralRewards=1`,
+`schemaMigration=1`.
+
 ### 4. Smoke With Flag Still Off
 
 After restart:
@@ -130,6 +151,19 @@ Manual browser check:
 
 - `/buy` displays `Pro 首月 29` and `Max 首月 69`.
 - The page says "首月低至 6 折"; do not claim Max is exactly 6折.
+
+Production result on 2026-06-06:
+
+- `/buy` includes `launch-pro-monthly`, `launch-max-monthly`, and
+  "首月低至 6 折";
+- `/checkout?packageId=launch-pro-monthly` shows Pro launch month and 600
+  credits;
+- `mysql-schema-check` returned `ok=true`;
+- post-migration backup
+  `/var/backups/gugu-gateway/gateway-mysql-20260606-183102.sql` was created and
+  sha verified;
+- `gateway-alert-check` returned `ok=true`, `issues=[]`;
+- `gugu-gateway-monitor.service` returned `issues=[]`.
 
 ### 5. Enable Referral In A Small Window
 
@@ -155,6 +189,35 @@ Smoke:
 - activation awards both devices 100 credits once.
 - repeated activation/payment polling does not award twice.
 
+Production result on 2026-06-06:
+
+- env backup before enable:
+  `/root/opt/gugu/.env.referral-enable-20260606183756.bak`;
+- current flags:
+  - `GUGU_REFERRAL_ENABLED=1`
+  - `GUGU_REFERRAL_REWARD_CREDITS=100`
+  - `GUGU_REFERRAL_MONTHLY_CAP=500`
+- free ops smoke device returned `enabled=true`, `eligible=false`, no code/url;
+- existing paid device returned `enabled=true`, `eligible=true`, has code and
+  invite URL; token/code/url were not printed;
+- `referral_codes=1`, `referral_rewards=0`;
+- post-enable backup:
+  `/var/backups/gugu-gateway/gateway-mysql-20260606-184213.sql`, sha OK;
+- health, alert, and monitor all OK with `issues=[]`.
+
+Real-order observation baseline on 2026-06-06:
+
+- `orders_with_referral_code=0`
+- `referral_rewards_total=0`
+- `referral_rewards_awarded=0`
+- `referral_rewards_rejected=0`
+- `referral_codes_total=1`
+
+An in-thread heartbeat named "观察推荐真实订单" now checks production every 2
+hours for roughly 24 hours using read-only SSH checks. It should only report
+changes or anomalies and must not print tokens, license keys, full referral
+codes, invite URLs, or full device ids.
+
 ## Rollback
 
 Fast referral rollback:
@@ -172,4 +235,3 @@ packages; hiding launch packages requires deploying a package-list rollback.
 
 Do not drop referral tables during an incident. They are additive and should be
 left in place unless a human owner explicitly approves a data rollback plan.
-

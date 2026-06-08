@@ -24,6 +24,7 @@ type PendingPermissionRequest = {
 type AgentActivityPanelProps = {
   chatState: ChatState
   elapsedSeconds: number
+  statusElapsedSeconds?: number
   statusVerb?: string
   activeToolName?: string | null
   activeToolUseId?: string | null
@@ -52,6 +53,7 @@ const ATTACHMENT_PARSE_LONG_SECONDS = 30
 export function AgentActivityPanel({
   chatState,
   elapsedSeconds,
+  statusElapsedSeconds = elapsedSeconds,
   statusVerb = '',
   activeToolName = null,
   activeToolUseId = null,
@@ -94,16 +96,17 @@ export function AgentActivityPanel({
       streamingText,
       messages,
       pendingPermission,
+      statusElapsedSeconds,
       t,
     }),
-    [activeThinkingId, activeToolName, chatState, messages, pendingPermission, pendingToolCall, statusVerb, streamingText, t],
+    [activeThinkingId, activeToolName, chatState, messages, pendingPermission, pendingToolCall, statusElapsedSeconds, statusVerb, streamingText, t],
   )
   const totalTools = toolCalls.length
   const completedTools = toolCalls.filter((toolCall) => resultMap.has(toolCall.toolUseId)).length
   const showLongRunningHint = elapsedSeconds >= LONG_RUNNING_HINT_SECONDS
   const displayItems = recentToolItems.length > 0
     ? recentToolItems
-    : [buildNoToolActivityItem(chatState, elapsedSeconds, statusVerb, t)]
+    : [buildNoToolActivityItem(chatState, statusVerb ? statusElapsedSeconds : elapsedSeconds, statusVerb, t)]
   const showRecoveryActions = isRecoveryStatus(statusVerb) && Boolean(onStopTurn || onContinueFromHere)
 
   return (
@@ -221,6 +224,7 @@ function buildPhaseItem({
   streamingText,
   messages,
   pendingPermission,
+  statusElapsedSeconds,
   t,
 }: {
   chatState: ChatState
@@ -230,6 +234,7 @@ function buildPhaseItem({
   streamingText: string
   messages: UIMessage[]
   pendingPermission: PendingPermissionRequest | null
+  statusElapsedSeconds: number
   t: ReturnType<typeof useTranslation>
 }): ActivityItem {
   const lastThinking = findLastThinking(messages, activeThinkingId)
@@ -246,6 +251,16 @@ function buildPhaseItem({
   }
 
   if (statusVerb.trim()) {
+    if (isAttachmentParsingStatus(statusVerb)) {
+      return {
+        id: 'phase-status',
+        status: statusElapsedSeconds >= ATTACHMENT_PARSE_LONG_SECONDS ? 'warning' : 'active',
+        label: statusElapsedSeconds >= ATTACHMENT_PARSE_LONG_SECONDS
+          ? t('chat.activity.attachmentParsingLong', { elapsed: formatElapsed(statusElapsedSeconds) })
+          : t('chat.activity.attachmentParsing'),
+        detail: lastThinking,
+      }
+    }
     return {
       id: 'phase-status',
       status: 'active',

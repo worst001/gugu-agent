@@ -396,6 +396,76 @@ Phase 5A-5D review 结论：本地 Docker 沙盒、Compose 自动验收、gatewa
 - off-host backup 如果 target 仍和 `/var/backups/gugu-gateway` 同盘，只能算 staging/rehearsal，不算灾备。
 - 主 Agent 打包整体测试完成前，不要开启 referral 灰度。
 
+## 2026-06-06 18:22-18:32 CST 首发优惠/推荐奖励生产部署
+
+生产仍保持 `/root/opt/gugu` + systemd，未切 Docker。使用用户提供的 SSH key 完成 archive 部署：
+
+- 部署 commit：gateway `c20c6a3 feat: add launch referrals`。
+- 部署前 preflight：`gugu-gateway`、`mysqld`、`redis` 均 `active`；local/public `/health` 均 `{"ok":true}`；`GUGU_STORE_DRIVER=mysql`，`GUGU_MAINTENANCE_DISABLE_WRITES=0`，附件 task Redis 灰度仍为 `GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`。
+- 部署前确认最新自动备份 `gateway-mysql-20260606-033555.sql` sha256 OK。
+- 部署前即时 MySQL 备份成功：`/var/backups/gugu-gateway/gateway-mysql-20260606-182454.sql`，`ok=true`，表计数：devices 29、activation_codes 20、usage_events 2856、orders 42、payment_notifications 2。`mysqldump` 因 app user 权限不足 fallback 到 JS logical dump，最终备份成功。
+- 归档部署时间戳：`20260606182730`。保留回滚目录：
+  - `/root/opt/gugu-prev-launch-referral-20260606182730`
+  - `/root/opt/gugu-backups/gugu-before-launch-referral-20260606182730`
+- 部署后 local/public `/health` 均 OK；service log 只有预期的 SIGTERM stop/start 和新进程 listen，无启动错误。
+- 生产 `.env` 已显式保持 referral 灰度关闭：
+  - `GUGU_REFERRAL_ENABLED=0`
+  - `GUGU_REFERRAL_REWARD_CREDITS=100`
+  - `GUGU_REFERRAL_MONTHLY_CAP=500`
+- `/buy` 已显示首发文案和 `launch-pro-monthly`、`launch-max-monthly`；`/checkout?packageId=launch-pro-monthly` 显示 Pro 首发月和 600 点。
+- 已执行 MySQL migration `deploy/mysql/002-referrals.sql`，guard 输出 `applied=yes`；`orders.referral_code`、`referral_codes`、`referral_rewards`、`gateway_schema_migrations version=002` 均存在。
+- 部署后 `mysql-schema-check` 返回 `ok=true`，MySQL 8.4.9，`missingTables=[]`，`missingIndexes=[]`。
+- 部署后即时 MySQL 备份成功：`/var/backups/gugu-gateway/gateway-mysql-20260606-183102.sql`，sha256 OK，表计数同上。
+- 部署后 `gateway-alert-check` 返回 `ok=true`、`issues=[]`，并识别最新 post-migration backup。
+- 手动触发 `gugu-gateway-monitor.service` 成功，journal 中 `issues=[]`；timers 仍包含 alert、monitor、mysql-backup。
+
+下一步：主 Agent 打包/整体测试通过后，可以选择一个很小的窗口把 `GUGU_REFERRAL_ENABLED=1` 打开并只做 referral 灰度；Docker 仍不动。off-host backup 仍缺真实 target/凭据和 restore rehearsal。
+
+## 2026-06-06 18:37-18:43 CST referral 灰度开启
+
+用户确认主 Agent 已打包，继续推进 referral 灰度；Docker 仍未切换。
+
+- 开启前 preflight：`gugu-gateway` active，public `/health` OK，`gateway-alert-check` `ok=true`、`issues=[]`，最新备份 `gateway-mysql-20260606-183102.sql` sha OK。
+- 开启前即时备份成功：`/var/backups/gugu-gateway/gateway-mysql-20260606-183755.sql`，`ok=true`，表计数 devices 29、activation_codes 20、usage_events 2856、orders 42、payment_notifications 2。
+- `.env` 已切换：
+  - `GUGU_REFERRAL_ENABLED=1`
+  - `GUGU_REFERRAL_REWARD_CREDITS=100`
+  - `GUGU_REFERRAL_MONTHLY_CAP=500`
+- 开启前 env 备份：`/root/opt/gugu/.env.referral-enable-20260606183756.bak`，内容确认 `GUGU_REFERRAL_ENABLED=0`。另有一次因本地 PowerShell 展开导致的同内容备份 `/root/opt/gugu/.env.referral-enable-.bak`。
+- 脱敏 referral smoke 结果：
+  - 新建 ops 免费 smoke 设备：`enabled=true`、`eligible=false`、无 code/url。
+  - 现有付费设备：`enabled=true`、`eligible=true`、`hasCode=true`、`hasInviteUrl=true`、`rewardCredits=100`、`monthlyCapCredits=500`、`remainingAwardCreditsThisMonth=500`。脚本未打印 token/code/url。
+- 当前 referral 表计数：`referral_codes=1`、`referral_rewards=0`。尚未发生真实好友首单激活发奖。
+- 开启后即时备份成功：`/var/backups/gugu-gateway/gateway-mysql-20260606-184213.sql`，sha OK，table counts devices 32、activation_codes 20、usage_events 2856、orders 42、payment_notifications 2。devices 增量来自 ops smoke 注册。
+- 开启后 public `/health` OK，`gateway-alert-check` `ok=true`、`issues=[]`，手动 `gugu-gateway-monitor.service` 成功且 `issues=[]`。
+
+快速关闭 referral：恢复 `.env.referral-enable-20260606183756.bak` 或将 `GUGU_REFERRAL_ENABLED=0` 写回 `.env` 后 `systemctl restart gugu-gateway`，再检查 local/public health 和 alert/monitor。
+
+## 2026-06-06 18:50-19:05 CST off-host backup probe、restore rehearsal 与 referral 真实订单观察
+
+用户要求先做 off-host backup + restore rehearsal，再观察推荐真实订单；Docker 仍不切。
+
+off-host 目标探测结论：
+
+- 生产只读检查显示 `/var/backups/gugu-gateway`、`/mnt`、`/data`、`/var/lib/mysql`、`/var/lib/redis` 仍在同一块根盘 `/dev/nvme0n1p3` 上。
+- `/mnt` 当前为空；`/etc/gugu-gateway` 仅有 `mysql.env`、`redis.env`，没有 off-host target env、挂载凭据或对象存储配置。
+- 因此“真实 off-host backup”仍未完成：当前没有独立磁盘、NAS、对象存储挂载、rsync 目的地或已批准的上传 job。不要把同盘目录误记为灾备。
+
+restore rehearsal 结果：
+
+- 使用最新本地备份 `/var/backups/gugu-gateway/gateway-mysql-20260606-184213.sql` 做 scratch restore rehearsal。
+- 临时创建 scratch DB `gugu_gateway_restore_20260606` 和临时 restore 用户，只授予该 scratch DB 权限。
+- `mysql-restore-check.ts` 返回 `ok=true`、`countMismatches=[]`、`issues=[]`。
+- 关键表计数：devices 32、activation_codes 20、usage_events 2856、orders 42、payment_notifications 2。
+- 演练后已清理 scratch DB、临时 restore 用户和 `/tmp` 下的临时脚本；清理检查返回 `scratchDatabaseCount=0`、`restoreUserCount=0`。
+
+referral 真实订单观察基线：
+
+- 当前 `orders_with_referral_code=0`、`referral_rewards_total=0`、`referral_rewards_awarded=0`、`referral_rewards_rejected=0`、`referral_codes_total=1`。
+- 已创建当前线程 heartbeat 观察任务“观察推荐真实订单”：每 2 小时只读检查一次，持续约 24 小时；只报告 referral 订单/奖励变化和异常，不打印 token、license、完整推荐码或设备 id。
+
+下一步边界：如需完成真正 off-host backup，需要用户或运维提供独立 off-host target 和凭据/挂载方式；在此之前只能算本地备份 + restore 演练通过。referral 下一阶段是等待第一笔真实带 `referral_code` 的订单付款并激活，确认双方各加 100 点且幂等不重复发奖。
+
 ## 2026-06-04 运维交接文档
 
 新增 `docs/runbooks/gateway-ops-handoff.md`，面向运维接手人，覆盖当前生产事实、日常巡检、预警面板、admin metrics、备份恢复、常见事件处理、Docker 状态、扩容路线、交接清单和 30 秒口头版。该文档不包含真实 token 或密钥。

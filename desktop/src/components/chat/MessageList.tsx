@@ -371,6 +371,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const streamingText = sessionState?.streamingText ?? ''
   const elapsedSeconds = sessionState?.elapsedSeconds ?? 0
   const statusVerb = sessionState?.statusVerb ?? ''
+  const statusElapsedSeconds = sessionState?.statusElapsedSeconds ?? elapsedSeconds
   const activeToolName = sessionState?.activeToolName ?? null
   const activeToolUseId = sessionState?.activeToolUseId ?? null
   const pendingPermission = sessionState?.pendingPermission ?? null
@@ -898,6 +899,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
           <AgentActivityPanel
             chatState={chatState}
             elapsedSeconds={elapsedSeconds}
+            statusElapsedSeconds={statusElapsedSeconds}
             statusVerb={statusVerb}
             activeToolName={activeToolName}
             activeToolUseId={activeToolUseId}

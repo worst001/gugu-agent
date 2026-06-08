@@ -301,6 +301,7 @@ function startAttachmentParseProgress(sessionId: string): () => void {
       type: 'status',
       state: 'thinking',
       verb: `正在解析附件，已等待 ${elapsedSeconds} 秒`,
+      elapsed: elapsedSeconds,
     })
     nextNoticeAt = now + getEnvMs(
       'CC_HAHA_ATTACHMENT_PARSE_PROGRESS_REMINDER_MS',
