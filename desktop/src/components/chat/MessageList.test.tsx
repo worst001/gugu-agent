@@ -100,6 +100,38 @@ describe('MessageList nested tool calls', () => {
     expect(within(activityPanel).getAllByText('Waiting for your confirmation').length).toBeGreaterThan(0)
   })
 
+  it('renders a fallback permission dialog when a Bash permission request is pending but missing from messages', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'permission_pending',
+          pendingPermission: {
+            requestId: 'perm-bash-1',
+            toolName: 'Bash',
+            toolUseId: 'bash-1',
+            input: { command: 'which nmap && nmap --version | head -1' },
+            description: 'Check whether nmap is installed',
+          },
+          messages: [
+            {
+              id: 'tool-bash',
+              type: 'tool_use',
+              toolName: 'Bash',
+              toolUseId: 'bash-1',
+              input: { command: 'which nmap && nmap --version | head -1' },
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Allow Gugu to run this command?')).toBeTruthy()
+    expect(screen.getAllByText(/which nmap/).length).toBeGreaterThan(0)
+  })
+
   it('renders sub-agent tool calls inline beneath the parent agent tool call', () => {
     useChatStore.setState({
       sessions: {
@@ -301,6 +333,36 @@ describe('MessageList nested tool calls', () => {
         kind: 'message',
         message: messages[2],
       },
+    ])
+  })
+
+  it('filters blank assistant messages from the chat render model', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'user-1',
+        type: 'user_text',
+        content: 'hello',
+        timestamp: 1,
+      },
+      {
+        id: 'assistant-empty',
+        type: 'assistant_text',
+        content: '   ',
+        timestamp: 2,
+      },
+      {
+        id: 'assistant-visible',
+        type: 'assistant_text',
+        content: 'visible',
+        timestamp: 3,
+      },
+    ]
+
+    const { renderItems } = buildRenderModel(messages)
+
+    expect(renderItems).toEqual([
+      { kind: 'message', message: messages[0] },
+      { kind: 'message', message: messages[2] },
     ])
   })
 

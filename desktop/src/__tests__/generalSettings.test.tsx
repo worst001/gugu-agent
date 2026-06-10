@@ -902,6 +902,8 @@ describe('Settings > About tab', () => {
     expect(await screen.findByRole('heading', { name: 'Gugu Agent v0.1.5' })).toBeInTheDocument()
     expect(screen.getByText('Fixed updater rendering')).toBeInTheDocument()
     expect(screen.getByText('Added markdown support')).toBeInTheDocument()
+    expect(screen.getByText(/If your browser says the Windows installer is not commonly downloaded/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open download page' })).toBeInTheDocument()
   })
 
   it('shows downloaded bytes instead of a fake zero percent when total size is unknown', async () => {

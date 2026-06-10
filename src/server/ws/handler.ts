@@ -1411,6 +1411,32 @@ function resetStreamStateForTurn(streamState: SessionStreamState) {
   resetAssistantSnapshots(streamState)
 }
 
+function sanitizeInternalDiagnosticError(message: string): string | null {
+  if (!message) return message
+
+  const hasSidecarTelemetryNoise =
+    /\[ede_diagnostic\]/i.test(message) ||
+    /1P event logging:/i.test(message) ||
+    /Failed to export \d+ events/i.test(message)
+
+  if (!hasSidecarTelemetryNoise) return message
+
+  const filteredLines = message.split(/\r?\n/).filter(line => {
+    const trimmed = line.trim()
+    if (!trimmed) return false
+    if (/\[ede_diagnostic\]/i.test(trimmed)) return false
+    if (/1P event logging:/i.test(trimmed)) return false
+    if (/Failed to export \d+ events/i.test(trimmed)) return false
+    if (/Request failed with status code 403/i.test(trimmed) && /export/i.test(trimmed)) return false
+    if (/\$bunfs\/root\/claude-sidecar\.js/i.test(trimmed)) return false
+    if (/^\s*at\s+/i.test(line)) return false
+    return true
+  })
+
+  const cleaned = filteredLines.join('\n').trim()
+  return cleaned || null
+}
+
 /** Clean up stream state when an output binding disconnects */
 function cleanupStreamState(streamKey: string) {
   sessionStreamStates.delete(streamKey)
@@ -1994,11 +2020,15 @@ export function translateCliMessage(
           (Array.isArray(cliMsg.errors) && cliMsg.errors.length > 0
             ? cliMsg.errors.join('\n')
             : 'Unknown error')
+        const sanitizedResultMessage = sanitizeInternalDiagnosticError(resultMessage)
+        if (sanitizedResultMessage === null) {
+          return [{ type: 'message_complete', usage }]
+        }
         // 错误和完成消息都发送
         return [
           {
             type: 'error',
-            message: resultMessage,
+            message: sanitizedResultMessage,
             code: 'CLI_ERROR',
           },
           { type: 'message_complete', usage },

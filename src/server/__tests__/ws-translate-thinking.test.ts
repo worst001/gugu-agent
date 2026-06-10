@@ -430,4 +430,54 @@ describe('translateCliMessage thinking bridge', () => {
 
     expect(delayedError).toEqual([{ type: 'message_complete', usage }])
   })
+
+  it('suppresses sidecar telemetry export diagnostics without showing a chat error', () => {
+    const usage = { input_tokens: 0, output_tokens: 0 }
+
+    const out = translateCliMessage(
+      {
+        type: 'result',
+        is_error: true,
+        result: [
+          '[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use',
+          'Error: 1P event logging: 170 events failed to export (status=403, code=ERR_BAD_REQUEST, Request failed with status code 403)',
+          '    at queueFailedEvents (/$bunfs/root/claude-sidecar.js:497:3172)',
+          '    at async doExport (/$bunfs/root/claude-sidecar.js:497:1821)',
+          'Error: {"message":"Failed to export 24 events (status=403, code=ERR_BAD_REQUEST, Request failed with status code 403)","sourceURL":"/$bunfs/root/claude-sidecar.js"}',
+          '    at processTicksAndRejections (native:7:39)',
+        ].join('\n'),
+        usage,
+      },
+      sid(),
+    )
+
+    expect(out).toEqual([{ type: 'message_complete', usage }])
+  })
+
+  it('keeps real CLI errors when sidecar telemetry diagnostics are mixed in', () => {
+    const usage = { input_tokens: 0, output_tokens: 0 }
+
+    const out = translateCliMessage(
+      {
+        type: 'result',
+        is_error: true,
+        result: [
+          '[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use',
+          'Error: 1P event logging: 2 events failed to export (status=403)',
+          'Error: No suitable shell found. Claude CLI requires a Posix shell environment.',
+        ].join('\n'),
+        usage,
+      },
+      sid(),
+    )
+
+    expect(out).toEqual([
+      {
+        type: 'error',
+        message: 'Error: No suitable shell found. Claude CLI requires a Posix shell environment.',
+        code: 'CLI_ERROR',
+      },
+      { type: 'message_complete', usage },
+    ])
+  })
 })

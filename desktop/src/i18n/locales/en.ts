@@ -920,6 +920,8 @@
   'settings.about.socialMedia': 'Official Channels',
   'settings.about.updates': 'App Updates',
   'settings.about.updatesDesc': 'Check for the latest version, download the installer, and relaunch after install.',
+  'settings.about.downloadWarningHint': 'If your browser says the Windows installer is not commonly downloaded, check the install safety notes on the official download page.',
+  'settings.about.downloadWarningLink': 'Open download page',
 
   // Settings > Computer Use
   'settings.tab.computerUse': 'Computer Use',
@@ -1188,6 +1190,7 @@
   'chat.dismiss': 'dismiss',
   'chat.stopTitle': 'Stop generation (Cmd+.)',
   'chat.runtimeControlsLocked': 'This turn is running. Change permissions after it finishes.',
+  'chat.emptyAssistantResult': 'This turn finished without a visible text result. You can say “continue” or resend the previous message.',
   'chat.rewindAction': 'Rewind to here',
   'chat.rewindModalTitle': 'Rewind Conversation',
   'chat.rewindConfirm': 'Rewind here',

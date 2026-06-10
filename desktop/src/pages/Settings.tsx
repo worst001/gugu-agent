@@ -2444,6 +2444,15 @@ function AboutSettings() {
             <div className="text-xs text-[var(--color-text-tertiary)] mt-1">
               {t('settings.about.updatesDesc')}
             </div>
+            <div className="mt-2 text-xs leading-5 text-[var(--color-text-tertiary)]">
+              {t('settings.about.downloadWarningHint')}{' '}
+              <button
+                onClick={() => openUrl(OFFICIAL_DOWNLOAD_URL)}
+                className="rounded-[var(--radius-sm)] text-[var(--color-text-accent)] transition-colors hover:text-[var(--color-brand)] focus:outline-none focus:shadow-[var(--shadow-focus-ring)]"
+              >
+                {t('settings.about.downloadWarningLink')}
+              </button>
+            </div>
           </div>
           <Button
             size="sm"

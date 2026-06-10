@@ -451,6 +451,54 @@ describe('chatStore history mapping', () => {
     vi.useRealTimers()
   })
 
+  it('filters blank assistant transcript messages from history', () => {
+    const mapped = mapHistoryMessagesToUiMessages([
+      {
+        id: 'assistant-empty',
+        type: 'assistant',
+        timestamp: '2026-06-09T00:00:00.000Z',
+        content: '   ',
+      },
+      {
+        id: 'assistant-visible',
+        type: 'assistant',
+        timestamp: '2026-06-09T00:00:01.000Z',
+        content: 'visible result',
+      },
+    ])
+
+    expect(mapped).toHaveLength(1)
+    expect(mapped[0]).toMatchObject({ type: 'assistant_text', content: 'visible result' })
+  })
+
+  it('shows a visible notice when a turn completes with no assistant text', () => {
+    seedSession({
+      messages: [
+        {
+          id: 'user-empty-result',
+          type: 'user_text',
+          content: '再检查一下',
+          timestamp: Date.now(),
+        },
+      ],
+      chatState: 'streaming',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 10, output_tokens: 0 },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('idle')
+    expect(session?.messages).toHaveLength(2)
+    expect(session?.messages[1]).toMatchObject({ type: 'system' })
+    if (session?.messages[1]?.type === 'system') {
+      expect(session.messages[1].content.length).toBeGreaterThan(0)
+      expect(session.messages[1].content).toMatch(/visible|可显示/i)
+    }
+  })
+
   it('accepts richer transcript history while the local turn still appears active', async () => {
     seedSession({
       chatState: 'thinking',

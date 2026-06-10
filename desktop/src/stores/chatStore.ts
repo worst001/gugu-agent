@@ -288,6 +288,23 @@ function hasProgressAfterLatestUserMessage(messages: UIMessage[]): boolean {
   return messages.slice(latestUserIndex + 1).some((message) => message.type !== 'user_text')
 }
 
+function hasVisibleFinalMessageAfterLatestUser(messages: UIMessage[]): boolean {
+  let latestUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.type === 'user_text') {
+      latestUserIndex = index
+      break
+    }
+  }
+  if (latestUserIndex < 0) return true
+  return messages.slice(latestUserIndex + 1).some((message) => {
+    if (message.type === 'assistant_text') return message.content.trim().length > 0
+    if (message.type === 'system') return message.content.trim().length > 0
+    if (message.type === 'error') return message.message.trim().length > 0
+    return message.type === 'task_summary'
+  })
+}
+
 function isIncomingHistoryAhead(currentMessages: UIMessage[], incomingMessages: UIMessage[]): boolean {
   if (incomingMessages.length === 0) return false
   if (currentMessages.length === 0) return true
@@ -1512,6 +1529,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           ? sessionItems.find((entry) => entry.id === sessionId)?.title
           : undefined
         const text = `${session.streamingText}${consumePendingDelta()}`
+        const shouldInsertEmptyResultNotice =
+          !text.trim() && !hasVisibleFinalMessageAfterLatestUser(session.messages)
         if (text.trim()) {
           update((s) => ({
             messages: appendAssistantTextMessage(s.messages, text, Date.now()),
@@ -1521,7 +1540,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           update(() => ({ streamingText: text }))
         }
         if (session.elapsedTimer) clearInterval(session.elapsedTimer)
-        update(() => ({
+        update((s) => ({
+          messages: shouldInsertEmptyResultNotice
+            ? appendSystemMessage(s.messages, t('chat.emptyAssistantResult'), Date.now())
+            : s.messages,
           tokenUsage: msg.usage,
           chatState: 'idle',
           activeThinkingId: null,
@@ -1943,6 +1965,7 @@ export function mapHistoryMessagesToUiMessages(
       continue
     }
     if (msg.type === 'assistant' && typeof msg.content === 'string') {
+      if (!msg.content.trim()) continue
       uiMessages.push({ id: msg.id || nextId(), type: 'assistant_text', content: msg.content, timestamp, model: msg.model })
       continue
     }

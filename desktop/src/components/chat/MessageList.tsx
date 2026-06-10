@@ -209,6 +209,9 @@ export function buildRenderModel(messages: UIMessage[]): RenderModel {
   }
 
   for (const msg of messages) {
+    if (msg.type === 'assistant_text' && !msg.content.trim()) {
+      continue
+    }
     if (
       (msg.type === 'tool_use' || msg.type === 'tool_result') &&
       hiddenToolUseIds.has(msg.toolUseId)
@@ -525,6 +528,13 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     () => buildRenderModel(messages),
     [messages],
   )
+  const shouldRenderPendingPermissionFallback =
+    Boolean(pendingPermission) &&
+    pendingPermission?.toolName !== 'AskUserQuestion' &&
+    !messages.some((message) =>
+      message.type === 'permission_request' &&
+      message.requestId === pendingPermission?.requestId
+    )
   const hasActiveThinkingBlock = activeThinkingId
     ? messages.some((message) => message.type === 'thinking' && message.id === activeThinkingId)
     : false
@@ -914,6 +924,15 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
               chatState === 'thinking' && (!activeThinkingId || !hasActiveThinkingBlock)
             }
             showPreResponseHint={isWaitingForFirstResponseToken}
+          />
+        )}
+
+        {shouldRenderPendingPermissionFallback && pendingPermission && (
+          <PermissionDialog
+            requestId={pendingPermission.requestId}
+            toolName={pendingPermission.toolName}
+            input={pendingPermission.input}
+            description={pendingPermission.description}
           />
         )}
 

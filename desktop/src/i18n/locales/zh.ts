@@ -936,6 +936,8 @@ export const zh: Record<TranslationKey, string> = {
   'settings.about.socialMedia': '官方渠道',
   'settings.about.updates': '应用更新',
   'settings.about.updatesDesc': '检查最新版本，下载安装包，并在安装后自动重启。',
+  'settings.about.downloadWarningHint': '手动下载时如果浏览器提示“通常不会下载”，请查看官网下载页的安装安全说明。',
+  'settings.about.downloadWarningLink': '打开下载页',
 
   // Settings > Computer Use
   'settings.tab.computerUse': 'Computer Use',
@@ -1192,6 +1194,7 @@ export const zh: Record<TranslationKey, string> = {
   'chat.dismiss': '关闭',
   'chat.stopTitle': '停止生成 (Cmd+.)',
   'chat.runtimeControlsLocked': '本轮任务正在执行，结束后再修改权限设置。',
+  'chat.emptyAssistantResult': '本轮已经结束，但没有返回可显示的文字结果。你可以直接补充“继续”或重新发送上一条消息。',
   'chat.rewindAction': '回滚到这里',
   'chat.rewindModalTitle': '回滚对话',
   'chat.rewindConfirm': '执行回滚',
