@@ -55,7 +55,8 @@
       }
     },
     "externalBin": [
-      "binaries/gugu-sidecar"
+      "binaries/gugu-sidecar",
+      "binaries/rtk"
     ],
     "resources": {
       "../../.agents/skills": "gugu-agent-pack"

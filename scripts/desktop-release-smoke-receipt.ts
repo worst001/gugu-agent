@@ -168,6 +168,8 @@ function defaultPath(platform: Platform, version: string): string {
 function templateReceipt(platform: Platform, version: string, previousVersion: string | null): Receipt {
   const commonChecks = {
     appVersionOk: false,
+    rtkGitStatusOk: false,
+    rtkVersionOk: false,
     sidecarOk: false,
   }
   const platformChecks = platform === 'windows'
@@ -262,6 +264,8 @@ function validateReceipt(options: Options) {
   requireTrue(failures, receipt, 'cleanup.tempCertRemoved', 'temporary certificate cleanup')
 
   if (platform === 'windows') {
+    requireTrue(failures, receipt, 'checks.rtkVersionOk', 'Windows RTK version check')
+    requireTrue(failures, receipt, 'checks.rtkGitStatusOk', 'Windows RTK git status check')
     requireTrue(failures, receipt, 'checks.mainExeExists', 'Windows main exe check')
     requireTrue(failures, receipt, 'checks.shortcutTargetsValid', 'Windows shortcut target check')
     requireTrue(failures, receipt, 'checks.noInstallerWarnings', 'Windows installer warning check')

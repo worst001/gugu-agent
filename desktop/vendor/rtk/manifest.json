@@ -1,0 +1,9 @@
+{
+  "version": "0.39.0",
+  "targets": {
+    "x86_64-pc-windows-msvc": {
+      "file": "rtk.exe",
+      "sha256": "731583957e8cea7cfa858fb56835c001b71f75e595710a5441ebaee12fc6c83b"
+    }
+  }
+}

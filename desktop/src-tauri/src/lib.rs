@@ -3,7 +3,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Error as IoError, ErrorKind, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command as StdCommand, Stdio},
     str,
     sync::{
@@ -16,6 +16,7 @@ use std::{
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::path::BaseDirectory;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -31,6 +32,10 @@ const TRAY_SHOW_ID: &str = "tray_show";
 const TRAY_QUIT_ID: &str = "tray_quit";
 const DEFAULT_GATEWAY_URL: Option<&str> = option_env!("GUGU_DESKTOP_DEFAULT_GATEWAY_URL");
 const BUILTIN_GATEWAY_URL: &str = "https://gugu.guxingyao.com";
+const RTK_EXPECTED_VERSION: &str = "0.39.0";
+const RTK_WINDOWS_X64_SHA256: &str =
+    "731583957e8cea7cfa858fb56835c001b71f75e595710a5441ebaee12fc6c83b";
+const RTK_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
 struct ServerState(Mutex<ServerStatus>);
@@ -62,6 +67,19 @@ struct AdapterState(Mutex<Option<SidecarChild>>);
 
 struct SidecarChild {
     child: Child,
+}
+
+#[derive(Clone)]
+struct ManagedRtk {
+    path: PathBuf,
+    version: String,
+    sha256: Option<String>,
+}
+
+enum ManagedRtkStatus {
+    Enabled(ManagedRtk),
+    Invalid { path: PathBuf, reason: String },
+    Missing,
 }
 
 impl SidecarChild {
@@ -316,7 +334,7 @@ fn terminal_spawn(
 
     let mut cmd = CommandBuilder::new(&shell);
     cmd.cwd(cwd_path.as_os_str());
-    for (key, value) in terminal_environment(&shell) {
+    for (key, value) in terminal_environment(Some(&app), &shell) {
         cmd.env(key, value);
     }
     cmd.env("TERM", "xterm-256color");
@@ -538,11 +556,278 @@ fn decode_terminal_output(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
     output
 }
 
-fn terminal_environment(shell: &str) -> HashMap<String, String> {
+fn terminal_environment(app: Option<&AppHandle>, shell: &str) -> HashMap<String, String> {
     let mut env: HashMap<String, String> = std::env::vars().collect();
     env.extend(login_shell_environment(shell));
     ensure_utf8_locale(&mut env);
+    apply_app_managed_rtk(app, &mut env);
     env
+}
+
+fn apply_app_managed_rtk(app: Option<&AppHandle>, env: &mut HashMap<String, String>) {
+    let ManagedRtkStatus::Enabled(rtk) = detect_app_managed_rtk(app) else {
+        return;
+    };
+
+    if let Some(dir) = rtk.path.parent() {
+        prepend_path_directory(env, dir);
+        env.insert("GUGU_RTK_AVAILABLE".to_string(), "1".to_string());
+        env.insert(
+            "GUGU_RTK_PATH".to_string(),
+            rtk.path.to_string_lossy().to_string(),
+        );
+        env.insert("GUGU_RTK_VERSION".to_string(), rtk.version);
+        if let Some(sha256) = rtk.sha256 {
+            env.insert("GUGU_RTK_SHA256".to_string(), sha256);
+        }
+    }
+}
+
+fn log_rtk_status(app: Option<&AppHandle>) {
+    match detect_app_managed_rtk(app) {
+        ManagedRtkStatus::Enabled(rtk) => {
+            println!(
+                "[desktop] RTK output optimization enabled: version={} sha256={} path={}",
+                rtk.version,
+                rtk.sha256.as_deref().unwrap_or("not-checked"),
+                rtk.path.display()
+            );
+        }
+        ManagedRtkStatus::Invalid { path, reason } => {
+            eprintln!(
+                "[desktop] RTK output optimization disabled: invalid path={} reason={}",
+                path.display(),
+                reason
+            );
+        }
+        ManagedRtkStatus::Missing => {
+            eprintln!("[desktop] RTK output optimization disabled: bundled rtk missing");
+        }
+    }
+}
+
+fn detect_app_managed_rtk(app: Option<&AppHandle>) -> ManagedRtkStatus {
+    let Some(path) = resolve_bundled_rtk_binary(app) else {
+        return ManagedRtkStatus::Missing;
+    };
+
+    let sha256 = match verify_rtk_integrity(&path) {
+        Ok(sha256) => sha256,
+        Err(reason) => return ManagedRtkStatus::Invalid { path, reason },
+    };
+
+    match probe_rtk_version(&path) {
+        Ok(version) if version == RTK_EXPECTED_VERSION => {
+            ManagedRtkStatus::Enabled(ManagedRtk {
+                path,
+                version,
+                sha256,
+            })
+        }
+        Ok(version) => ManagedRtkStatus::Invalid {
+            path,
+            reason: format!("version {version} != expected {RTK_EXPECTED_VERSION}"),
+        },
+        Err(reason) => ManagedRtkStatus::Invalid { path, reason },
+    }
+}
+
+fn expected_rtk_sha256() -> Option<&'static str> {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        return Some(RTK_WINDOWS_X64_SHA256);
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+fn verify_rtk_integrity(path: &Path) -> Result<Option<String>, String> {
+    if let Some(expected) = expected_rtk_sha256() {
+        let actual = sha256_path(path)?;
+        if actual == expected {
+            return Ok(Some(actual));
+        }
+        return Err(format!("sha256 {actual} != expected {expected}"));
+    }
+
+    verify_platform_rtk_integrity(path)
+}
+
+#[cfg(target_os = "macos")]
+fn verify_platform_rtk_integrity(path: &Path) -> Result<Option<String>, String> {
+    let output = StdCommand::new("codesign")
+        .args(["--verify", "--verbose=2"])
+        .arg(path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| format!("codesign probe failed: {err}"))?;
+
+    if output.status.success() {
+        return Ok(None);
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(format!("codesign verify failed: {}", stderr.trim()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn verify_platform_rtk_integrity(_path: &Path) -> Result<Option<String>, String> {
+    Ok(None)
+}
+
+fn sha256_path(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|err| format!("open for sha256 failed: {err}"))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|err| format!("read for sha256 failed: {err}"))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn probe_rtk_version(path: &Path) -> Result<String, String> {
+    let mut child = StdCommand::new(path)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("probe spawn failed: {err}"))?;
+
+    let deadline = Instant::now() + RTK_VERSION_PROBE_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("probe timed out".to_string());
+            }
+            Err(err) => return Err(format!("probe wait failed: {err}")),
+        }
+    };
+
+    let mut output = Vec::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_end(&mut output);
+    }
+    if let Some(mut stderr) = child.stderr.take() {
+        let _ = stderr.read_to_end(&mut output);
+    }
+
+    if !status.success() {
+        return Err(format!("probe exited with status {status}"));
+    }
+
+    let text = String::from_utf8_lossy(&output);
+    parse_rtk_version(&text).ok_or_else(|| {
+        let line = text.lines().next().unwrap_or("").trim();
+        format!("could not parse version from output: {line}")
+    })
+}
+
+fn parse_rtk_version(output: &str) -> Option<String> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("rtk ") {
+            return rest.split_whitespace().next().map(ToString::to_string);
+        }
+    }
+
+    None
+}
+
+fn prepend_path_directory(env: &mut HashMap<String, String>, dir: &Path) {
+    let key = path_env_key(env);
+    let entry = dir.to_string_lossy().to_string();
+    let current = env.get(&key).map(String::as_str);
+    let updated = prepend_path_value(current, &entry, path_delimiter(), cfg!(target_os = "windows"));
+    env.insert(key, updated);
+}
+
+fn prepend_path_value(
+    current: Option<&str>,
+    entry: &str,
+    delimiter: char,
+    case_insensitive: bool,
+) -> String {
+    let mut parts = Vec::new();
+    let mut seen = Vec::new();
+    push_unique_path_part(&mut parts, &mut seen, entry, case_insensitive);
+
+    if let Some(current) = current {
+        for part in current.split(delimiter) {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            push_unique_path_part(&mut parts, &mut seen, trimmed, case_insensitive);
+        }
+    }
+
+    parts.join(&delimiter.to_string())
+}
+
+fn push_unique_path_part(
+    parts: &mut Vec<String>,
+    seen: &mut Vec<String>,
+    value: &str,
+    case_insensitive: bool,
+) {
+    let normalized = normalize_path_part(value, case_insensitive);
+    if seen.iter().any(|existing| existing == &normalized) {
+        return;
+    }
+    seen.push(normalized);
+    parts.push(value.to_string());
+}
+
+fn normalize_path_part(value: &str, case_insensitive: bool) -> String {
+    let trimmed = value.trim_end_matches(['/', '\\']);
+    if case_insensitive {
+        trimmed.to_ascii_lowercase()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn path_env_key(env: &HashMap<String, String>) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        env.keys()
+            .find(|key| key.eq_ignore_ascii_case("PATH"))
+            .cloned()
+            .unwrap_or_else(|| "Path".to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = env;
+        "PATH".to_string()
+    }
+}
+
+fn path_delimiter() -> char {
+    #[cfg(target_os = "windows")]
+    {
+        ';'
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        ':'
+    }
 }
 
 fn apply_default_gateway_url(env: &mut HashMap<String, String>, default_gateway_url: Option<&str>) {
@@ -1024,6 +1309,41 @@ fn resolve_sidecar_binary(app: &AppHandle) -> Result<PathBuf, String> {
     Err(format!("sidecar binary not found. Searched:\n{searched}"))
 }
 
+fn resolve_bundled_rtk_binary(app: Option<&AppHandle>) -> Option<PathBuf> {
+    let names = rtk_binary_names();
+    let mut candidates = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for name in &names {
+                candidates.push(dir.join(name));
+            }
+            for name in &names {
+                candidates.push(dir.join("binaries").join(name));
+            }
+            for name in &names {
+                candidates.push(dir.join("..").join("..").join("binaries").join(name));
+            }
+        }
+    }
+
+    if let Some(app) = app {
+        for name in &names {
+            if let Ok(path) = app.path().resolve(name, BaseDirectory::Resource) {
+                candidates.push(path);
+            }
+            if let Ok(path) = app
+                .path()
+                .resolve(format!("binaries/{name}"), BaseDirectory::Resource)
+            {
+                candidates.push(path);
+            }
+        }
+    }
+
+    candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
 fn sidecar_binary_names() -> Vec<String> {
     let mut names = Vec::new();
     for base in ["gugu-sidecar", "claude-sidecar"] {
@@ -1031,6 +1351,15 @@ fn sidecar_binary_names() -> Vec<String> {
         if let Some(target) = target_sidecar_name(base) {
             names.push(target);
         }
+    }
+    names
+}
+
+fn rtk_binary_names() -> Vec<String> {
+    let mut names = Vec::new();
+    names.push(platform_executable_name("rtk"));
+    if let Some(target) = target_sidecar_name("rtk") {
+        names.push(target);
     }
     names
 }
@@ -1136,7 +1465,9 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let app_root_arg = app_root.to_string_lossy().to_string();
 
     // 单一合并 sidecar：第一个参数选 server / cli / adapters 模式。
-    let mut env = terminal_environment(&default_shell());
+    let shell = default_shell();
+    let mut env = terminal_environment(Some(app), &shell);
+    log_rtk_status(Some(app));
     apply_default_gateway_url(&mut env, DEFAULT_GATEWAY_URL.or(Some(BUILTIN_GATEWAY_URL)));
     if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {
         env.insert(
@@ -1225,7 +1556,8 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<SidecarChild, String> {
         server_http_url.clone()
     };
 
-    let mut env = terminal_environment(&default_shell());
+    let shell = default_shell();
+    let mut env = terminal_environment(Some(app), &shell);
     if let Some(url) = screenshot_bridge_url(app) {
         env.insert("GUGU_DESKTOP_SCREENSHOT_URL".to_string(), url);
     }
@@ -1340,7 +1672,7 @@ fn kill_windows_sidecars() {
 mod tests {
     use super::{
         apply_default_gateway_url, decode_terminal_output, default_utf8_locale, ensure_utf8_locale,
-        parse_env_block,
+        parse_env_block, parse_rtk_version, prepend_path_value,
     };
     use std::collections::HashMap;
 
@@ -1380,6 +1712,35 @@ mod tests {
         );
         assert_eq!(env.get("NODE_PATH").map(String::as_str), Some("/tmp/node"));
         assert_eq!(env.get("EMPTY").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn rtk_version_parser_reads_expected_cli_output() {
+        assert_eq!(parse_rtk_version("rtk 0.39.0\n"), Some("0.39.0".to_string()));
+        assert_eq!(
+            parse_rtk_version("warning\nrtk 0.39.0 (build abc)\n"),
+            Some("0.39.0".to_string())
+        );
+        assert_eq!(parse_rtk_version("not rtk\n"), None);
+    }
+
+    #[test]
+    fn path_prepend_moves_existing_entry_to_front_and_dedupes() {
+        let updated = prepend_path_value(
+            Some("C:\\Windows;C:\\Tools;C:\\tools\\;C:\\Git"),
+            "C:\\Tools",
+            ';',
+            true,
+        );
+
+        assert_eq!(updated, "C:\\Tools;C:\\Windows;C:\\Git");
+    }
+
+    #[test]
+    fn path_prepend_uses_platform_delimiter_without_case_folding() {
+        let updated = prepend_path_value(Some("/usr/bin:/opt/rtk"), "/opt/RTK", ':', false);
+
+        assert_eq!(updated, "/opt/RTK:/usr/bin:/opt/rtk");
     }
 
     #[test]

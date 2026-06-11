@@ -86,6 +86,14 @@ The current `.agents/skills` pack contains:
   - `plugins/engineering-skills/playwright-pro/agents`
   - `plugins/engineering-skills/self-improving-agent/agents`
 
+RTK is a special case: `rtk-token-saver` is only the agent guidance skill. A
+desktop release must also make a runnable `rtk` executable available to the
+Claude child process. Prefer an app-managed tool directory that is prepended to
+the child PATH at runtime; do not require normal users to install RTK globally
+or manually edit PATH. Missing RTK should gracefully fall back to raw commands,
+but it is a release-quality issue if the package claims default RTK support and
+`rtk --version` fails inside a desktop-launched session.
+
 Runtime bootstrap path:
 
 1. Rust resolves the packaged resource as `gugu-agent-pack`.
@@ -782,6 +790,15 @@ Confirm:
 "../../.agents/skills": "gugu-agent-pack"
 ```
 
+- RTK default availability is accounted for:
+  - `rtk-token-saver` is included in `.agents/skills`.
+  - the release package includes or otherwise exposes the matching platform
+    `rtk` executable to the Claude child PATH.
+  - a desktop-launched session can run `rtk --version` without requiring the
+    user to install RTK.
+  - if RTK is unavailable in a dev/old build, the agent falls back to raw
+    commands and does not ask normal users to install RTK.
+
 Recommended local validation:
 
 ```bash
@@ -802,6 +819,17 @@ Use RTK wrappers for broad output when helpful:
 rtk test bun run lint
 rtk test bun test src/server/__tests__/bundled-agent-pack.test.ts src/server/__tests__/plugins.test.ts
 ```
+
+For release smoke testing, verify RTK from the same environment the agent uses,
+not only from the developer terminal. In the desktop app, ask Gugu to run:
+
+```bash
+rtk --version
+```
+
+If this fails with command not found, do not treat `rtk-token-saver` as fully
+packaged; fix the app-managed RTK executable/PATH injection or mark RTK as
+fallback-only for that build.
 
 ## Post-Publish Checklist
 

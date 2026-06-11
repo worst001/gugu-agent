@@ -91,6 +91,7 @@ fi
 echo "[build-macos-arm64] Cleaning stale sidecar binaries and bundle output..."
 rm -rf "${DESKTOP_DIR}/src-tauri/binaries/gugu-sidecar-"*
 rm -rf "${DESKTOP_DIR}/src-tauri/binaries/claude-sidecar-"*
+rm -rf "${DESKTOP_DIR}/src-tauri/binaries/rtk-"*
 rm -rf "${DESKTOP_DIR}/src-tauri/target/${TARGET_TRIPLE}/release/bundle"
 rm -rf "${DESKTOP_DIR}/src-tauri/target/release/bundle"
 rm -rf "${DESKTOP_DIR}/dist"
@@ -281,11 +282,17 @@ codesign_cdhash() {
 sign_canonical_app_bundle() {
   local app_bundle="$1"
   local sidecar="${app_bundle}/Contents/MacOS/gugu-sidecar"
+  local rtk="${app_bundle}/Contents/MacOS/rtk"
   local sidecar_cdhash_before=""
   local sidecar_cdhash_after=""
 
   if [[ -x "${sidecar}" ]]; then
     sidecar_cdhash_before="$(codesign_cdhash "${sidecar}")"
+  fi
+
+  if [[ -x "${rtk}" ]]; then
+    codesign --force --sign - --timestamp=none "${rtk}"
+    codesign --verify --verbose=2 "${rtk}"
   fi
 
   # Tauri --no-sign leaves the outer .app with no sealed resources, which
@@ -354,6 +361,15 @@ verify_updater_archive() {
     exit 1
   fi
 
+  local extracted_rtk="${extracted_app}/Contents/MacOS/rtk"
+  if [[ ! -x "${extracted_rtk}" ]]; then
+    echo "[build-macos-arm64] WARN: updater archive is missing executable Contents/MacOS/rtk; macOS bundled RTK is not enforced yet" >&2
+    rm -rf "${extract_dir}"
+    return
+  fi
+
+  codesign --verify --verbose=2 "${extracted_rtk}"
+
   rm -rf "${extract_dir}"
 }
 
@@ -420,6 +436,7 @@ Target triple: ${TARGET_TRIPLE}
 Canonical output: ${CANONICAL_OUTPUT_DIR}
 Source DMG: ${LATEST_DMG:-not found}
 Source app: ${LATEST_APP:-not found}
+Bundled RTK: $(if [[ -x "${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}/Contents/MacOS/rtk" ]]; then echo "present"; else echo "missing"; fi)
 Source updater archive: ${LATEST_UPDATER_ARCHIVE:-not found}
 Source updater signature: ${LATEST_UPDATER_SIGNATURE:-not found}
 Source updater manifest: ${LATEST_UPDATER_MANIFEST:-not found}

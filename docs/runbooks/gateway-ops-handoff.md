@@ -399,3 +399,16 @@ docs/runbooks/gateway-offhost-backup-runbook.md
 ## 11. 30 秒口头版
 
 这台 gateway 当前是单机生产，Nginx 对外，Bun gateway 本地 `18787`，MySQL 是主数据，Redis 做限流/熔断/task 状态。systemd timer 已经有 health/payment monitor 和 MySQL backup。Docker 已准备好但还没切生产，未来第一步只能 gateway-only，不动 MySQL/Redis。当前最大缺口是 off-host backup 还没接真实目标。日常看 health、timer、backup sha、Redis fallback、磁盘和支付 monitor；任何数据库、备份、Docker prune、生产切换都要有维护窗口和回滚方案。
+
+## 2026-06-11 Order Operations Update
+
+Order cleanup and backlog alerting are now part of the production operating model.
+
+- `gugu-gateway-pending-order-cleanup.timer` runs hourly.
+- Cleanup marks expired pending orders as `cancelled`; it does not delete rows.
+- `/admin/api/metrics` exposes aggregate `orders` backlog values.
+- `gateway-alert-check` reports `PENDING_PAYMENT_ORDERS_HIGH` and `STALE_PENDING_ORDERS`.
+- Detailed runbook: `docs/runbooks/gateway-order-ops-runbook.md`.
+
+As of the 2026-06-11 deployment, the historical expired pending backlog has been cleared. Treat new order work as operational observation unless payment/referral incidents appear.
+

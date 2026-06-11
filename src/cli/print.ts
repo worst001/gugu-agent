@@ -363,6 +363,21 @@ const proactiveModule =
   feature('PROACTIVE') || feature('KAIROS')
     ? (require('../proactive/index.js') as typeof import('../proactive/index.js'))
     : null
+const DEFAULT_PROACTIVE_TICK_INTERVAL_MS = 10 * 60 * 1000
+
+function getProactiveTickIntervalMs(): number {
+  const envValue = Number(process.env.CLAUDE_CODE_PROACTIVE_TICK_INTERVAL_MS)
+  if (Number.isFinite(envValue) && envValue >= 0) {
+    return Math.trunc(envValue)
+  }
+
+  const settingValue = getSettings_DEPRECATED().minSleepDurationMs
+  if (typeof settingValue === 'number' && Number.isFinite(settingValue) && settingValue >= 0) {
+    return Math.trunc(settingValue)
+  }
+
+  return DEFAULT_PROACTIVE_TICK_INTERVAL_MS
+}
 const cronSchedulerModule = feature('AGENT_TRIGGERS')
   ? (require('../utils/cronScheduler.js') as typeof import('../utils/cronScheduler.js'))
   : null
@@ -1830,16 +1845,22 @@ function runHeadlessStreaming(
   })
 
   // Proactive mode: schedule a tick to keep the model looping autonomously.
-  // setTimeout(0) yields to the event loop so pending stdin messages
-  // (interrupts, user messages) are processed before the tick fires.
+  // The delay keeps idle check-ins from crowding the transcript. User
+  // messages still wake the queue immediately through subscribeToCommandQueue.
+  let proactiveTickTimer: ReturnType<typeof setTimeout> | undefined
   const scheduleProactiveTick =
     feature('PROACTIVE') || feature('KAIROS')
       ? () => {
-          setTimeout(() => {
+          if (proactiveTickTimer !== undefined) {
+            return
+          }
+          proactiveTickTimer = setTimeout(() => {
+            proactiveTickTimer = undefined
             if (
               !proactiveModule?.isProactiveActive() ||
               proactiveModule.isProactivePaused() ||
-              inputClosed
+              inputClosed ||
+              peek(isMainThread) !== undefined
             ) {
               return
             }
@@ -1852,7 +1873,8 @@ function runHeadlessStreaming(
               isMeta: true,
             })
             void run()
-          }, 0)
+          }, getProactiveTickIntervalMs())
+          proactiveTickTimer.unref?.()
         }
       : undefined
 
@@ -1869,6 +1891,10 @@ function runHeadlessStreaming(
     }
 
     running = true
+    if (proactiveTickTimer !== undefined) {
+      clearTimeout(proactiveTickTimer)
+      proactiveTickTimer = undefined
+    }
     runPhase = undefined
     notifySessionStateChanged('running')
     idleTimeout.stop()

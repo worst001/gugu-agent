@@ -204,6 +204,8 @@ Smoke receipt schema:
     "upgrade": { "passed": true, "from": "0.2.4", "to": "0.2.5" },
     "checks": {
       "appVersionOk": true,
+      "rtkVersionOk": true,
+      "rtkGitStatusOk": true,
       "sidecarOk": true,
       "mainExeExists": true,
       "shortcutTargetsValid": true,
@@ -834,14 +836,79 @@ async function assertMacArchiveHasCodeResources(gate: Gate, paths: ReleasePaths)
     return
   }
 
-  const hasCodeResources = result.stdout
-    .split(/\r?\n/)
+  const entries = result.stdout.split(/\r?\n/)
+  const hasCodeResources = entries
     .some((line) => /(^|\/)[^/]+\.app\/Contents\/_CodeSignature\/CodeResources$/.test(line))
+  const hasRtk = entries
+    .some((line) => /(^|\/)[^/]+\.app\/Contents\/MacOS\/rtk$/.test(line))
 
   gate.check(
     hasCodeResources,
     'macOS updater archive includes Contents/_CodeSignature/CodeResources',
     'macOS updater archive is missing Contents/_CodeSignature/CodeResources',
+  )
+  if (hasRtk) {
+    gate.pass('macOS updater archive includes Contents/MacOS/rtk')
+  } else {
+    gate.warn('macOS updater archive is missing Contents/MacOS/rtk; macOS bundled RTK is not enforced yet')
+  }
+}
+
+async function assertWindowsMsiHasBundledRtk(gate: Gate, paths: ReleasePaths) {
+  if (!fileExists(paths.windowsMsi)) {
+    return
+  }
+
+  if (process.platform !== 'win32') {
+    gate.warn('Skipping Windows MSI RTK table inspection because this check is not running on Windows')
+    return
+  }
+
+  const msiLiteral = `'${paths.windowsMsi.replaceAll("'", "''")}'`
+  const script = `
+$ErrorActionPreference = 'Stop'
+$installer = $null
+$database = $null
+$view = $null
+try {
+  $installer = New-Object -ComObject WindowsInstaller.Installer
+  $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @(${msiLiteral}, 0))
+  $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @('SELECT \`FileName\` FROM \`File\`'))
+  $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+  $found = $false
+  while ($true) {
+    $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+    if ($null -eq $record) { break }
+    $value = $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, 1)
+    if ($value -and (($value -eq 'rtk.exe') -or ($value -like '*|rtk.exe') -or ($value -like '*rtk.exe*'))) {
+      $found = $true
+      break
+    }
+  }
+  if ($found) {
+    Write-Output 'found'
+    exit 0
+  }
+  Write-Output 'missing'
+  exit 2
+} finally {
+  if ($view) { $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) | Out-Null }
+  foreach ($comObject in @($view, $database, $installer)) {
+    if ($comObject) { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) | Out-Null }
+  }
+}
+`
+
+  const result = await run(
+    ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+    repoRoot,
+    true,
+  )
+
+  gate.check(
+    result.code === 0,
+    'Windows MSI includes bundled rtk.exe',
+    `Windows MSI is missing bundled rtk.exe or could not be inspected: ${result.stderr || result.stdout}`,
   )
 }
 
@@ -904,10 +971,17 @@ function assertSmokeReceipt(
   requireTrue(gate, receipt, ['checks.sidecarOk', 'checks.sidecarHealthOk', 'sidecarOk'], `${platform} sidecar check passed`)
 
   if (platform === 'windows') {
+    requireTrue(gate, receipt, ['checks.rtkVersionOk', 'rtkVersionOk'], 'Windows RTK version check passed')
+    requireTrue(gate, receipt, ['checks.rtkGitStatusOk', 'rtkGitStatusOk'], 'Windows RTK git status check passed')
     requireTrue(gate, receipt, ['checks.mainExeExists', 'mainExeExists'], 'Windows main exe exists')
     requireTrue(gate, receipt, ['checks.shortcutTargetsValid', 'checks.shortcutsValid'], 'Windows shortcut targets are valid')
     requireTrue(gate, receipt, ['checks.noInstallerWarnings', 'noInstallerWarnings'], 'Windows installer had no visible warnings')
   } else {
+    const rtkVersionOk = getPath(receipt, ['checks.rtkVersionOk', 'rtkVersionOk'])
+    const rtkGitStatusOk = getPath(receipt, ['checks.rtkGitStatusOk', 'rtkGitStatusOk'])
+    if (rtkVersionOk !== true || rtkGitStatusOk !== true) {
+      gate.warn('macOS smoke receipt does not prove RTK checks yet; macOS bundled RTK is not enforced yet')
+    }
     requireTrue(gate, receipt, ['checks.codesignStrict', 'codesignStrict'], 'macOS codesign --verify --deep --strict passed')
     requireTrue(gate, receipt, ['checks.appRelaunchOk', 'appRelaunchOk'], 'macOS app relaunch passed')
   }
@@ -1016,6 +1090,7 @@ async function runCheck(options: Options, reportOnly = false) {
   assertReleaseNotes(gate, options.version)
   assertArtifact(gate, paths.windowsMsi, 'Windows MSI', 1_000_000)
   assertArtifact(gate, paths.macosDmg, 'macOS DMG', 1_000_000)
+  await assertWindowsMsiHasBundledRtk(gate, paths)
   assertReleaseJson(gate, paths, options)
 
   if (options.requireUpdater && !options.downloadsOnly) {

@@ -114,6 +114,10 @@ export async function bootstrapBundledAgentPack(): Promise<void> {
   for (const source of skillSources) {
     await installSkillSource(source, nextManifest)
   }
+  await pruneRemovedSkillSources(
+    new Set(skillSources.map((source) => source.name)),
+    nextManifest,
+  )
 
   const bundledMarketplaces = await registerBundledMarketplaces(sourceRoot)
   const pluginSources = await discoverPluginSources(
@@ -202,6 +206,8 @@ async function discoverSkillSources(sourceRoot: string): Promise<SkillSource[]> 
     const relative = path.relative(sourceRoot, skillDir)
     const parts = relative.split(path.sep)
     const isTopLevelSkill = parts.length === 1 && parts[0] !== 'third-party'
+    const skillName = path.basename(skillDir)
+
     const isPluginSkill =
       parts.includes('plugins') &&
       parts.includes('skills') &&
@@ -210,7 +216,7 @@ async function discoverSkillSources(sourceRoot: string): Promise<SkillSource[]> 
 
     if (!isTopLevelSkill && !isPluginSkill) continue
     skillDirs.push({
-      name: path.basename(skillDir),
+      name: skillName,
       sourcePath: skillDir,
     })
   }
@@ -220,6 +226,22 @@ async function discoverSkillSources(sourceRoot: string): Promise<SkillSource[]> 
     if (!byName.has(source.name)) byName.set(source.name, source)
   }
   return [...byName.values()]
+}
+
+async function pruneRemovedSkillSources(
+  activeSkillNames: Set<string>,
+  manifest: BundledAgentPackManifest,
+): Promise<void> {
+  for (const [skillName, record] of Object.entries(manifest.skills)) {
+    if (activeSkillNames.has(skillName)) continue
+
+    const targetPath = path.join(getConfigDir(), 'skills', skillName)
+    const currentHash = await hashDirectoryIfExists(targetPath)
+    if (!currentHash || currentHash === record.installedHash) {
+      await fs.rm(targetPath, { recursive: true, force: true })
+    }
+    delete manifest.skills[skillName]
+  }
 }
 
 async function registerBundledMarketplaces(

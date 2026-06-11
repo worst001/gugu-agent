@@ -825,10 +825,16 @@ export class ConversationService {
       prepend.push(path.dirname(process.execPath))
     }
     // Desktop-launched Windows apps often miss user-local CLI install dirs.
-    // RTK's Claude hook may invoke `rtk` by name, so keep common install
-    // locations available to child CLI/tool subprocesses even when the app was
-    // not started from an interactive shell.
+    // RTK's Claude hook may invoke `rtk` by name. Prefer app-managed tools,
+    // then keep common install locations available to child CLI/tool
+    // subprocesses even when the app was not started from an interactive shell.
+    const appManagedBin = path.join(
+      process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
+      'cc-haha',
+      'bin',
+    )
     prepend.push(
+      appManagedBin,
       path.join(os.homedir(), '.local', 'bin'),
       path.join(os.homedir(), '.cargo', 'bin'),
     )

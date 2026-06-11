@@ -138,3 +138,42 @@ If Prometheus/Grafana is introduced later:
 
 Do not make high-cardinality metrics from device IDs, request IDs, order IDs, or
 task IDs. Keep those in logs.
+
+## 2026-06-11 Order Backlog Panel
+
+The gateway now exposes order backlog aggregates through `/admin/api/metrics`.
+Use this panel to catch unpaid-order growth before it turns into table noise or
+payment confusion.
+
+| Panel | Source | Green | Warning | Critical | Action |
+| --- | --- | --- | --- | --- | --- |
+| Order backlog | admin metrics `orders` | `pendingPayment <= 100`, `stalePending=0` | pending above baseline or stale pending >0 | stale pending persists after cleanup timer | Check cleanup timer, dry-run cleanup, confirm latest backup, then execute cleanup if needed |
+
+Alert thresholds:
+
+- `GUGU_ALERT_MAX_PENDING_PAYMENT_ORDERS=100`
+- `GUGU_ALERT_MAX_STALE_PENDING_ORDERS=0`
+
+Alert codes:
+
+- `PENDING_PAYMENT_ORDERS_HIGH`
+- `STALE_PENDING_ORDERS`
+
+Manual checks:
+
+```bash
+systemctl status gugu-gateway-pending-order-cleanup.timer --no-pager
+systemctl list-timers --all gugu-gateway-pending-order-cleanup.timer --no-pager
+journalctl -u gugu-gateway-pending-order-cleanup.service -n 80 --no-pager
+```
+
+Safe cleanup dry-run:
+
+```bash
+cd /root/opt/gugu
+/root/.bun/bin/bun run scripts/cleanup-pending-orders.ts \
+  --env-file /root/opt/gugu/.env
+```
+
+See also: `docs/runbooks/gateway-order-ops-runbook.md`.
+

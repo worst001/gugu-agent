@@ -5,7 +5,7 @@ description: Use RTK only for supported noisy developer-output wrappers when a c
 
 # RTK Token Saver
 
-Use RTK to keep command output small and useful. RTK wraps specific developer commands and returns compact summaries, grouped failures, and deduplicated logs instead of dumping raw output into the conversation.
+Use RTK to keep command output small and useful. RTK wraps specific developer commands and returns compact summaries, grouped failures, and deduplicated logs instead of dumping raw output into the conversation. Gugu desktop releases should provide RTK through an app-managed PATH entry; normal users should not need to install it themselves.
 
 ## Operating Rules
 
@@ -23,7 +23,7 @@ Use RTK to keep command output small and useful. RTK wraps specific developer co
 3. Never prefix arbitrary shell commands with `rtk`. In particular, do not use `rtk ls`, `rtk cd`, `rtk pwd`, `rtk mkdir`, `rtk rm`, `rtk cp`, `rtk mv`, `rtk npm`, `rtk bun install`, `rtk cargo`, `rtk powershell`, or `rtk ssh`.
 4. RTK has wrappers beyond this list, but this Gugu skill intentionally avoids them for routine work. They can add permission prompts or hide exact output in user-facing workflows.
 5. For directory listing or path inspection, use the native shell command directly: `Get-ChildItem` on Windows, `ls` on POSIX. RTK is not a general shell wrapper for Gugu.
-6. This skill is guidance, not proof that RTK is installed. If `rtk --version` fails or `rtk` is not in PATH, silently fall back to the raw command unless the user specifically asked about RTK setup.
+6. This skill is guidance, not proof that RTK is installed. If `rtk --version` fails or `rtk` is not in PATH, silently fall back to the raw command unless the user specifically asked about RTK setup. Do not ask normal Gugu users to install RTK; missing RTK is a packaging/runtime issue.
 7. For failing tests, prefer `rtk test <actual test command>` so only the relevant failures are shown.
 8. For source search, prefer CodeGraph for structural questions and RTK-backed `rg`/`grep` only for literal text.
 

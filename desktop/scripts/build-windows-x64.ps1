@@ -171,6 +171,55 @@ function Test-ArtifactMatchesAppVersion {
   return $ArtifactName.Contains("_$appVersion") -or $ArtifactName.Contains("-$appVersion")
 }
 
+function Test-RequireBundledRtk {
+  return ($env:GUGU_REQUIRE_BUNDLED_RTK -eq '1') -or ($env:CI -eq 'true') -or ($env:SIGN_BUILD -eq '1')
+}
+
+function Test-MsiContainsFile {
+  param(
+    [string]$MsiPath,
+    [string]$FileName
+  )
+
+  if (-not (Test-Path $MsiPath)) {
+    return $false
+  }
+
+  $installer = $null
+  $database = $null
+  $view = $null
+
+  try {
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $database = $installer.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $installer, @($MsiPath, 0))
+    $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @('SELECT `FileName` FROM `File`'))
+    $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+
+    while ($true) {
+      $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+      if ($null -eq $record) {
+        break
+      }
+
+      $value = $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, 1)
+      if ($value -and (($value -eq $FileName) -or ($value -like "*|$FileName") -or ($value -like "*$FileName*"))) {
+        return $true
+      }
+    }
+
+    return $false
+  } finally {
+    if ($view) {
+      $view.GetType().InvokeMember('Close', 'InvokeMethod', $null, $view, $null) | Out-Null
+    }
+    foreach ($comObject in @($view, $database, $installer)) {
+      if ($comObject) {
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($comObject) | Out-Null
+      }
+    }
+  }
+}
+
 function Resolve-OutputDirectory {
   param([string]$PreferredPath)
 
@@ -331,6 +380,20 @@ $msiInstaller = Get-LatestArtifact -SearchRoots @(
 ) -Patterns @("*$appVersion*.msi")
 
 $msiInstallerPath = if ($msiInstaller) { $msiInstaller.FullName } else { 'not found' }
+$rtkBundledInMsi = $false
+
+if ($msiInstaller) {
+  $rtkBundledInMsi = Test-MsiContainsFile -MsiPath $msiInstaller.FullName -FileName 'rtk.exe'
+  if ($rtkBundledInMsi) {
+    Write-Step 'MSI contains bundled rtk.exe'
+  } else {
+    $message = "[build-windows-x64] MSI does not contain bundled rtk.exe: $($msiInstaller.FullName)"
+    if (Test-RequireBundledRtk) {
+      throw $message
+    }
+    Write-Step "WARN: $message"
+  }
+}
 
 $canonicalMsiPath = Join-Path $activeOutputDir "Gugu-Agent-${appVersion}-windows-x64.msi"
 $canonicalMsiSignaturePath = "$canonicalMsiPath.sig"
@@ -365,6 +428,7 @@ $buildInfo = @(
   "Canonical output: $canonicalOutputDir"
   "Actual output: $activeOutputDir"
   "Windows installer (MSI): $msiInstallerPath"
+  "Bundled RTK in MSI: $rtkBundledInMsi"
   "Artifacts copied: $($copiedArtifacts.Count)"
   "Built at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')"
 )

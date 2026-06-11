@@ -1,4 +1,5 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { chmod, copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
@@ -6,6 +7,9 @@ const desktopRoot = path.resolve(import.meta.dir, '..')
 const repoRoot = path.resolve(desktopRoot, '..')
 const adaptersRoot = path.join(repoRoot, 'adapters')
 const binariesDir = path.join(desktopRoot, 'src-tauri', 'binaries')
+const rtkVendorRoot = path.join(desktopRoot, 'vendor', 'rtk')
+const rtkManifestPath = path.join(rtkVendorRoot, 'manifest.json')
+const bundledRtkVersion = '0.39.0'
 const generatedAdaptersModule = path.join(
   desktopRoot,
   'sidecars',
@@ -58,6 +62,7 @@ if (scanExit !== 0) {
 
 await mkdir(binariesDir, { recursive: true })
 await removeStaleSidecars()
+await prepareBundledRtk(targetTriple)
 
 // 单一合并 sidecar：server / cli 共享一份 bun runtime + 共享依赖代码。
 // 调用方（Tauri lib.rs / conversationService）通过第一个 positional 参数
@@ -75,11 +80,99 @@ async function removeStaleSidecars() {
   const staleNames = [
     `claude-sidecar-${targetTriple}`,
     `gugu-sidecar-${targetTriple}`,
+    `rtk-${targetTriple}`,
   ]
   for (const name of staleNames) {
     await rm(path.join(binariesDir, name), { force: true })
     await rm(path.join(binariesDir, `${name}.exe`), { force: true })
   }
+}
+
+type RtkManifest = {
+  version: string
+  targets: Record<string, { file: string; sha256: string }>
+}
+
+async function prepareBundledRtk(triple: string) {
+  const strict = requiresBundledRtk(triple)
+  let manifest: RtkManifest
+
+  try {
+    manifest = JSON.parse(await readFile(rtkManifestPath, 'utf8')) as RtkManifest
+  } catch (error) {
+    const message = `[build-sidecars] bundled RTK manifest is missing or invalid: ${rtkManifestPath}`
+    if (strict) throw new Error(`${message}\n${String(error)}`)
+    console.warn(`${message}; continuing without app-managed RTK`)
+    return
+  }
+
+  if (manifest.version !== bundledRtkVersion) {
+    throw new Error(
+      `[build-sidecars] bundled RTK manifest version ${manifest.version} does not match runtime expectation ${bundledRtkVersion}`,
+    )
+  }
+
+  const target = manifest.targets[triple]
+  if (!target?.file || !target.sha256) {
+    const message = `[build-sidecars] no bundled RTK entry for target ${triple}`
+    if (strict) throw new Error(message)
+    console.warn(`${message}; continuing without app-managed RTK`)
+    return
+  }
+
+  const source = path.join(rtkVendorRoot, triple, target.file)
+  const destination = path.join(binariesDir, externalBinaryOutputName('rtk', triple))
+
+  try {
+    const sourceStat = await stat(source)
+    if (!sourceStat.isFile() || sourceStat.size === 0) {
+      throw new Error('source is empty or not a file')
+    }
+  } catch (error) {
+    const message = `[build-sidecars] bundled RTK binary is missing for ${triple}: ${source}`
+    if (strict) throw new Error(`${message}\n${String(error)}`)
+    console.warn(`${message}; continuing without app-managed RTK`)
+    return
+  }
+
+  const actualSha256 = await sha256File(source)
+  if (actualSha256 !== target.sha256.toLowerCase()) {
+    throw new Error(
+      `[build-sidecars] bundled RTK sha256 mismatch for ${triple}: ${actualSha256} != ${target.sha256}`,
+    )
+  }
+
+  await copyFile(source, destination)
+  await chmod(destination, 0o755)
+
+  if (process.platform === 'darwin') {
+    await adHocSignMacBinary(destination)
+  }
+
+  console.log(`[build-sidecars] Bundled RTK ${manifest.version} for ${triple} -> ${destination}`)
+}
+
+function requiresBundledRtk(triple: string) {
+  if (process.env.GUGU_REQUIRE_BUNDLED_RTK === '1') {
+    return true
+  }
+  if (!triple.includes('windows')) {
+    return false
+  }
+  return (
+    process.env.CI === 'true' ||
+    process.env.SIGN_BUILD === '1'
+  )
+}
+
+function externalBinaryOutputName(base: string, triple: string) {
+  return `${base}-${triple}${triple.includes('windows') ? '.exe' : ''}`
+}
+
+async function sha256File(filePath: string) {
+  const hash = createHash('sha256')
+  hash.update(await readFile(filePath))
+  return hash.digest('hex')
 }
 
 async function detectHostTriple() {

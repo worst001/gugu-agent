@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { createHash } from 'node:crypto'
 import { bootstrapBundledAgentPack } from '../services/bundledAgentPackService.js'
 import { PluginService } from '../services/pluginService.js'
 import { clearMarketplacesCache } from '../../utils/plugins/marketplaceManager.js'
@@ -119,6 +120,12 @@ describe('bundled agent pack bootstrap', () => {
         source: 'user',
       }),
     )
+    expect(skillsBody.skills).toContainEqual(
+      expect.objectContaining({
+        name: 'rtk-token-saver',
+        source: 'user',
+      }),
+    )
 
     const pluginsRes = await handleApiRequest(
       new Request('http://localhost/api/plugins'),
@@ -131,6 +138,37 @@ describe('bundled agent pack bootstrap', () => {
     expect(pluginsBody.summary.total).toBeGreaterThan(0)
     expect(pluginsBody.summary.enabled).toBeGreaterThan(0)
   })
+
+  test('prunes previously installed bundled skills that are no longer shipped', async () => {
+    const configDir = path.join(tmpDir, 'config')
+    const installedLegacySkill = path.join(configDir, 'skills', 'legacy-removed-skill')
+    await fs.mkdir(installedLegacySkill, { recursive: true })
+    await fs.writeFile(
+      path.join(installedLegacySkill, 'SKILL.md'),
+      '# Legacy Removed Skill\n',
+      'utf-8',
+    )
+    const installedHash = await hashTestDirectory(installedLegacySkill)
+    await writeJson(path.join(configDir, 'cc-haha', 'bundled-agent-pack.json'), {
+      version: 1,
+      sourceRoot: packDir,
+      skills: {
+        'legacy-removed-skill': {
+          sourceHash: installedHash,
+          installedHash,
+          sourcePath: path.join(packDir, 'legacy-removed-skill'),
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      plugins: {},
+    })
+
+    await bootstrapBundledAgentPack()
+
+    await expect(fs.access(installedLegacySkill)).rejects.toThrow()
+    const manifest = await readJson(path.join(configDir, 'cc-haha', 'bundled-agent-pack.json'))
+    expect(manifest.skills).not.toHaveProperty('legacy-removed-skill')
+  })
 })
 
 async function writeFixturePack(root: string): Promise<void> {
@@ -138,6 +176,12 @@ async function writeFixturePack(root: string): Promise<void> {
   await fs.writeFile(
     path.join(root, 'api-and-interface-design', 'SKILL.md'),
     '# API Skill\n',
+    'utf-8',
+  )
+  await fs.mkdir(path.join(root, 'rtk-token-saver'), { recursive: true })
+  await fs.writeFile(
+    path.join(root, 'rtk-token-saver', 'SKILL.md'),
+    '# RTK Token Saver\n',
     'utf-8',
   )
 
@@ -238,4 +282,28 @@ function restoreEnv(name: string, value: string | undefined): void {
   } else {
     process.env[name] = value
   }
+}
+
+async function hashTestDirectory(dir: string): Promise<string> {
+  const hash = createHash('sha256')
+  const files = await listTestFiles(dir)
+  for (const filePath of files.sort()) {
+    const relative = path.relative(dir, filePath).replace(/\\/g, '/')
+    hash.update(relative)
+    hash.update('\0')
+    hash.update(await fs.readFile(filePath))
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
+async function listTestFiles(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true })
+  const files: string[] = []
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...await listTestFiles(fullPath))
+    else if (entry.isFile()) files.push(fullPath)
+  }
+  return files
 }

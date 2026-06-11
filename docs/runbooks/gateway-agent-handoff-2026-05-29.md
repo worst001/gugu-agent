@@ -531,3 +531,46 @@ curl -fsS https://gugu.guxingyao.com/health
 ## 给下一位 gateway agent 的 prompt
 
 请从 `docs/runbooks/gateway-agent-handoff-2026-05-29.md` 接手 gateway。当前生产在 `139.196.214.54`，运行目录 `/root/opt/gugu`，服务 `gugu-gateway.service`，MySQL `gugu_gateway` 已是 active store，Redis limiter/circuit 已启用，微信和支付宝真实支付已验证。Phase 2 alert check 已部署到生产并由 `gugu-gateway-alert.timer` 每 5 分钟运行；用户已决定跳过外部 webhook 配置，因此先依赖 journald JSON 和 systemd failure。Phase 4 attachment task 已完成 Redis metadata/status/lease 小流量灰度和 24h+ 观察：`GUGU_ATTACHMENT_TASKS_ENABLED=1`、`GUGU_REDIS_ATTACHMENT_TASKS_ENABLED=1`，admin metrics 应显示 `attachmentTasks.enabled=true`、`redisEnabled=true`、`backend=redis`、`fallbackActive=false`。Phase 5A-5E 已完成准备：本地 Docker 沙盒、Compose 自动验收、gateway-only 切换/回滚 runbook、生产 Docker readiness、预警面板、真实存储 map、扩容路线、运维交接、off-host backup staging/verify 脚本和 runbook；生产尚未切 Docker，也未连接真实 off-host backup target。不要把用户附件 payload 放 OSS；单机阶段仍只用本机私有 spool `/var/lib/gugu-gateway/attachment-tasks`。下一步优先选择真实 off-host backup target 并做一次生产 restore rehearsal，或继续 DeepSeek V4 provider-neutral worker 扩展；不要马上推进多实例或 OSS。DeepSeek V4 多模态后续会上线，task 协议必须保持 provider-neutral。
+
+## 2026-06-11 Cache/Duplicate 48h Observation and Order Closeout
+
+The corrected production observation window for cache telemetry and duplicate large-request observation is complete.
+
+- Observation endpoint: `GUGU_PUBLIC_BASE_URL=https://gugu.guxingyao.com`; do not use `gugu.moly.host`.
+- Local and public `/health` remained OK.
+- `gateway-alert-check` remained `ok=true issues=[]`.
+- `duplicateLargeRequests` remained Redis-backed with `fallbackActive=false`.
+- Final observed duplicate state: `observed=131`, `duplicates=0`, `redisErrors=0`.
+- Recent cache telemetry continued to populate `cacheHitInputTokens`, `cacheMissInputTokens`, and `cacheTelemetrySource`.
+- `duplicateLargeRequestRepeated` stayed at 0.
+- Referral remained enabled, but no real referral orders or rewards were observed during the completed window.
+
+Conclusion: cache telemetry and duplicate large-request observation are stable enough to mark the 48h observation as passed. Do not enable hard duplicate blocking yet; keep it as observation-only until real repeated duplicate traffic appears and the user impact is understood.
+
+Order closeout also landed on 2026-06-11:
+
+- Before cleanup: `orders=43`, `pending_payment=31`, `cancelled=8`, `fulfilled=4`.
+- All 31 pending orders were expired QR-payment orders; no stale manual no-expiry pending orders were found.
+- Pre-mutation backup: `/var/backups/gugu-gateway/gateway-mysql-20260611-152513.sql`, sha256 `1777a67b4036ef20c24dd0f367b630c38d72be8652061f35bd4c8c0cc7b04967`.
+- Manual cleanup marked 31 historical pending orders as `cancelled`; no rows were deleted.
+- Post-cleanup: `cancelled=39`, `fulfilled=4`, stale pending dry-run count 0.
+- `gugu-gateway-pending-order-cleanup.timer` is installed and active. It runs hourly and calls `scripts/cleanup-pending-orders.ts --execute`.
+- `/admin/api/metrics` now exposes aggregate `orders` backlog values only.
+- `gateway-alert-check` now warns on `PENDING_PAYMENT_ORDERS_HIGH` and `STALE_PENDING_ORDERS`.
+- Production after deploy: `gugu-gateway` active, local/public health OK, alert-check OK with `issues=[]`.
+
+New/updated operational docs:
+
+- `docs/runbooks/gateway-order-ops-runbook.md`
+- `docs/runbooks/gateway-warning-dashboard.md`
+
+Current order status: the order/payment chain can be treated as phase-closed. Remaining order-related work is observation/operations only: first real referral order validation, optional daily finance/order summary after off-host backup is connected, and eventual cancelled-order archival only when volume or retention policy requires it.
+
+Current recommended queue:
+
+1. Keep this handoff/runbook current with the 48h observation pass and order closeout.
+2. Connect a real off-host backup target and run restore rehearsal from the off-host copy.
+3. Observe the first real referral order and reward.
+4. Continue DeepSeek V4 / provider-neutral worker work.
+5. Reconsider Docker cutover last, after backup and provider work are stable.
+

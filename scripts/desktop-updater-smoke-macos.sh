@@ -32,6 +32,8 @@ CLEANUP_HOSTS_RESTORED="false"
 CLEANUP_STAGING_SERVER_STOPPED="false"
 CLEANUP_TEMP_CERT_REMOVED="false"
 CLEANUP_ONLINE_LATEST_VERSION=""
+RTK_VERSION_OK="false"
+RTK_GIT_STATUS_OK="false"
 SETUP_COMPLETED="0"
 
 usage() {
@@ -482,6 +484,23 @@ verify_app() {
   [[ -x "${sidecar}" ]] || fail "Sidecar is missing or not executable: ${sidecar}"
   codesign --verify --verbose=2 "${sidecar}"
 
+  local rtk="${APP_PATH}/Contents/MacOS/rtk"
+  if [[ -x "${rtk}" ]]; then
+    codesign --verify --verbose=2 "${rtk}"
+    if "${rtk}" --version | grep -q '^rtk 0\.39\.0'; then
+      RTK_VERSION_OK="true"
+    else
+      log "WARN: bundled RTK version check failed; macOS bundled RTK is not enforced yet"
+    fi
+    if (cd "${REPO_ROOT}" && "${rtk}" git status >/dev/null); then
+      RTK_GIT_STATUS_OK="true"
+    else
+      log "WARN: bundled RTK git status check failed; macOS bundled RTK is not enforced yet"
+    fi
+  else
+    log "WARN: RTK is missing or not executable: ${rtk}; macOS bundled RTK is not enforced yet"
+  fi
+
   if [[ "${OPEN_APP}" == "1" ]]; then
     open "${APP_PATH}"
     sleep 8
@@ -509,6 +528,8 @@ write_receipt() {
   TESTER="$(whoami)" \
   MACHINE="$(sw_vers -productName) $(sw_vers -productVersion) $(sw_vers -buildVersion), $(uname -m)" \
   APP_RELAUNCH_OK="${OPEN_APP}" \
+  RTK_VERSION_OK="${RTK_VERSION_OK}" \
+  RTK_GIT_STATUS_OK="${RTK_GIT_STATUS_OK}" \
   HOSTS_RESTORED="${CLEANUP_HOSTS_RESTORED}" \
   STAGING_SERVER_STOPPED="${CLEANUP_STAGING_SERVER_STOPPED}" \
   TEMP_CERT_REMOVED="${CLEANUP_TEMP_CERT_REMOVED}" \
@@ -531,6 +552,8 @@ const receipt = {
   },
   checks: {
     appVersionOk: true,
+    rtkVersionOk: bool("RTK_VERSION_OK"),
+    rtkGitStatusOk: bool("RTK_GIT_STATUS_OK"),
     sidecarOk: bool("SIDECAR_OK"),
     codesignStrict: true,
     appRelaunchOk: bool("APP_RELAUNCH_OK"),
