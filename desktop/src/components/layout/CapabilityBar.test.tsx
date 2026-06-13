@@ -24,7 +24,7 @@ const summary: CapabilitySummary = {
     status: 'needs_config',
     enabled: true,
     hasApiKey: false,
-    label: 'Needs key',
+    label: 'Needs GLM key',
   },
   mcp: {
     total: 2,
@@ -80,7 +80,7 @@ describe('CapabilityBar', () => {
     expect(screen.getByText('DeepSeek')).toBeInTheDocument()
     expect(screen.getByText('DeepSeek V4 Pro')).toBeInTheDocument()
     expect(screen.getByText('Max')).toBeInTheDocument()
-    expect(screen.getByText('Needs key')).toBeInTheDocument()
+    expect(screen.getByText('Needs GLM key')).toBeInTheDocument()
     expect(screen.getByText('1 need attention')).toBeInTheDocument()
     expect(screen.getByText('Terminal')).toBeInTheDocument()
     expect(screen.getByText('Host shell')).toBeInTheDocument()

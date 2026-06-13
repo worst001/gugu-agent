@@ -9,7 +9,7 @@ const adaptersRoot = path.join(repoRoot, 'adapters')
 const binariesDir = path.join(desktopRoot, 'src-tauri', 'binaries')
 const rtkVendorRoot = path.join(desktopRoot, 'vendor', 'rtk')
 const rtkManifestPath = path.join(rtkVendorRoot, 'manifest.json')
-const bundledRtkVersion = '0.39.0'
+const bundledRtkVersion = '0.42.3'
 const generatedAdaptersModule = path.join(
   desktopRoot,
   'sidecars',
@@ -156,7 +156,7 @@ function requiresBundledRtk(triple: string) {
   if (process.env.GUGU_REQUIRE_BUNDLED_RTK === '1') {
     return true
   }
-  if (!triple.includes('windows')) {
+  if (!triple.includes('windows') && !triple.includes('darwin')) {
     return false
   }
   return (

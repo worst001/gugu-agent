@@ -121,6 +121,7 @@ export type MessageEntry = {
   content: unknown
   timestamp: string
   model?: string
+  origin?: { kind?: string }
   parentUuid?: string
   parentToolUseId?: string
   isSidechain?: boolean
@@ -201,11 +202,13 @@ type RawEntry = {
   parent_tool_use_id?: string | null
   isSidechain?: boolean
   isMeta?: boolean
+  origin?: { kind?: string }
   cwd?: string
   message?: {
     role?: string
     content?: unknown
     model?: string
+    origin?: { kind?: string }
     id?: string
     type?: string
     usage?: {
@@ -377,6 +380,7 @@ export class SessionService {
       content: msg.content,
       timestamp: entry.timestamp || new Date().toISOString(),
       model: msg.model,
+      origin: entry.origin ?? msg.origin,
       parentUuid: entry.parentUuid ?? undefined,
       parentToolUseId,
       isSidechain: entry.isSidechain,
@@ -1843,6 +1847,7 @@ export class SessionService {
     const messages: MessageEntry[] = []
     const entriesByUuid = new Map<string, RawEntry>()
     const parentToolUseIdCache = new Map<string, string | undefined>()
+    let pendingOrigin: { kind?: string } | undefined
 
     for (const entry of entries) {
       if (typeof entry.uuid === 'string' && entry.uuid.length > 0) {
@@ -1855,7 +1860,12 @@ export class SessionService {
       if (!entry.message?.role) continue
 
       // Skip meta entries (CLI internal bookkeeping)
-      if (entry.isMeta) continue
+      if (entry.isMeta) {
+        if (this.isProactiveTickEntry(entry)) {
+          pendingOrigin = { kind: 'proactive_tick' }
+        }
+        continue
+      }
 
       if (this.shouldHideTranscriptEntry(entry)) continue
 
@@ -1876,10 +1886,33 @@ export class SessionService {
       )
       const msg = this.entryToMessage(entry, parentToolUseId)
       if (msg) {
+        if (msg.type === 'user') {
+          pendingOrigin = undefined
+        } else if (pendingOrigin) {
+          msg.origin = pendingOrigin
+        }
         messages.push(msg)
       }
     }
     return messages
+  }
+
+  private isProactiveTickEntry(entry: RawEntry): boolean {
+    const origin = entry.origin ?? entry.message?.origin
+    if (origin?.kind === 'proactive_tick') return true
+
+    const content = entry.message?.content
+    if (typeof content === 'string') return this.isProactiveTickText(content)
+    if (!Array.isArray(content)) return false
+    return content.some((block) => {
+      if (!block || typeof block !== 'object') return false
+      const text = (block as { text?: unknown }).text
+      return typeof text === 'string' && this.isProactiveTickText(text)
+    })
+  }
+
+  private isProactiveTickText(text: string): boolean {
+    return /<tick(?:\s[^>]*)?>[\s\S]*?<\/tick>/.test(text)
   }
 
   private async pathExists(targetPath: string | null): Promise<boolean> {

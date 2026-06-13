@@ -201,14 +201,14 @@ export const useCapabilityStore = create<CapabilityStore>((set, get) => ({
 function getAttachmentParserLabel(status: AttachmentParserCapabilityStatus): string {
   switch (status) {
     case 'ready':
-      return 'Ready'
+      return 'Parser ready'
     case 'needs_config':
-      return 'Needs key'
+      return 'Needs GLM key'
     case 'error':
-      return 'Error'
+      return 'Parser error'
     case 'off':
     default:
-      return 'Off'
+      return 'Parser off'
   }
 }
 

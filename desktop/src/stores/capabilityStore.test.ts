@@ -176,6 +176,25 @@ describe('capabilityStore', () => {
     expect(useCapabilityStore.getState().summary.attachmentParser.status).toBe('needs_config')
   })
 
+  it('treats Gugu managed attachment parsing as ready without a local GLM key', async () => {
+    vi.mocked(attachmentParserApi.getConfig).mockResolvedValueOnce({
+      config: {
+        enabled: true,
+        mode: 'managed',
+        hasApiKey: false,
+        apiKey: '',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        visionModel: 'glm-5v-turbo',
+        ocrModel: 'glm-ocr',
+        summarizeModel: 'glm-5.1',
+      },
+    })
+
+    await useCapabilityStore.getState().refreshCapabilities(undefined, { force: true })
+
+    expect(useCapabilityStore.getState().summary.attachmentParser.status).toBe('ready')
+  })
+
   it('keeps a partial summary when one capability endpoint fails', async () => {
     vi.mocked(skillsApi.list).mockRejectedValueOnce(new Error('skills unavailable'))
 

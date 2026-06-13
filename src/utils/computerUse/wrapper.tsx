@@ -309,14 +309,23 @@ async function loadPreAuthorizedApps(): Promise<void> {
   // desktop settings immediately, even when no apps are pre-authorized yet.
   currentToolUseContext.setAppState(prev => {
     const existing = prev.computerUseMcpState?.allowedApps ?? []
-    const existingIds = new Set(existing.map(a => a.bundleId))
-    const merged = [...existing, ...apps.filter(a => !existingIds.has(a.bundleId))]
+    const mergedByBundleId = new Map(existing.map(a => [a.bundleId, a]))
+    for (const app of apps) {
+      mergedByBundleId.set(app.bundleId, app)
+    }
+    const merged = [...mergedByBundleId.values()]
     const currentFlags = prev.computerUseMcpState?.grantFlags
     const sameFlags =
       currentFlags?.clipboardRead === flags.clipboardRead &&
       currentFlags?.clipboardWrite === flags.clipboardWrite &&
       currentFlags?.systemKeyCombos === flags.systemKeyCombos
     const sameApps = existing.length === merged.length
+      && existing.every((app, index) => {
+        const next = merged[index]
+        return next?.bundleId === app.bundleId
+          && next?.displayName === app.displayName
+          && next?.tier === app.tier
+      })
 
     if (sameFlags && sameApps) {
       return prev

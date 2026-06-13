@@ -290,10 +290,12 @@ sign_canonical_app_bundle() {
     sidecar_cdhash_before="$(codesign_cdhash "${sidecar}")"
   fi
 
-  if [[ -x "${rtk}" ]]; then
-    codesign --force --sign - --timestamp=none "${rtk}"
-    codesign --verify --verbose=2 "${rtk}"
+  if [[ ! -x "${rtk}" ]]; then
+    echo "[build-macos-arm64] ERROR: bundled RTK is missing or not executable: ${rtk}" >&2
+    exit 1
   fi
+  codesign --force --sign - --timestamp=none "${rtk}"
+  codesign --verify --verbose=2 "${rtk}"
 
   # Tauri --no-sign leaves the outer .app with no sealed resources, which
   # fails strict bundle validation once Resources/icon.icns exists. Sign only
@@ -363,9 +365,9 @@ verify_updater_archive() {
 
   local extracted_rtk="${extracted_app}/Contents/MacOS/rtk"
   if [[ ! -x "${extracted_rtk}" ]]; then
-    echo "[build-macos-arm64] WARN: updater archive is missing executable Contents/MacOS/rtk; macOS bundled RTK is not enforced yet" >&2
+    echo "[build-macos-arm64] ERROR: updater archive is missing executable Contents/MacOS/rtk" >&2
     rm -rf "${extract_dir}"
-    return
+    exit 1
   fi
 
   codesign --verify --verbose=2 "${extracted_rtk}"

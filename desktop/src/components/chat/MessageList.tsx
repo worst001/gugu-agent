@@ -38,6 +38,16 @@ type RenderModel = {
   childToolCallsByParent: Map<string, ToolCall[]>
 }
 
+function isHiddenProactiveTickMessage(message: UIMessage): boolean {
+  if (message.type === 'thinking' || message.type === 'tool_use') {
+    return message.origin === 'proactive_tick'
+  }
+  if (message.type === 'tool_result') {
+    return message.origin === 'proactive_tick' && !message.isError
+  }
+  return false
+}
+
 type AssistantTextMessage = Extract<UIMessage, { type: 'assistant_text' }>
 type UserTextMessage = Extract<UIMessage, { type: 'user_text' }>
 
@@ -192,12 +202,14 @@ export function buildRenderModel(messages: UIMessage[]): RenderModel {
   }
 
   for (const msg of messages) {
+    if (isHiddenProactiveTickMessage(msg)) continue
     if (msg.type === 'tool_result' && msg.isError && isHiddenToolErrorContent(msg.content)) {
       hiddenToolUseIds.add(msg.toolUseId)
     }
   }
 
   for (const msg of messages) {
+    if (isHiddenProactiveTickMessage(msg)) continue
     if (msg.type === 'tool_use') {
       if (hiddenToolUseIds.has(msg.toolUseId)) continue
       toolUseIds.add(msg.toolUseId)
@@ -209,6 +221,9 @@ export function buildRenderModel(messages: UIMessage[]): RenderModel {
   }
 
   for (const msg of messages) {
+    if (isHiddenProactiveTickMessage(msg)) {
+      continue
+    }
     if (msg.type === 'assistant_text' && !msg.content.trim()) {
       continue
     }
@@ -378,9 +393,11 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const activeToolName = sessionState?.activeToolName ?? null
   const activeToolUseId = sessionState?.activeToolUseId ?? null
   const pendingPermission = sessionState?.pendingPermission ?? null
+  const pendingComputerUsePermission = sessionState?.pendingComputerUsePermission ?? null
   const historyLoading = sessionState?.historyLoading ?? false
   const historyLoadError = sessionState?.historyLoadError ?? null
   const activeThinkingId = sessionState?.activeThinkingId ?? null
+  const currentTurnOrigin = sessionState?.currentTurnOrigin ?? null
   const isWaitingForFirstResponseToken =
     chatState === 'streaming' && streamingText.trim().length === 0
   const agentTaskNotifications = sessionState?.agentTaskNotifications ?? {}
@@ -538,9 +555,13 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const hasActiveThinkingBlock = activeThinkingId
     ? messages.some((message) => message.type === 'thinking' && message.id === activeThinkingId)
     : false
+  const suppressTickActivityPanel =
+    currentTurnOrigin === 'proactive_tick' &&
+    !pendingPermission &&
+    !pendingComputerUsePermission
   const shouldShowActivityPanel =
-    chatState !== 'idle' ||
-    Boolean(streamingText)
+    !suppressTickActivityPanel &&
+    (chatState !== 'idle' || Boolean(streamingText))
 
   useEffect(() => {
     if (!resolvedSessionId) {

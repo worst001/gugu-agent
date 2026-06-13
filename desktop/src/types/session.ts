@@ -17,6 +17,7 @@ export type MessageEntry = {
   content: unknown
   timestamp: string
   model?: string
+  origin?: { kind?: string }
   parentUuid?: string
   parentToolUseId?: string
   isSidechain?: boolean

@@ -8,6 +8,7 @@ import { GUGU_MANAGED_PROVIDER_ID, ProviderService } from '../services/providerS
 describe('ConversationService', () => {
   let tmpDir: string
   let originalConfigDir: string | undefined
+  let originalApiKey: string | undefined
   let originalAuthToken: string | undefined
   let originalBaseUrl: string | undefined
   let originalModel: string | undefined
@@ -22,6 +23,7 @@ describe('ConversationService', () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-conversation-service-'))
     originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+    originalApiKey = process.env.ANTHROPIC_API_KEY
     originalAuthToken = process.env.ANTHROPIC_AUTH_TOKEN
     originalBaseUrl = process.env.ANTHROPIC_BASE_URL
     originalModel = process.env.ANTHROPIC_MODEL
@@ -51,6 +53,9 @@ describe('ConversationService', () => {
   afterEach(async () => {
     if (originalConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
     else process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+
+    if (originalApiKey === undefined) delete process.env.ANTHROPIC_API_KEY
+    else process.env.ANTHROPIC_API_KEY = originalApiKey
 
     if (originalAuthToken === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN
     else process.env.ANTHROPIC_AUTH_TOKEN = originalAuthToken
@@ -85,6 +90,13 @@ describe('ConversationService', () => {
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
+  function clearInlineProviderCredentials() {
+    delete process.env.ANTHROPIC_API_KEY
+    delete process.env.ANTHROPIC_AUTH_TOKEN
+    delete process.env.ANTHROPIC_BASE_URL
+    delete process.env.ANTHROPIC_MODEL
+  }
+
   test('keeps inherited provider env when no desktop provider config exists', async () => {
     const service = new ConversationService() as any
     const env = (await service.buildChildEnv('D:\\workspace\\code\\myself_code\\cc-haha')) as Record<string, string>
@@ -103,7 +115,25 @@ describe('ConversationService', () => {
     expect(paths).toContain(path.join(os.homedir(), '.cargo', 'bin'))
   })
 
+  test('buildChildEnv keeps inherited bundled RTK path ahead of user-writable fallback bins', () => {
+    const service = new ConversationService() as any
+    const sep = process.platform === 'win32' ? ';' : ':'
+    const bundledRtkDir = path.join(tmpDir, 'tauri', 'resources')
+    const env = {
+      PATH: [bundledRtkDir, path.join(tmpDir, 'system-bin')].join(sep),
+    } as Record<string, string>
+
+    service.augmentPathForCliSubprocess(env)
+
+    const paths = env.PATH.split(sep)
+    const ccHahaBin = path.join(tmpDir, 'cc-haha', 'bin')
+    expect(paths).toContain(bundledRtkDir)
+    expect(paths).toContain(ccHahaBin)
+    expect(paths.indexOf(bundledRtkDir)).toBeLessThan(paths.indexOf(ccHahaBin))
+  })
+
   test('strips inherited provider env when desktop provider config exists', async () => {
+    clearInlineProviderCredentials()
     const ccHahaDir = path.join(tmpDir, 'cc-haha')
     await fs.mkdir(ccHahaDir, { recursive: true })
     await fs.writeFile(
@@ -121,6 +151,7 @@ describe('ConversationService', () => {
   })
 
   test('buildChildEnv injects CLAUDE_CODE_OAUTH_TOKEN when official mode + haha oauth token exists', async () => {
+    clearInlineProviderCredentials()
     const ccHahaDir = path.join(tmpDir, 'cc-haha')
     await fs.mkdir(ccHahaDir, { recursive: true })
     await fs.writeFile(
@@ -320,6 +351,7 @@ describe('ConversationService', () => {
   })
 
   test('buildChildEnv can force official auth even when a custom default provider exists', async () => {
+    clearInlineProviderCredentials()
     const ccHahaDir = path.join(tmpDir, 'cc-haha')
     await fs.mkdir(ccHahaDir, { recursive: true })
     await fs.writeFile(
@@ -348,6 +380,7 @@ describe('ConversationService', () => {
   })
 
   test('buildChildEnv does not leak inherited CLAUDE_CODE_OAUTH_TOKEN when official token is unavailable', async () => {
+    clearInlineProviderCredentials()
     const ccHahaDir = path.join(tmpDir, 'cc-haha')
     await fs.mkdir(ccHahaDir, { recursive: true })
     await fs.writeFile(
@@ -404,7 +437,7 @@ describe('ConversationService', () => {
     expect(args).toContain('--sdk-url')
     expect(args).toContain('--replay-user-messages')
     expect(args).toContain('--max-turns')
-    expect(args).toContain('20')
+    expect(args).toContain('40')
   })
 
   test('buildChildEnv asks desktop SDK sessions to wait briefly for MCP tools', async () => {

@@ -20,6 +20,7 @@ PORT="443"
 SKIP_PREVIOUS_CHECK="0"
 NO_CLEANUP="0"
 OPEN_APP="1"
+RTK_EXPECTED_VERSION="0.42.3"
 
 SERVER_PID=""
 HOSTS_BACKUP=""
@@ -487,18 +488,21 @@ verify_app() {
   local rtk="${APP_PATH}/Contents/MacOS/rtk"
   if [[ -x "${rtk}" ]]; then
     codesign --verify --verbose=2 "${rtk}"
-    if "${rtk}" --version | grep -q '^rtk 0\.39\.0'; then
+    if [[ "$("${rtk}" --version)" == "rtk ${RTK_EXPECTED_VERSION}"* ]]; then
       RTK_VERSION_OK="true"
     else
-      log "WARN: bundled RTK version check failed; macOS bundled RTK is not enforced yet"
+      log "ERROR: bundled RTK version check failed; expected ${RTK_EXPECTED_VERSION}"
+      return 1
     fi
     if (cd "${REPO_ROOT}" && "${rtk}" git status >/dev/null); then
       RTK_GIT_STATUS_OK="true"
     else
-      log "WARN: bundled RTK git status check failed; macOS bundled RTK is not enforced yet"
+      log "ERROR: bundled RTK git status check failed"
+      return 1
     fi
   else
-    log "WARN: RTK is missing or not executable: ${rtk}; macOS bundled RTK is not enforced yet"
+    log "ERROR: RTK is missing or not executable: ${rtk}"
+    return 1
   fi
 
   if [[ "${OPEN_APP}" == "1" ]]; then
@@ -582,7 +586,8 @@ JS
 
 verify_and_cleanup() {
   load_state
-  verify_app
+  local verify_status=0
+  verify_app || verify_status=$?
 
   if [[ "${NO_CLEANUP}" == "1" ]]; then
     CLEANUP_HOSTS_RESTORED="false"
@@ -594,6 +599,9 @@ verify_and_cleanup() {
   fi
 
   write_receipt
+  if [[ "${verify_status}" != "0" ]]; then
+    exit "${verify_status}"
+  fi
 }
 
 if [[ "${MODE}" == "setup" ]]; then

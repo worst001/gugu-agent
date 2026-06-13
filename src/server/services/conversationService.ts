@@ -819,29 +819,30 @@ export class ConversationService {
    */
   private augmentPathForCliSubprocess(env: Record<string, string>): void {
     const sep = process.platform === 'win32' ? ';' : ':'
-    const prepend: string[] = []
+    const beforeInheritedPath: string[] = []
+    const afterInheritedPath: string[] = []
     const exeBase = path.basename(process.execPath).replace(/\.exe$/i, '')
     if (exeBase === 'bun') {
-      prepend.push(path.dirname(process.execPath))
+      beforeInheritedPath.push(path.dirname(process.execPath))
     }
     // Desktop-launched Windows apps often miss user-local CLI install dirs.
-    // RTK's Claude hook may invoke `rtk` by name. Prefer app-managed tools,
-    // then keep common install locations available to child CLI/tool
-    // subprocesses even when the app was not started from an interactive shell.
+    // Tauri already prepends verified app-managed RTK to the inherited PATH.
+    // Keep inherited PATH before user-writable fallback dirs so a stale
+    // ~/.claude/cc-haha/bin/rtk cannot shadow the signed bundled binary.
     const appManagedBin = path.join(
       process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
       'cc-haha',
       'bin',
     )
-    prepend.push(
+    afterInheritedPath.push(
       appManagedBin,
       path.join(os.homedir(), '.local', 'bin'),
       path.join(os.homedir(), '.cargo', 'bin'),
     )
     const homeBun = path.join(os.homedir(), '.bun', 'bin')
-    if (fs.existsSync(homeBun)) prepend.push(homeBun)
+    if (fs.existsSync(homeBun)) afterInheritedPath.push(homeBun)
     const tail = (env.PATH ?? '').split(sep).filter(Boolean)
-    const merged = [...prepend, ...tail]
+    const merged = [...beforeInheritedPath, ...tail, ...afterInheritedPath]
     const deduped: string[] = []
     const seen = new Set<string>()
     for (const p of merged) {
@@ -951,6 +952,10 @@ export class ConversationService {
     )
     if (serverUsesInlineApiCreds) {
       return false
+    }
+
+    if (providerId === null) {
+      return true
     }
 
     const configDir =

@@ -1,9 +1,13 @@
 {
-  "version": "0.39.0",
+  "version": "0.42.3",
   "targets": {
     "x86_64-pc-windows-msvc": {
       "file": "rtk.exe",
-      "sha256": "731583957e8cea7cfa858fb56835c001b71f75e595710a5441ebaee12fc6c83b"
+      "sha256": "16f5a93780841f49a70c11de090cc80b6aad3c4f103e314da05bd951cf3079ef"
+    },
+    "aarch64-apple-darwin": {
+      "file": "rtk",
+      "sha256": "2ba8392a82b2bc83d0dc5963f213f8aa87f270f9f548b77b884b7df11dfc111c"
     }
   }
 }

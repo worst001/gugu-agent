@@ -63,10 +63,10 @@ export const zh: Record<TranslationKey, string> = {
   'capabilities.mcpAttention': '{count} 个需处理',
   'capabilities.scanning': '统计中',
   'capabilities.pluginErrors': '{count} 个错误',
-  'capabilities.parser.off': '关闭',
-  'capabilities.parser.needs_config': '需配置 Key',
-  'capabilities.parser.ready': '就绪',
-  'capabilities.parser.error': '错误',
+  'capabilities.parser.off': '文件解析关闭',
+  'capabilities.parser.needs_config': '需配置 GLM Key',
+  'capabilities.parser.ready': '解析就绪',
+  'capabilities.parser.error': '解析错误',
 
   // Agent workbench
   'workbench.title': 'Agent 工作台',

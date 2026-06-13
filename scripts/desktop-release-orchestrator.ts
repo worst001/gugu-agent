@@ -850,7 +850,7 @@ async function assertMacArchiveHasCodeResources(gate: Gate, paths: ReleasePaths)
   if (hasRtk) {
     gate.pass('macOS updater archive includes Contents/MacOS/rtk')
   } else {
-    gate.warn('macOS updater archive is missing Contents/MacOS/rtk; macOS bundled RTK is not enforced yet')
+    gate.fail('macOS updater archive is missing Contents/MacOS/rtk')
   }
 }
 
@@ -979,9 +979,8 @@ function assertSmokeReceipt(
   } else {
     const rtkVersionOk = getPath(receipt, ['checks.rtkVersionOk', 'rtkVersionOk'])
     const rtkGitStatusOk = getPath(receipt, ['checks.rtkGitStatusOk', 'rtkGitStatusOk'])
-    if (rtkVersionOk !== true || rtkGitStatusOk !== true) {
-      gate.warn('macOS smoke receipt does not prove RTK checks yet; macOS bundled RTK is not enforced yet')
-    }
+    gate.check(rtkVersionOk === true, 'macOS bundled RTK version smoke check passed')
+    gate.check(rtkGitStatusOk === true, 'macOS bundled RTK git status smoke check passed')
     requireTrue(gate, receipt, ['checks.codesignStrict', 'codesignStrict'], 'macOS codesign --verify --deep --strict passed')
     requireTrue(gate, receipt, ['checks.appRelaunchOk', 'appRelaunchOk'], 'macOS app relaunch passed')
   }

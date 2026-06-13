@@ -363,7 +363,9 @@ const proactiveModule =
   feature('PROACTIVE') || feature('KAIROS')
     ? (require('../proactive/index.js') as typeof import('../proactive/index.js'))
     : null
-const DEFAULT_PROACTIVE_TICK_INTERVAL_MS = 10 * 60 * 1000
+const DEFAULT_PROACTIVE_TICK_INTERVAL_MS = 60 * 1000
+const MAX_UNANSWERED_PROACTIVE_TICKS = 5
+const PROACTIVE_TICK_ORIGIN = { kind: 'proactive_tick' } as const
 
 function getProactiveTickIntervalMs(): number {
   const envValue = Number(process.env.CLAUDE_CODE_PROACTIVE_TICK_INTERVAL_MS)
@@ -464,7 +466,35 @@ export function canBatchWith(
     next !== undefined &&
     next.mode === 'prompt' &&
     next.workload === head.workload &&
-    next.isMeta === head.isMeta
+    next.isMeta === head.isMeta &&
+    commandOriginsMatch(head.origin, next.origin)
+  )
+}
+
+function commandOriginsMatch(
+  a: QueuedCommand['origin'],
+  b: QueuedCommand['origin'],
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.kind !== b.kind) return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+function isMainThreadCommand(cmd: QueuedCommand): boolean {
+  return cmd.agentId === undefined
+}
+
+function isProactiveTickCommand(cmd: QueuedCommand): boolean {
+  return cmd.mode === 'prompt' && cmd.origin?.kind === 'proactive_tick'
+}
+
+function isRealUserPromptCommand(cmd: QueuedCommand): boolean {
+  return (
+    cmd.mode === 'prompt' &&
+    cmd.agentId === undefined &&
+    !cmd.isMeta &&
+    cmd.origin === undefined
   )
 }
 
@@ -1848,10 +1878,17 @@ function runHeadlessStreaming(
   // The delay keeps idle check-ins from crowding the transcript. User
   // messages still wake the queue immediately through subscribeToCommandQueue.
   let proactiveTickTimer: ReturnType<typeof setTimeout> | undefined
+  let unansweredProactiveTickCount = 0
+  const resetProactiveTickBackoff = () => {
+    unansweredProactiveTickCount = 0
+  }
   const scheduleProactiveTick =
     feature('PROACTIVE') || feature('KAIROS')
       ? () => {
           if (proactiveTickTimer !== undefined) {
+            return
+          }
+          if (unansweredProactiveTickCount >= MAX_UNANSWERED_PROACTIVE_TICKS) {
             return
           }
           proactiveTickTimer = setTimeout(() => {
@@ -1860,10 +1897,12 @@ function runHeadlessStreaming(
               !proactiveModule?.isProactiveActive() ||
               proactiveModule.isProactivePaused() ||
               inputClosed ||
-              peek(isMainThread) !== undefined
+              peek(isMainThreadCommand) !== undefined ||
+              unansweredProactiveTickCount >= MAX_UNANSWERED_PROACTIVE_TICKS
             ) {
               return
             }
+            unansweredProactiveTickCount += 1
             const tickContent = `<${TICK_TAG}>${new Date().toLocaleTimeString()}</${TICK_TAG}>`
             enqueue({
               mode: 'prompt' as const,
@@ -1871,6 +1910,7 @@ function runHeadlessStreaming(
               uuid: randomUUID(),
               priority: 'later',
               isMeta: true,
+              origin: PROACTIVE_TICK_ORIGIN,
             })
             void run()
           }, getProactiveTickIntervalMs())
@@ -1948,7 +1988,7 @@ function runHeadlessStreaming(
     // notifications are drained by the subagent's mid-turn gate in query.ts.
     // Defined outside the try block so it's accessible in the post-finally
     // queue re-checks at the bottom of run().
-    const isMainThread = (cmd: QueuedCommand) => cmd.agentId === undefined
+    const isMainThread = isMainThreadCommand
 
     try {
       let command: QueuedCommand | undefined
@@ -1968,6 +2008,9 @@ function runHeadlessStreaming(
             throw new Error(
               'only prompt commands are supported in streaming mode',
             )
+          }
+          if (isRealUserPromptCommand(command)) {
+            resetProactiveTickBackoff()
           }
 
           // Non-prompt commands (task-notification, orphaned-permission) carry
@@ -2171,6 +2214,15 @@ function runHeadlessStreaming(
           // inside the closure.
           const cmd = command
           await runWithWorkload(cmd.workload ?? options.workload, async () => {
+            if (isProactiveTickCommand(cmd)) {
+              output.enqueue({
+                type: 'system',
+                subtype: 'turn_origin',
+                origin: 'proactive_tick',
+                session_id: getSessionId(),
+                uuid: randomUUID(),
+              } as SDKMessage)
+            }
             for await (const message of ask({
               commands: uniqBy(
                 [...currentCommands, ...appState.mcp.commands],
@@ -2179,6 +2231,7 @@ function runHeadlessStreaming(
               prompt: input,
               promptUuid: cmd.uuid,
               isMeta: cmd.isMeta,
+              origin: cmd.origin,
               cwd: cwd(),
               tools: allTools,
               verbose: options.verbose,
@@ -3913,9 +3966,11 @@ function runHeadlessStreaming(
           if (req.enabled) {
             if (!proactiveModule!.isProactiveActive()) {
               proactiveModule!.activateProactive('command')
+              resetProactiveTickBackoff()
               scheduleProactiveTick!()
             }
           } else {
+            resetProactiveTickBackoff()
             proactiveModule!.deactivateProactive()
           }
           sendControlResponseSuccess(message)

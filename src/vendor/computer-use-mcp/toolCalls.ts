@@ -468,24 +468,14 @@ async function runInputActionGates(
   if (frontmostTier !== undefined) {
     if (tierSatisfies(frontmostTier, actionKind)) return null;
     // In the allowlist but tier doesn't cover this action. Tailor the
-    // guidance to the actual tier — at "read", suggesting left_click or Bash
-    // is wrong (nothing is allowed; use Chrome MCP). At "click", the
-    // mouse_full/keyboard-specific messages apply.
+    // guidance to the actual tier. At "read", no interaction is allowed.
+    // At "click", the mouse_full/keyboard-specific messages apply.
     if (frontmostTier === "read") {
-      // tier "read" is not category-unique (browser AND trading map to it) —
-      // re-look-up so the CiC hint only shows for actual browsers.
-      const isBrowser =
-        getDeniedCategoryForApp(frontmost.bundleId, frontmost.displayName) ===
-        "browser";
       return errorResult(
         `"${frontmost.displayName}" is granted at tier "read" — ` +
           `visible in screenshots only, no clicks or typing.` +
-          (isBrowser
-            ? " Use the Claude-in-Chrome MCP for browser interaction (tools " +
-              "named `mcp__Claude_in_Chrome__*`; load via ToolSearch if " +
-              "deferred)."
-            : " No interaction is permitted; ask the user to take any " +
-              "actions in this app themselves.") +
+          " No interaction is permitted; ask the user to take any " +
+          "actions in this app themselves." +
           TIER_ANTI_SUBVERSION,
         "tier_insufficient",
       );
@@ -611,14 +601,10 @@ async function runHitTestGate(
       "tier_insufficient",
     );
   }
-  const isBrowser =
-    getDeniedCategoryForApp(target.bundleId, target.displayName) === "browser";
   return errorResult(
     `Click at these coordinates would land on "${target.displayName}", ` +
       `which is granted at tier "read" (screenshots only, no interaction). ` +
-      (isBrowser
-        ? "Use the Claude-in-Chrome MCP for browser interaction."
-        : "Ask the user to take any actions in this app themselves.") +
+      "Ask the user to take any actions in this app themselves." +
       TIER_ANTI_SUBVERSION,
     "tier_insufficient",
   );
@@ -1218,16 +1204,9 @@ async function buildAccessRequest(
 function buildTierGuidanceMessage(tiered: TieredApp[]): string {
   // tier "read" is not category-unique — split so browsers get the CiC hint
   // and trading platforms get "ask the user" instead.
-  const readBrowsers = tiered.filter(
-    (t) =>
-      t.tier === "read" &&
-      getDeniedCategoryForApp(t.bundleId, t.displayName) === "browser",
-  );
-  const readOther = tiered.filter(
-    (t) =>
-      t.tier === "read" &&
-      getDeniedCategoryForApp(t.bundleId, t.displayName) !== "browser",
-  );
+  const readTier = tiered.filter((t) => t.tier === "read");
+  const readBrowsers: TieredApp[] = [];
+  const readOther = readTier;
   const clickTier = tiered.filter((t) => t.tier === "click");
 
   const parts: string[] = [];
@@ -3457,6 +3436,16 @@ async function dispatchAction(
 // Main dispatch
 // ---------------------------------------------------------------------------
 
+export function normalizeAllowedAppGrant(app: AppGrant): AppGrant {
+  if (app.tier === undefined) {
+    return {
+      ...app,
+      tier: getDefaultTierForApp(app.bundleId, app.displayName),
+    };
+  }
+  return app;
+}
+
 export async function handleToolCall(
   adapter: ComputerUseHostAdapter,
   name: string,
@@ -3478,10 +3467,9 @@ export async function handleToolCall(
   //     blocklist addition. buildAccessRequest denies these up front for new
   //     requests; this catches stale persisted grants.
   //
-  // (c) Backfill tier. A grant persisted before the tier field existed has
-  //     `tier: undefined`, which `tierSatisfies` treats as `"full"` — wrong
-  //     for a legacy Chrome grant. Assign the hardcoded tier based on
-  //     bundle-ID category. Modern grants already have a tier.
+  // (c) Backfill tier only when the tier field is absent. Existing explicit
+  //     tiers must be preserved; otherwise a browser grant the user approved
+  //     as read-only in an older release would silently become full access.
   //
   // `.some()` guard keeps the hot path (empty deny list, no legacy grants)
   // zero-alloc.
@@ -3497,11 +3485,7 @@ export async function handleToolCall(
         allowedApps: rawOverrides.allowedApps
           .filter((a) => !userDeniedSet.has(a.bundleId))
           .filter((a) => !isPolicyDenied(a.bundleId, a.displayName))
-          .map((a) =>
-            a.tier !== undefined
-              ? a
-              : { ...a, tier: getDefaultTierForApp(a.bundleId, a.displayName) },
-          ),
+          .map(normalizeAllowedAppGrant),
       }
     : rawOverrides;
 

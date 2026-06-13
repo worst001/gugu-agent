@@ -2041,6 +2041,12 @@ export function translateCliMessage(
     case 'system': {
       // 区分不同的 system 子类型
       const subtype = cliMsg.subtype
+      if (subtype === 'turn_origin') {
+        return [{
+          type: 'turn_origin',
+          origin: cliMsg.origin === 'proactive_tick' ? 'proactive_tick' : null,
+        }]
+      }
       if (subtype === 'init') {
         // CLI 初始化完成 — 缓存 slash commands 并发送模型信息
         // NOTE: Do NOT send status:idle here — the CLI init fires while

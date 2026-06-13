@@ -50,6 +50,7 @@ export type AttachmentRef = {
 
 export type ServerMessage =
   | { type: 'connected'; sessionId: string }
+  | { type: 'turn_origin'; origin: TurnOrigin | null }
   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; parentToolUseId?: string }
   | { type: 'content_delta'; text?: string; toolInput?: string }
   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; input: unknown; parentToolUseId?: string }
@@ -87,6 +88,8 @@ export type TokenUsage = {
 }
 
 export type ChatState = 'idle' | 'thinking' | 'tool_executing' | 'streaming' | 'permission_pending'
+
+export type TurnOrigin = 'proactive_tick'
 
 export type TeamMemberStatus = {
   agentId: string

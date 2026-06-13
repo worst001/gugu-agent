@@ -68,6 +68,7 @@ export type AttachmentParserPreview = {
 
 export type ServerMessage =
   | { type: 'connected'; sessionId: string }
+  | { type: 'turn_origin'; origin: TurnOrigin | null }
   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; parentToolUseId?: string }
   | { type: 'content_delta'; text?: string; toolInput?: string }
   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; input: unknown; parentToolUseId?: string }
@@ -105,6 +106,8 @@ export type TokenUsage = {
 }
 
 export type ChatState = 'idle' | 'thinking' | 'tool_executing' | 'streaming' | 'permission_pending'
+
+export type TurnOrigin = 'proactive_tick'
 
 export type TeamMemberStatus = {
   agentId: string
@@ -182,11 +185,11 @@ export type TaskSummaryItem = {
 
 export type UIMessage =
   | { id: string; type: 'user_text'; content: string; timestamp: number; attachments?: UIAttachment[]; attachmentParser?: AttachmentParserPreview; pending?: boolean }
-  | { id: string; type: 'assistant_text'; content: string; timestamp: number; model?: string }
-  | { id: string; type: 'thinking'; content: string; timestamp: number; rawContent?: string }
-  | { id: string; type: 'tool_use'; toolName: string; toolUseId: string; input: unknown; timestamp: number; parentToolUseId?: string }
-  | { id: string; type: 'tool_result'; toolUseId: string; content: unknown; isError: boolean; timestamp: number; parentToolUseId?: string }
-  | { id: string; type: 'system'; content: string; timestamp: number }
+  | { id: string; type: 'assistant_text'; content: string; timestamp: number; model?: string; origin?: TurnOrigin }
+  | { id: string; type: 'thinking'; content: string; timestamp: number; rawContent?: string; origin?: TurnOrigin }
+  | { id: string; type: 'tool_use'; toolName: string; toolUseId: string; input: unknown; timestamp: number; parentToolUseId?: string; origin?: TurnOrigin }
+  | { id: string; type: 'tool_result'; toolUseId: string; content: unknown; isError: boolean; timestamp: number; parentToolUseId?: string; origin?: TurnOrigin }
+  | { id: string; type: 'system'; content: string; timestamp: number; origin?: TurnOrigin }
   | {
       id: string
       type: 'permission_request'

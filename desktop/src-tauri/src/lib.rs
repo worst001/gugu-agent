@@ -32,9 +32,13 @@ const TRAY_SHOW_ID: &str = "tray_show";
 const TRAY_QUIT_ID: &str = "tray_quit";
 const DEFAULT_GATEWAY_URL: Option<&str> = option_env!("GUGU_DESKTOP_DEFAULT_GATEWAY_URL");
 const BUILTIN_GATEWAY_URL: &str = "https://gugu.guxingyao.com";
-const RTK_EXPECTED_VERSION: &str = "0.39.0";
+const RTK_EXPECTED_VERSION: &str = "0.42.3";
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 const RTK_WINDOWS_X64_SHA256: &str =
-    "731583957e8cea7cfa858fb56835c001b71f75e595710a5441ebaee12fc6c83b";
+    "16f5a93780841f49a70c11de090cc80b6aad3c4f103e314da05bd951cf3079ef";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const RTK_MACOS_AARCH64_SHA256: &str =
+    "2ba8392a82b2bc83d0dc5963f213f8aa87f270f9f548b77b884b7df11dfc111c";
 const RTK_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
@@ -637,11 +641,17 @@ fn expected_rtk_sha256() -> Option<&'static str> {
     {
         return Some(RTK_WINDOWS_X64_SHA256);
     }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return Some(RTK_MACOS_AARCH64_SHA256);
+    }
     #[allow(unreachable_code)]
     None
 }
 
 fn verify_rtk_integrity(path: &Path) -> Result<Option<String>, String> {
+    verify_platform_rtk_integrity(path)?;
+
     if let Some(expected) = expected_rtk_sha256() {
         let actual = sha256_path(path)?;
         if actual == expected {
@@ -650,7 +660,7 @@ fn verify_rtk_integrity(path: &Path) -> Result<Option<String>, String> {
         return Err(format!("sha256 {actual} != expected {expected}"));
     }
 
-    verify_platform_rtk_integrity(path)
+    Ok(None)
 }
 
 #[cfg(target_os = "macos")]
@@ -1716,10 +1726,10 @@ mod tests {
 
     #[test]
     fn rtk_version_parser_reads_expected_cli_output() {
-        assert_eq!(parse_rtk_version("rtk 0.39.0\n"), Some("0.39.0".to_string()));
+        assert_eq!(parse_rtk_version("rtk 0.42.3\n"), Some("0.42.3".to_string()));
         assert_eq!(
-            parse_rtk_version("warning\nrtk 0.39.0 (build abc)\n"),
-            Some("0.39.0".to_string())
+            parse_rtk_version("warning\nrtk 0.42.3 (build abc)\n"),
+            Some("0.42.3".to_string())
         );
         assert_eq!(parse_rtk_version("not rtk\n"), None);
     }

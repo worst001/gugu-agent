@@ -2,14 +2,13 @@
  * App category lookup for tiered CU permissions. Three categories land at a
  * restricted tier instead of `"full"`:
  *
- *   - **browser** → `"read"` tier — visible in screenshots, NO interaction.
- *     The model can read an already-open page but must use the Claude-in-Chrome
- *     MCP for navigation/clicking/typing.
+ *   - **browser** -> `"full"` tier. Browsers stay categorized so stale grants
+ *     from older releases can be migrated, but explicit user authorization now
+ *     permits normal click/type Computer Use.
  *   - **terminal** → `"click"` tier — visible + clickable, NO typing. The
  *     model can click a Run button or scroll test output in an IDE, but can't
  *     type into the integrated terminal. Use the Bash tool for shell work.
- *   - **trading** → `"read"` tier — same restrictions as browsers, but no
- *     CiC-MCP alternative exists. For platforms where a stray click can
+ *   - **trading** -> `"read"` tier. For platforms where a stray click can
  *     execute a trade or send a message to a counterparty.
  *
  * Uncategorized apps default to `"full"`. See `getDefaultTierForApp`.
@@ -38,14 +37,14 @@ export type DeniedCategory = "browser" | "terminal" | "trading";
  * union inline (this file is import-free; see header comment). The
  * authoritative type is `CuAppPermTier` in types.ts — keep in sync.
  *
- * Not bijective — both `"browser"` and `"trading"` map to `"read"`. Copy
- * that differs by category (the "use CiC" hint is browser-only) must check
- * the category, not just the tier.
+ * Browser category intentionally maps to `"full"` in current Gugu builds.
+ * Keep the category itself so persisted browser/read grants from older
+ * releases can be upgraded without losing the user's app choice.
  */
 export function categoryToTier(
   category: DeniedCategory | null,
 ): "read" | "click" | "full" {
-  if (category === "browser" || category === "trading") return "read";
+  if (category === "trading") return "read";
   if (category === "terminal") return "click";
   return "full";
 }
@@ -528,8 +527,8 @@ export function getDeniedCategoryForApp(
 
 /**
  * Default tier for an app at grant time. Wraps `getDeniedCategoryForApp` +
- * `categoryToTier`. Browsers → `"read"`, terminals/IDEs → `"click"`,
- * everything else → `"full"`.
+ * `categoryToTier`. Browsers and normal apps -> `"full"`,
+ * terminals/IDEs -> `"click"`, trading apps -> `"read"`.
  *
  * Called by `buildAccessRequest` to populate `ResolvedAppRequest.proposedTier`
  * before the approval dialog shows.

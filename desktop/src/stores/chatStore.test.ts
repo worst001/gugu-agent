@@ -111,30 +111,36 @@ import { sessionsApi } from '../api/sessions'
 const TEST_SESSION_ID = 'test-session-1'
 const initialState = useChatStore.getState()
 
+function makeSession(overrides: Partial<PerSessionState> = {}): PerSessionState {
+  return {
+    messages: [],
+    chatState: 'idle',
+    connectionState: 'connected',
+    streamingText: '',
+    streamingToolInput: '',
+    activeToolUseId: null,
+    activeToolName: null,
+    activeThinkingId: null,
+    currentTurnOrigin: null,
+    pendingPermission: null,
+    pendingPermissionQueue: [],
+    pendingComputerUsePermission: null,
+    tokenUsage: { input_tokens: 0, output_tokens: 0 },
+    elapsedSeconds: 0,
+    statusVerb: '',
+    statusElapsedSeconds: 0,
+    slashCommands: [],
+    agentTaskNotifications: {},
+    elapsedTimer: null,
+    composerPrefill: null,
+    ...overrides,
+  }
+}
+
 function seedSession(overrides: Partial<PerSessionState> = {}) {
   useChatStore.setState({
     sessions: {
-      [TEST_SESSION_ID]: {
-        messages: [],
-        chatState: 'idle',
-        connectionState: 'connected',
-        streamingText: '',
-        streamingToolInput: '',
-        activeToolUseId: null,
-        activeToolName: null,
-        activeThinkingId: null,
-        pendingPermission: null,
-        pendingComputerUsePermission: null,
-        tokenUsage: { input_tokens: 0, output_tokens: 0 },
-        elapsedSeconds: 0,
-        statusVerb: '',
-        statusElapsedSeconds: 0,
-        slashCommands: [],
-        agentTaskNotifications: {},
-        elapsedTimer: null,
-        composerPrefill: null,
-        ...overrides,
-      },
+      [TEST_SESSION_ID]: makeSession(overrides),
     },
   })
 }
@@ -197,6 +203,38 @@ describe('chatStore history mapping', () => {
     ])
     expect(mapped[2]).toMatchObject({ parentToolUseId: 'agent-1' })
     expect(mapped[3]).toMatchObject({ parentToolUseId: 'agent-1' })
+  })
+
+  it('marks proactive tick history and skips hidden tick prompts', () => {
+    const mapped = mapHistoryMessagesToUiMessages([
+      {
+        id: 'tick-user',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: '<tick>12:00:00</tick>',
+        origin: { kind: 'proactive_tick' },
+      },
+      {
+        id: 'tick-assistant',
+        type: 'assistant',
+        timestamp: '2026-04-06T00:00:01.000Z',
+        model: 'test-model',
+        origin: { kind: 'proactive_tick' },
+        content: [
+          { type: 'thinking', thinking: 'checking quietly' },
+          { type: 'text', text: 'still here' },
+        ],
+      },
+    ])
+
+    expect(mapped.some((message) => message.type === 'user_text')).toBe(false)
+    expect(mapped.find((message) => message.type === 'thinking')).toMatchObject({
+      origin: 'proactive_tick',
+    })
+    expect(mapped.find((message) => message.type === 'assistant_text')).toMatchObject({
+      content: 'still here',
+      origin: 'proactive_tick',
+    })
   })
 
   it('maps restored thinking to a brief Chinese status', () => {
@@ -1212,6 +1250,108 @@ describe('chatStore history mapping', () => {
         content: '正在检查附件',
       },
     ])
+  })
+
+  it('hides proactive tick thinking and successful tool progress while keeping final text', () => {
+    seedSession({ chatState: 'idle' })
+
+    const store = useChatStore.getState()
+    store.handleServerMessage(TEST_SESSION_ID, {
+      type: 'turn_origin',
+      origin: 'proactive_tick',
+    })
+    store.handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: 'checking quietly',
+    })
+    store.handleServerMessage(TEST_SESSION_ID, {
+      type: 'tool_use_complete',
+      toolName: 'Bash',
+      toolUseId: 'tool-1',
+      input: { command: 'git status' },
+    })
+    store.handleServerMessage(TEST_SESSION_ID, {
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      content: 'ok',
+      isError: false,
+    })
+    store.handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_start',
+      blockType: 'text',
+    })
+    store.handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'still here',
+    })
+    store.handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.currentTurnOrigin).toBeNull()
+    expect(session?.messages).toMatchObject([
+      {
+        type: 'assistant_text',
+        content: 'still here',
+        origin: 'proactive_tick',
+      },
+    ])
+  })
+
+  it('keeps throttled streaming text isolated between simultaneous sessions', () => {
+    vi.useFakeTimers()
+    try {
+      useChatStore.setState({
+        sessions: {
+          sessionA: makeSession({ chatState: 'streaming' }),
+          sessionB: makeSession({ chatState: 'streaming' }),
+        },
+      })
+
+      const store = useChatStore.getState()
+      store.handleServerMessage('sessionA', { type: 'content_delta', text: 'Alpha' })
+      store.handleServerMessage('sessionB', { type: 'content_delta', text: 'Beta' })
+
+      vi.advanceTimersByTime(60)
+
+      const sessions = useChatStore.getState().sessions
+      expect(sessions.sessionA?.streamingText).toBe('Alpha')
+      expect(sessions.sessionB?.streamingText).toBe('Beta')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops one session without flushing another session pending stream', () => {
+    vi.useFakeTimers()
+    try {
+      useChatStore.setState({
+        sessions: {
+          sessionA: makeSession({ chatState: 'streaming' }),
+          sessionB: makeSession({ chatState: 'streaming' }),
+        },
+      })
+
+      const store = useChatStore.getState()
+      store.handleServerMessage('sessionA', { type: 'content_delta', text: 'Alpha' })
+      store.handleServerMessage('sessionB', { type: 'content_delta', text: 'Beta' })
+      store.stopGeneration('sessionA')
+
+      let sessions = useChatStore.getState().sessions
+      expect(sendMock).toHaveBeenCalledWith('sessionA', { type: 'stop_generation' })
+      expect(sessions.sessionA?.chatState).toBe('idle')
+      expect(sessions.sessionA?.streamingText).toBe('Alpha')
+      expect(sessions.sessionB?.streamingText).toBe('')
+
+      vi.advanceTimersByTime(60)
+
+      sessions = useChatStore.getState().sessions
+      expect(sessions.sessionB?.streamingText).toBe('Beta')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps chunked thinking streams as one brief status without exposing raw fragments', () => {

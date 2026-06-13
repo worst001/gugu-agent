@@ -21,6 +21,7 @@ import type {
   AssistantMessage,
   AttachmentMessage,
   Message,
+  MessageOrigin,
   ProgressMessage,
   SystemMessage,
   UserMessage,
@@ -99,6 +100,7 @@ export async function processUserInput({
   skipSlashCommands,
   bridgeOrigin,
   isMeta,
+  origin,
   skipAttachments,
 }: {
   input: string | Array<ContentBlockParam>
@@ -136,6 +138,7 @@ export async function processUserInput({
    * system-generated prompts.
    */
   isMeta?: boolean
+  origin?: MessageOrigin
   skipAttachments?: boolean
 }): Promise<ProcessUserInputBaseResult> {
   const inputString = typeof input === 'string' ? input : null
@@ -166,6 +169,7 @@ export async function processUserInput({
     skipSlashCommands,
     bridgeOrigin,
     isMeta,
+    origin,
     skipAttachments,
     preExpansionInput,
   )
@@ -294,6 +298,7 @@ async function processUserInputBase(
   skipSlashCommands?: boolean,
   bridgeOrigin?: boolean,
   isMeta?: boolean,
+  origin?: MessageOrigin,
   skipAttachments?: boolean,
   preExpansionInput?: string,
 ): Promise<ProcessUserInputBaseResult> {
@@ -583,6 +588,7 @@ async function processUserInputBase(
       uuid,
       permissionMode,
       isMeta,
+      origin,
     ),
     imageMetadataTexts,
   )

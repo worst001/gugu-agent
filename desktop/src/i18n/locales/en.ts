@@ -61,10 +61,10 @@
   'capabilities.mcpAttention': '{count} need attention',
   'capabilities.scanning': 'Scanning',
   'capabilities.pluginErrors': '{count} errors',
-  'capabilities.parser.off': 'Off',
-  'capabilities.parser.needs_config': 'Needs key',
-  'capabilities.parser.ready': 'Ready',
-  'capabilities.parser.error': 'Error',
+  'capabilities.parser.off': 'Parser off',
+  'capabilities.parser.needs_config': 'Needs GLM key',
+  'capabilities.parser.ready': 'Parser ready',
+  'capabilities.parser.error': 'Parser error',
 
   // Agent workbench
   'workbench.title': 'Agent Workbench',

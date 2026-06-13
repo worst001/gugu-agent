@@ -23,6 +23,7 @@ function makeSessionState(overrides: Partial<PerSessionState> = {}): PerSessionS
     activeToolUseId: null,
     activeToolName: null,
     activeThinkingId: null,
+    currentTurnOrigin: null,
     pendingPermission: null,
     pendingComputerUsePermission: null,
     tokenUsage: { input_tokens: 0, output_tokens: 0 },
@@ -364,6 +365,59 @@ describe('MessageList nested tool calls', () => {
       { kind: 'message', message: messages[0] },
       { kind: 'message', message: messages[2] },
     ])
+  })
+
+  it('hides proactive tick thinking and successful tool progress from the render model', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'thinking-1',
+        type: 'thinking',
+        content: 'checking quietly',
+        rawContent: 'checking quietly',
+        origin: 'proactive_tick',
+        timestamp: 1,
+      },
+      {
+        id: 'tool-1',
+        type: 'tool_use',
+        toolName: 'Bash',
+        toolUseId: 'tool-1',
+        input: { command: 'git status' },
+        origin: 'proactive_tick',
+        timestamp: 2,
+      },
+      {
+        id: 'tool-result-1',
+        type: 'tool_result',
+        toolUseId: 'tool-1',
+        content: 'ok',
+        isError: false,
+        origin: 'proactive_tick',
+        timestamp: 3,
+      },
+      {
+        id: 'assistant-1',
+        type: 'assistant_text',
+        content: 'still here',
+        origin: 'proactive_tick',
+        timestamp: 4,
+      },
+      {
+        id: 'tool-result-error',
+        type: 'tool_result',
+        toolUseId: 'tool-error',
+        content: 'failed',
+        isError: true,
+        origin: 'proactive_tick',
+        timestamp: 5,
+      },
+    ]
+
+    const { renderItems } = buildRenderModel(messages)
+
+    expect(renderItems).toHaveLength(2)
+    expect(renderItems[0]).toMatchObject({ kind: 'message', message: { id: 'assistant-1' } })
+    expect(renderItems[1]).toMatchObject({ kind: 'message', message: { id: 'tool-result-error' } })
   })
 
   it('coalesces WebSearch groups and hides bridged thinking noise', () => {
