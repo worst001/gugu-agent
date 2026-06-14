@@ -19,6 +19,7 @@ describe('ConversationService', () => {
   let originalGuguGatewayUrl: string | undefined
   let originalGatewayUrl: string | undefined
   let originalDesktopDefaultGatewayUrl: string | undefined
+  let originalGuguRtkPath: string | undefined
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-conversation-service-'))
@@ -34,6 +35,7 @@ describe('ConversationService', () => {
     originalGuguGatewayUrl = process.env.CC_GUGU_GATEWAY_URL
     originalGatewayUrl = process.env.GUGU_GATEWAY_URL
     originalDesktopDefaultGatewayUrl = process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
+    originalGuguRtkPath = process.env.GUGU_RTK_PATH
 
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     process.env.ANTHROPIC_AUTH_TOKEN = 'test-token'
@@ -48,6 +50,7 @@ describe('ConversationService', () => {
     delete process.env.CC_GUGU_GATEWAY_URL
     delete process.env.GUGU_GATEWAY_URL
     delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
+    delete process.env.GUGU_RTK_PATH
   })
 
   afterEach(async () => {
@@ -86,6 +89,9 @@ describe('ConversationService', () => {
 
     if (originalDesktopDefaultGatewayUrl === undefined) delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
     else process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL = originalDesktopDefaultGatewayUrl
+
+    if (originalGuguRtkPath === undefined) delete process.env.GUGU_RTK_PATH
+    else process.env.GUGU_RTK_PATH = originalGuguRtkPath
 
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
@@ -130,6 +136,24 @@ describe('ConversationService', () => {
     expect(paths).toContain(bundledRtkDir)
     expect(paths).toContain(ccHahaBin)
     expect(paths.indexOf(bundledRtkDir)).toBeLessThan(paths.indexOf(ccHahaBin))
+  })
+
+  test('buildChildEnv prepends app-managed RTK path when inherited PATH lost it', () => {
+    const service = new ConversationService() as any
+    const sep = process.platform === 'win32' ? ';' : ':'
+    const bundledRtkDir = path.join(tmpDir, 'app', 'Contents', 'MacOS')
+    const bundledRtkPath = path.join(
+      bundledRtkDir,
+      process.platform === 'win32' ? 'rtk.exe' : 'rtk',
+    )
+    const env = {
+      PATH: path.join(tmpDir, 'system-bin'),
+      GUGU_RTK_PATH: bundledRtkPath,
+    } as Record<string, string>
+
+    service.augmentPathForCliSubprocess(env)
+
+    expect(env.PATH.split(sep)[0]).toBe(bundledRtkDir)
   })
 
   test('strips inherited provider env when desktop provider config exists', async () => {

@@ -60,7 +60,7 @@ export function UserMessage({
 
         {hasText && (
           <div
-            className="bg-[var(--color-surface-user-msg)] px-4 py-3 text-sm leading-relaxed text-[var(--color-text-primary)] whitespace-pre-wrap break-words"
+            className="min-w-0 max-w-full overflow-hidden whitespace-pre-wrap break-all bg-[var(--color-surface-user-msg)] px-4 py-3 text-sm leading-relaxed text-[var(--color-text-primary)]"
             style={{ borderRadius: '18px 4px 18px 18px' }}
           >
             {content}

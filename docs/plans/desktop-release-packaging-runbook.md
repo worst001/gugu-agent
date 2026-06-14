@@ -521,6 +521,10 @@ macOS：
 [ ] app 可启动
 [ ] sidecar 正常
 [ ] resource/skills 正常，`gugu-agent-pack` 内可读 office-suite/document-master/spreadsheet-master/ppt-master/mail-master/file-master/local-office-files/pdf-master/excel-master/word-master
+[ ] RTK 0.42.3 已随 app 打包，并通过 hash/签名校验
+[ ] macOS 打包时已用 `GUGU_REQUIRE_BUNDLED_RTK=1` 构建 sidecar，缺失或 hash 不匹配必须失败
+[ ] 安装/热更新后，agent Bash 中 `rtk --version` 可直接运行，不依赖用户系统 PATH
+[ ] 子进程 PATH 已把 `GUGU_RTK_PATH` 所在目录 prepend 到最前
 [ ] 应用内版本正确
 
 发布：

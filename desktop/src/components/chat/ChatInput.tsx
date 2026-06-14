@@ -1493,7 +1493,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   placeholder={composerPlaceholder}
                   disabled={isWorkspaceMissing}
                   rows={2}
-                  className="flex-1 resize-none border-none bg-transparent py-2 leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
+                  className="min-w-0 flex-1 resize-none overflow-x-hidden break-all border-none bg-transparent py-2 leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
                 />
               </div>
             </>
@@ -1509,13 +1509,13 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
               placeholder={composerPlaceholder}
               disabled={isWorkspaceMissing}
               rows={1}
-              className="w-full resize-none bg-transparent py-2 pb-12 text-sm leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
+              className="w-full resize-none overflow-x-hidden break-all bg-transparent py-2 pb-12 text-sm leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
             />
           )}
 
           <div className={isHeroComposer
             ? 'flex items-center justify-between border-t border-[var(--color-border-separator)] pt-3'
-            : 'absolute bottom-0 left-0 right-0 flex items-center justify-between border-t border-[var(--color-border-separator)] px-3 py-3'}>
+            : 'absolute bottom-0 left-0 right-0 flex items-center justify-between rounded-b-xl border-t border-[var(--color-border-separator)] bg-[var(--color-surface-container-lowest)] px-3 py-3'}>
             <div className="flex items-center gap-2">
               {!isMemberSession && (
                 <>

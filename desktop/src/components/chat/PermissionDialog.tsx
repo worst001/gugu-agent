@@ -284,22 +284,22 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
         {preview ? (
           <div className="space-y-2">
             {details.primary && toolName !== 'Bash' ? (
-              <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container)] px-3 py-2 text-xs font-[var(--font-mono)] text-[var(--color-text-secondary)]">
+              <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container)] px-3 py-2 text-xs font-[var(--font-mono)] text-[var(--color-text-secondary)]">
                 <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)] flex-shrink-0">
                   {getDetailIcon(toolName)}
                 </span>
-                <span className="truncate">{details.primary}</span>
+                <span className="min-w-0 flex-1 truncate">{details.primary}</span>
               </div>
             ) : null}
             {preview}
           </div>
         ) : details.primary ? (
           <div className="mb-2">
-            <div className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container)] px-3 py-2 text-xs font-[var(--font-mono)] text-[var(--color-text-secondary)]">
+            <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-container)] px-3 py-2 text-xs font-[var(--font-mono)] text-[var(--color-text-secondary)]">
               <span className="material-symbols-outlined text-[14px] text-[var(--color-outline)] flex-shrink-0">
                 {getDetailIcon(toolName)}
               </span>
-              <span className="truncate">{details.primary}</span>
+              <span className="min-w-0 flex-1 truncate">{details.primary}</span>
             </div>
           </div>
         ) : null}

@@ -225,7 +225,7 @@ const BASE_PROSE_CLASSES = `markdown-prose prose prose-sm max-w-none text-[var(-
   prose-p:break-words
   prose-code:text-[13px] prose-code:text-[var(--color-code-fg)] prose-code:font-[var(--font-mono)] prose-code:bg-[var(--color-code-bg)] prose-code:border prose-code:border-[var(--color-border)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:hidden prose-code:after:hidden
   prose-pre:!bg-transparent prose-pre:!p-0 prose-pre:!shadow-none
-  prose-a:text-[var(--color-text-accent)] prose-a:no-underline hover:prose-a:underline
+  prose-a:break-all prose-a:text-[var(--color-text-accent)] prose-a:no-underline hover:prose-a:underline
   prose-strong:text-[var(--color-text-primary)]
   prose-ul:my-2 prose-ol:my-2
   prose-li:my-0.5

@@ -819,8 +819,13 @@ export class ConversationService {
    */
   private augmentPathForCliSubprocess(env: Record<string, string>): void {
     const sep = process.platform === 'win32' ? ';' : ':'
+    const pathKey = this.pathEnvKey(env)
     const beforeInheritedPath: string[] = []
     const afterInheritedPath: string[] = []
+    const appManagedRtkPath = env.GUGU_RTK_PATH || process.env.GUGU_RTK_PATH
+    if (appManagedRtkPath?.trim()) {
+      beforeInheritedPath.push(path.dirname(appManagedRtkPath))
+    }
     const exeBase = path.basename(process.execPath).replace(/\.exe$/i, '')
     if (exeBase === 'bun') {
       beforeInheritedPath.push(path.dirname(process.execPath))
@@ -841,7 +846,7 @@ export class ConversationService {
     )
     const homeBun = path.join(os.homedir(), '.bun', 'bin')
     if (fs.existsSync(homeBun)) afterInheritedPath.push(homeBun)
-    const tail = (env.PATH ?? '').split(sep).filter(Boolean)
+    const tail = (env[pathKey] ?? '').split(sep).filter(Boolean)
     const merged = [...beforeInheritedPath, ...tail, ...afterInheritedPath]
     const deduped: string[] = []
     const seen = new Set<string>()
@@ -850,7 +855,14 @@ export class ConversationService {
       seen.add(p)
       deduped.push(p)
     }
-    env.PATH = deduped.join(sep)
+    const updatedPath = deduped.join(sep)
+    env[pathKey] = updatedPath
+    env.PATH = updatedPath
+  }
+
+  private pathEnvKey(env: Record<string, string>): string {
+    if (process.platform !== 'win32') return 'PATH'
+    return Object.keys(env).find((key) => key.toLowerCase() === 'path') || 'Path'
   }
 
   /**

@@ -109,7 +109,10 @@ echo "[build-macos-arm64] Rebuilding frontend (tsc + vite)..."
 (cd "${DESKTOP_DIR}" && bun run build)
 
 echo "[build-macos-arm64] Rebuilding sidecar for ${TARGET_TRIPLE}..."
-(cd "${DESKTOP_DIR}" && TAURI_ENV_TARGET_TRIPLE="${TARGET_TRIPLE}" bun run build:sidecars)
+(
+  cd "${DESKTOP_DIR}"
+  GUGU_REQUIRE_BUNDLED_RTK=1 TAURI_ENV_TARGET_TRIPLE="${TARGET_TRIPLE}" bun run build:sidecars
+)
 
 TAURI_ARGS=(
   bunx

@@ -50,7 +50,7 @@ import { sessionsApi } from '../../api/sessions'
 import { wsManager } from '../../api/websocket'
 import { ActiveSession } from '../../pages/ActiveSession'
 import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../../stores/agentRunModeStore'
-import { useChatStore } from '../../stores/chatStore'
+import { useChatStore, type PerSessionState } from '../../stores/chatStore'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -87,6 +87,32 @@ function seedEmptySession(
     error: null,
   })
   useChatStore.setState({ sessions: {} })
+}
+
+function makeChatSession(overrides: Partial<PerSessionState> = {}): PerSessionState {
+  return {
+    messages: [],
+    chatState: 'idle',
+    connectionState: 'connected',
+    streamingText: '',
+    streamingToolInput: '',
+    activeToolUseId: null,
+    activeToolName: null,
+    activeThinkingId: null,
+    currentTurnOrigin: null,
+    pendingPermission: null,
+    pendingPermissionQueue: [],
+    pendingComputerUsePermission: null,
+    tokenUsage: { input_tokens: 0, output_tokens: 0 },
+    elapsedSeconds: 0,
+    statusVerb: '',
+    statusElapsedSeconds: 0,
+    slashCommands: [],
+    agentTaskNotifications: {},
+    elapsedTimer: null,
+    composerPrefill: null,
+    ...overrides,
+  }
 }
 
 describe('ChatInput submit', () => {
@@ -132,6 +158,31 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toBe('what is this')
     expect(payload?.content).not.toContain('CE automation')
     expect(payload?.ceModelPreference).toBeUndefined()
+  })
+
+  it('keeps the default composer toolbar opaque and long input constrained', () => {
+    seedEmptySession('default-composer-session')
+    useChatStore.setState({
+      sessions: {
+        'default-composer-session': makeChatSession({
+          messages: [{
+            id: 'assistant-1',
+            type: 'assistant_text',
+            content: 'ready',
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    const { container } = render(<ActiveSession />)
+    const textbox = screen.getByRole('textbox')
+    const toolbar = container.querySelector('.absolute.bottom-0')
+
+    expect(textbox.className).toContain('overflow-x-hidden')
+    expect(textbox.className).toContain('break-all')
+    expect(toolbar?.className).toContain('bg-[var(--color-surface-container-lowest)]')
+    expect(toolbar?.className).toContain('rounded-b-xl')
   })
 
   it('keeps a selected project visible while replacing a brand-new empty session', async () => {

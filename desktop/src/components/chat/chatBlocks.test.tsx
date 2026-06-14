@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import '@testing-library/jest-dom'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { ToolCallGroup } from './ToolCallGroup'
@@ -7,6 +8,7 @@ import { ToolResultBlock } from './ToolResultBlock'
 import { PermissionDialog } from './PermissionDialog'
 import { StreamingIndicator } from './StreamingIndicator'
 import { AgentActivityPanel } from './AgentActivityPanel'
+import { UserMessage } from './UserMessage'
 import { useChatStore } from '../../stores/chatStore'
 import type { PerSessionState } from '../../stores/chatStore'
 import type { UIMessage } from '../../types/chat'
@@ -54,6 +56,34 @@ describe('chat blocks', () => {
     expect(container.textContent).toContain('正在分析上下文')
     expect(container.querySelector('.thinking-inline-cursor')).toBeTruthy()
     expect(container.querySelector('.thinking-cursor')).toBeNull()
+  })
+
+  it('keeps long user URLs inside the message bubble', () => {
+    const longUrl = `https://s.taobao.com/search?q=${'verylongsegment'.repeat(20)}`
+
+    render(<UserMessage content={longUrl} />)
+
+    const bubble = screen.getByText(longUrl)
+    expect(bubble).toHaveClass('max-w-full')
+    expect(bubble).toHaveClass('overflow-hidden')
+    expect(bubble).toHaveClass('break-all')
+  })
+
+  it('keeps long permission primary details constrained', () => {
+    const longUrl = `https://s.taobao.com/search?q=${'verylongsegment'.repeat(20)}`
+
+    render(
+      <PermissionDialog
+        requestId="permission-url"
+        toolName="WebFetch"
+        input={{ url: longUrl }}
+      />,
+    )
+
+    const primary = screen.getByText(longUrl)
+    expect(primary).toHaveClass('min-w-0')
+    expect(primary).toHaveClass('flex-1')
+    expect(primary).toHaveClass('truncate')
   })
 
   it('names the active tool and shows a long-running hint', () => {
