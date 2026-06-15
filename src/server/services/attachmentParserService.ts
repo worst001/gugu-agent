@@ -940,26 +940,26 @@ function assertManagedRemoteAttachmentLimits(payloads: AttachmentPayload[]): voi
     const size = getPayloadSize(payload)
     if (isImagePayload(payload)) {
       if (!isManagedRemoteImagePayload(payload)) {
-        throw new AttachmentParserError(`Gugu Managed only parses PNG, JPG, and JPEG images. ${payload.name} is not a supported managed image format. Convert it to PNG/JPG/JPEG, or configure your own GLM key.`)
+        throw new AttachmentParserError(`当前 Gugu 托管解析仅支持 PNG、JPG、JPEG 图片。${payload.name} 不是支持的图片格式，请转换为 PNG/JPG/JPEG 后重试；如需处理更多格式，可以在设置中配置自己的 GLM Key，让桌面端直连 GLM。`)
       }
       if (size > MAX_MANAGED_REMOTE_IMAGE_BYTES) {
-        throw new AttachmentParserError(`Gugu Managed only parses small images. ${payload.name} is ${formatBytes(size)}, over the ${formatBytes(MAX_MANAGED_REMOTE_IMAGE_BYTES)} managed image limit. For larger files, configure your own GLM key so the desktop app can connect to GLM directly.`)
+        throw new AttachmentParserError(`图片较大，当前 Gugu 托管解析仅支持 ${formatBytes(MAX_MANAGED_REMOTE_IMAGE_BYTES)} 以内的图片。${payload.name} 为 ${formatBytes(size)}，请压缩或拆分后重试；如需处理更大图片，可以在设置中配置自己的 GLM Key，让桌面端直连 GLM。`)
       }
       continue
     }
 
     if (!isManagedRemoteFilePayload(payload)) {
-      throw new AttachmentParserError(`Gugu Managed only parses PDF and Office files through GLM. ${payload.name} is not a supported managed file format. Convert it to PDF/DOC/DOCX/XLS/XLSX/PPT/PPTX, or configure your own GLM key.`)
+      throw new AttachmentParserError(`当前 Gugu 托管解析仅支持 PDF 和常见 Office 文件。${payload.name} 不是支持的文件格式，请转换为 PDF/DOC/DOCX/XLS/XLSX/PPT/PPTX 后重试；如需处理更多格式，可以在设置中配置自己的 GLM Key，让桌面端直连 GLM。`)
     }
 
     if (size > MAX_MANAGED_REMOTE_ATTACHMENT_BYTES) {
-      throw new AttachmentParserError(`Gugu Managed only parses small PDF and Office files. ${payload.name} is ${formatBytes(size)}, over the ${formatBytes(MAX_MANAGED_REMOTE_ATTACHMENT_BYTES)} managed limit. For larger files, configure your own GLM key so the desktop app can connect to GLM directly.`)
+      throw new AttachmentParserError(`文件较大，当前 Gugu 托管解析仅支持 ${formatBytes(MAX_MANAGED_REMOTE_ATTACHMENT_BYTES)} 以内的 PDF / Office 文件。${payload.name} 为 ${formatBytes(size)}，请压缩或拆分文件后重试；如需处理更大文件，可以在设置中配置自己的 GLM Key，让桌面端直连 GLM。`)
     }
   }
 
   const totalBytes = payloads.reduce((total, payload) => total + getPayloadSize(payload), 0)
   if (totalBytes > MAX_MANAGED_REMOTE_ATTACHMENT_TOTAL_BYTES) {
-    throw new AttachmentParserError(`Gugu Managed attachment parsing is limited to ${formatBytes(MAX_MANAGED_REMOTE_ATTACHMENT_TOTAL_BYTES)} per request. Send fewer files, or configure your own GLM key so the desktop app can connect to GLM directly.`)
+    throw new AttachmentParserError(`本次附件总量较大，当前 Gugu 托管解析每次最多支持 ${formatBytes(MAX_MANAGED_REMOTE_ATTACHMENT_TOTAL_BYTES)}。请减少文件数量或拆分后重试；如需一次处理更多文件，可以在设置中配置自己的 GLM Key，让桌面端直连 GLM。`)
   }
 }
 

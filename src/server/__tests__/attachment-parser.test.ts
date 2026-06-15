@@ -331,7 +331,7 @@ describe('AttachmentParserService', () => {
       name: 'large.pdf',
       data: Buffer.alloc((8 * 1024 * 1024) + 1).toString('base64'),
       mimeType: 'application/pdf',
-    }])).rejects.toThrow('Gugu Managed only parses small')
+    }])).rejects.toThrow('文件较大，当前 Gugu 托管解析仅支持')
   })
 
   test('keeps managed image parsing under the stricter GLM image limit', async () => {
@@ -342,7 +342,7 @@ describe('AttachmentParserService', () => {
       name: 'large.png',
       data: Buffer.alloc((5 * 1024 * 1024) + 1).toString('base64'),
       mimeType: 'image/png',
-    }])).rejects.toThrow('managed image limit')
+    }])).rejects.toThrow('图片较大，当前 Gugu 托管解析仅支持')
   })
 
   test('rejects unsupported managed image formats before they reach GLM', async () => {
@@ -355,7 +355,7 @@ describe('AttachmentParserService', () => {
       name: 'diagram.webp',
       data: Buffer.from('webp').toString('base64'),
       mimeType: 'image/webp',
-    }])).rejects.toThrow('not a supported managed image format')
+    }])).rejects.toThrow('不是支持的图片格式')
   })
 
   test('uses managed attachment task polling when the gateway supports async tasks', async () => {
