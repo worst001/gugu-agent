@@ -246,7 +246,7 @@ function buildPhaseItem({
       label: pendingPermission?.toolName
         ? t('chat.activity.waitingPermissionForTool', { toolName: pendingPermission.toolName })
         : t('chat.activity.waitingPermission'),
-      detail: pendingPermission?.description || lastThinking,
+      detail: pendingPermission?.description || t('chat.activity.waitingPermissionDetail'),
     }
   }
 

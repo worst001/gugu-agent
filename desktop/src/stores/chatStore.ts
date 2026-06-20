@@ -591,6 +591,36 @@ function getAgentRecoveryPrompt(message: string): string | null {
   return null
 }
 
+function buildAttachmentParserFailureMessage(rawMessage?: string): string {
+  const raw = rawMessage?.trim() || ''
+  const source = raw || t('chat.attachmentParser.failed')
+  let reason = t('chat.errorCard.reason.generic')
+  let impact = t('chat.errorCard.impact.generic')
+  let nextStep = t('chat.errorCard.next.generic')
+
+  if (/attachment parsing timed out|parsing timed out|timed out before responding|附件.*超时/i.test(source)) {
+    reason = t('chat.errorCard.reason.attachmentTimeout')
+    impact = t('chat.errorCard.impact.attachmentTimeout')
+    nextStep = t('chat.errorCard.next.attachmentTimeout')
+  } else if (/over the \d+\s*MB|超过.*\d+\s*MB|exceeds?.*(limit|maximum|max)|file too large|文件.*过大/i.test(source)) {
+    reason = t('chat.errorCard.reason.fileTooLarge')
+    impact = t('chat.errorCard.impact.fileTooLarge')
+    nextStep = t('chat.errorCard.next.fileTooLarge')
+  } else if (/GLM API Key|without a GLM key|GLM.*not.*configured|GLM.*未配置|GLM.*未激活/i.test(source)) {
+    reason = t('chat.errorCard.reason.glmUnavailable')
+    impact = t('chat.errorCard.impact.glmUnavailable')
+    nextStep = t('chat.errorCard.next.glmUnavailable')
+  }
+
+  return [
+    t('chat.attachmentParser.failureTitle'),
+    `${t('chat.errorCard.reasonLabel')}: ${reason}`,
+    `${t('chat.errorCard.impactLabel')}: ${impact}`,
+    `${t('chat.errorCard.nextLabel')}: ${nextStep}`,
+    raw ? `${t('chat.attachmentParser.originalMessage')}: ${raw}` : '',
+  ].filter(Boolean).join('\n')
+}
+
 function isNonTerminalAgentRecovery(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false
   const reason = (data as Record<string, unknown>).reason
@@ -1094,11 +1124,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           [sessionId]: {
             ...session,
             chatState: 'idle',
+            activeToolUseId: null,
+            activeToolName: null,
+            activeThinkingId: null,
+            streamingToolInput: '',
             pendingPermission: null,
             pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             currentTurnOrigin: null,
             elapsedTimer: null,
+            statusVerb: '',
             statusElapsedSeconds: 0,
           },
         },
@@ -1345,12 +1380,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               ? ''
               : session.statusVerb
           const statusChanged = nextStatusVerb !== session.statusVerb
+          const reportedStatusElapsedSeconds = msg.elapsed ?? parseStatusElapsedSeconds(nextStatusVerb)
           const statusElapsedSeconds = nextStatusVerb
             ? Math.max(
                 0,
-                msg.elapsed ??
-                  parseStatusElapsedSeconds(nextStatusVerb) ??
-                  (statusChanged ? 0 : session.statusElapsedSeconds ?? 0),
+                statusChanged
+                  ? reportedStatusElapsedSeconds ?? 0
+                  : Math.max(session.statusElapsedSeconds ?? 0, reportedStatusElapsedSeconds ?? 0),
               )
             : 0
           return {
@@ -1786,9 +1822,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             update((session) => ({
               messages: appendSystemMessage(
                 session.messages,
-                typeof msg.message === 'string' && msg.message.trim()
-                  ? msg.message
-                  : t('chat.attachmentParser.failed'),
+                buildAttachmentParserFailureMessage(
+                  typeof msg.message === 'string' ? msg.message : undefined,
+                ),
                 Date.now(),
               ),
               chatState: 'idle',

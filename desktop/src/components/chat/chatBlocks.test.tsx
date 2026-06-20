@@ -248,6 +248,7 @@ describe('chat blocks', () => {
     )
 
     expect(screen.getAllByText('Waiting for your confirmation: ExitPlanMode').length).toBeGreaterThan(0)
+    expect(screen.getByText(/Allow continues the tool/i)).toBeTruthy()
     expect(screen.queryByText(/ExitPlanMode is taking a while/i)).toBeNull()
     expect(screen.queryByText(/ExitPlanMode has been running/i)).toBeNull()
   })

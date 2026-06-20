@@ -101,6 +101,48 @@ describe('MessageList nested tool calls', () => {
     expect(within(activityPanel).getAllByText('Waiting for your confirmation').length).toBeGreaterThan(0)
   })
 
+  it('shows a recovery card instead of a blank transcript when known history has no visible messages', async () => {
+    const reloadHistory = vi.spyOn(useChatStore.getState(), 'reloadHistory').mockResolvedValue(undefined)
+
+    useSessionStore.setState({
+      sessions: [{
+        id: ACTIVE_TAB,
+        title: 'Existing History',
+        createdAt: '2026-06-20T00:00:00.000Z',
+        modifiedAt: '2026-06-20T00:00:00.000Z',
+        messageCount: 3,
+        projectPath: '',
+        workDir: null,
+        workDirExists: true,
+      }],
+      activeSessionId: ACTIVE_TAB,
+      isLoading: false,
+      error: null,
+      selectedProjects: [],
+      availableProjects: [],
+    })
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [],
+          chatState: 'idle',
+          historyLoading: false,
+          historyLoadError: null,
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Conversation history is not visible yet')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Reload history/i })).toBeTruthy()
+    await waitFor(() => {
+      expect(reloadHistory).toHaveBeenCalledWith(ACTIVE_TAB)
+    })
+
+    reloadHistory.mockRestore()
+  })
+
   it('renders a fallback permission dialog when a Bash permission request is pending but missing from messages', () => {
     useChatStore.setState({
       sessions: {
@@ -1422,7 +1464,7 @@ describe('MessageList nested tool calls', () => {
     expect(screen.queryByText(/deepseek-v4-pro/)).toBeNull()
   })
 
-  it('shows raw startup details under translated CLI startup errors', () => {
+  it('shows raw startup details under friendly CLI startup errors', () => {
     useChatStore.setState({
       sessions: {
         [ACTIVE_TAB]: makeSessionState({
@@ -1442,12 +1484,66 @@ describe('MessageList nested tool calls', () => {
 
     render(<MessageList />)
 
-    expect(screen.getByText('Failed to start CLI process.')).toBeTruthy()
+    expect(screen.getByText('The local runtime environment is not ready.')).toBeTruthy()
     expect(
       screen.getByText(
         'CLI exited during startup (code 1): Claude Code on Windows requires git-bash (https://git-scm.com/downloads/win).',
       ),
     ).toBeTruthy()
+    expect(screen.getByText('Reason')).toBeTruthy()
+    expect(screen.getByText('Next step')).toBeTruthy()
+    expect(screen.queryByText('Error:')).toBeNull()
+  })
+
+  it('turns sidecar telemetry export failures into a friendly error card', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'error-telemetry',
+              type: 'error',
+              code: 'CLI_ERROR',
+              message:
+                '[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use\nError: 1P event logging: 170 events failed to export (status=403, code=ERR_BAD_REQUEST)',
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Task did not finish')).toBeTruthy()
+    expect(screen.getByText('Internal diagnostic reporting failed.')).toBeTruthy()
+    expect(screen.getByText(/This usually does not affect your files/i)).toBeTruthy()
+    expect(screen.queryByText('Error:')).toBeNull()
+  })
+
+  it('explains attachment parser timeouts with an actionable next step', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'error-attachment-timeout',
+              type: 'error',
+              code: 'CLI_ERROR',
+              message:
+                'Gugu managed attachment parser failed: GLM attachment parsing timed out before responding. Please try again.',
+              timestamp: 1,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Attachment parsing took too long and the parser did not respond in time.')).toBeTruthy()
+    expect(screen.getByText(/compress or split/i)).toBeTruthy()
+    expect(screen.queryByText('Error:')).toBeNull()
   })
 
   it('shows a billing card instead of a raw error when Gugu subscription is unavailable', () => {

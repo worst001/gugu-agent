@@ -95,7 +95,12 @@ export function ActiveSession() {
   const messages = sessionState?.messages ?? []
   const streamingText = sessionState?.streamingText ?? ''
   const isActive = chatState !== 'idle'
-  const isEmpty = messages.length === 0 && !streamingText && !isActive
+  const hasKnownHistory = Boolean(session?.messageCount && session.messageCount > 0)
+  const isEmpty =
+    !hasKnownHistory &&
+    messages.length === 0 &&
+    !streamingText &&
+    !isActive
   const totalTokens = tokenUsage.input_tokens + tokenUsage.output_tokens
 
   const lastUpdated = useMemo(() => {

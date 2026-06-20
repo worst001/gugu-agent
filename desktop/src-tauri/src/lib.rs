@@ -17,7 +17,9 @@ use std::{
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::MenuBuilder;
+#[cfg(target_os = "macos")]
+use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
 use tauri::path::BaseDirectory;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Emitter;
@@ -944,6 +946,7 @@ fn login_shell_environment(_shell: &str) -> HashMap<String, String> {
     HashMap::new()
 }
 
+#[cfg(any(not(target_os = "windows"), test))]
 fn parse_env_block(bytes: &[u8]) -> HashMap<String, String> {
     bytes
         .split(|byte| *byte == 0)

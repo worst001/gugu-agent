@@ -440,6 +440,61 @@ describe('AttachmentParserService', () => {
     ])
   })
 
+  test('localizes legacy managed attachment timeout errors from the gateway', async () => {
+    const service = new AttachmentParserService(async (url) => {
+      const target = String(url)
+      if (target.endsWith('/v1/attachments/tasks')) {
+        return jsonResponse({
+          error: { code: 'ATTACHMENT_TASKS_DISABLED', message: 'attachment tasks are disabled' },
+        }, { status: 404 })
+      }
+      if (target.endsWith('/v1/attachments/parse')) {
+        return jsonResponse({
+          error: {
+            code: 'UPSTREAM_TIMEOUT',
+            message: 'GLM attachment parsing timed out before responding. Please try again.',
+          },
+        }, { status: 504 })
+      }
+      throw new Error(`Unexpected request: ${target}`)
+    }, fakeManagedBilling())
+
+    await expect(service.prepareMessageContent('what is this?', 'session-1', [{
+      type: 'image',
+      name: 'screen.png',
+      data: Buffer.from('image').toString('base64'),
+      mimeType: 'image/png',
+    }])).rejects.toThrow('Gugu 托管附件解析失败：GLM 附件解析响应超时，请稍后重试')
+  })
+
+  test('localizes failed managed attachment task errors from the gateway', async () => {
+    const service = new AttachmentParserService(async (url) => {
+      const target = String(url)
+      if (target.endsWith('/v1/attachments/tasks')) {
+        return jsonResponse({
+          task: { id: 'task-1', status: 'queued', provider: 'glm' },
+        }, { status: 202 })
+      }
+      if (target.endsWith('/v1/attachments/tasks/task-1')) {
+        return jsonResponse({
+          task: { id: 'task-1', status: 'failed', provider: 'glm' },
+          error: {
+            code: 'UPSTREAM_TIMEOUT',
+            message: 'GLM file parsing timed out before responding. Please try again.',
+          },
+        })
+      }
+      throw new Error(`Unexpected request: ${target}`)
+    }, fakeManagedBilling())
+
+    await expect(service.prepareMessageContent('read this file', 'session-1', [{
+      type: 'file',
+      name: 'report.pdf',
+      data: Buffer.from('pdf').toString('base64'),
+      mimeType: 'application/pdf',
+    }])).rejects.toThrow('Gugu 托管附件解析失败：GLM 文件解析响应超时，请稍后重试')
+  })
+
   test('summarizes very long parsed results with glm-5.1', async () => {
     const calls: Array<{ url: string; body: unknown }> = []
     const service = new AttachmentParserService(async (url, init) => {

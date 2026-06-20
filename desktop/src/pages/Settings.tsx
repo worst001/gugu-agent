@@ -28,6 +28,7 @@ import { McpSettings } from './McpSettings'
 import { TerminalSettings } from './TerminalSettings'
 import { useUIStore, type SettingsTab } from '../stores/uiStore'
 import { useUpdateStore } from '../stores/updateStore'
+import { useCapabilityStore, type CapabilitySummary } from '../stores/capabilityStore'
 import { formatBytes } from '../lib/formatBytes'
 import { isTauriRuntime } from '../lib/desktopRuntime'
 import { attachmentParserApi } from '../api/attachmentParser'
@@ -86,7 +87,7 @@ export function Settings() {
           {activeTab === 'attachmentParser' && <AttachmentParserSettings />}
           {activeTab === 'configBackup' && <ConfigBackupSettings />}
           {activeTab === 'permissions' && <PermissionSettings />}
-          {activeTab === 'general' && <GeneralSettings />}
+          {activeTab === 'general' && <GeneralSettings onOpenTab={setActiveTab} />}
           {activeTab === 'adapters' && <AdapterSettings />}
           {activeTab === 'terminal' && <TerminalSettings />}
           {activeTab === 'mcp' && <McpSettings />}
@@ -1347,7 +1348,19 @@ function PermissionSettings() {
 
 // ─── General Settings ──────────────────────────────────────
 
-function GeneralSettings() {
+type CapabilityHealthTone = 'ready' | 'attention' | 'optional'
+
+type CapabilityHealthItem = {
+  id: string
+  icon: string
+  title: string
+  detail: string
+  tone: CapabilityHealthTone
+  actionLabel?: string
+  actionTab?: SettingsTab
+}
+
+function GeneralSettings({ onOpenTab }: { onOpenTab: (tab: SettingsTab) => void }) {
   const {
     effortLevel,
     setEffort,
@@ -1358,7 +1371,15 @@ function GeneralSettings() {
     skipWebFetchPreflight,
     setSkipWebFetchPreflight,
   } = useSettingsStore()
+  const sessions = useSessionStore((s) => s.sessions)
+  const activeSessionId = useSessionStore((s) => s.activeSessionId)
+  const capabilitySummary = useCapabilityStore((s) => s.summary)
+  const isCapabilityLoading = useCapabilityStore((s) => s.isLoading)
+  const refreshCapabilities = useCapabilityStore((s) => s.refreshCapabilities)
   const t = useTranslation()
+
+  const activeSession = sessions.find((session) => session.id === activeSessionId)
+  const currentWorkDir = activeSession?.workDir || undefined
 
   const EFFORT_LABELS: Record<EffortLevel, string> = {
     low: t('settings.general.effort.low'),
@@ -1377,8 +1398,54 @@ function GeneralSettings() {
     { value: 'dark', label: t('settings.general.appearance.dark') },
   ]
 
+  const SHORTCUTS = [
+    { keys: 'Ctrl/Cmd + N', label: t('settings.general.shortcuts.newSession') },
+    { keys: 'Ctrl/Cmd + K', label: t('settings.general.shortcuts.search') },
+    { keys: 'Ctrl/Cmd + Enter', label: t('settings.general.shortcuts.run') },
+    { keys: 'Ctrl/Cmd + .', label: t('settings.general.shortcuts.stop') },
+    { keys: 'Ctrl/Cmd + W', label: t('settings.general.shortcuts.closeSession') },
+    { keys: 'Ctrl/Cmd + B', label: t('settings.general.shortcuts.sidebar') },
+    { keys: 'Ctrl/Cmd + Shift + [ / ]', label: t('settings.general.shortcuts.prevNext') },
+    { keys: 'Esc', label: t('settings.general.shortcuts.close') },
+  ]
+
+  const capabilityHealthItems = useMemo(
+    () => buildCapabilityHealthItems(capabilitySummary, t),
+    [capabilitySummary, t],
+  )
+
+  useEffect(() => {
+    void refreshCapabilities(currentWorkDir, { force: capabilitySummary.updatedAt === null })
+  }, [capabilitySummary.updatedAt, currentWorkDir, refreshCapabilities])
+
   return (
-    <div className="max-w-xl">
+    <div className="max-w-2xl">
+      <div className="mb-8">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.healthTitle')}</h2>
+            <p className="text-sm text-[var(--color-text-tertiary)]">{t('settings.general.healthDescription')}</p>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void refreshCapabilities(currentWorkDir, { force: true })}
+            loading={isCapabilityLoading}
+          >
+            {t('settings.general.healthRefresh')}
+          </Button>
+        </div>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          {capabilityHealthItems.map((item) => (
+            <CapabilityHealthCard
+              key={item.id}
+              item={item}
+              onOpenTab={onOpenTab}
+            />
+          ))}
+        </div>
+      </div>
+
       {/* Appearance selector */}
       <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.appearanceTitle')}</h2>
       <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.appearanceDescription')}</p>
@@ -1457,8 +1524,273 @@ function GeneralSettings() {
           </div>
         </label>
       </div>
+
+      <div className="mt-8">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.shortcutsTitle')}</h2>
+        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.shortcutsDescription')}</p>
+        <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)]">
+          {SHORTCUTS.map((shortcut, index) => (
+            <div
+              key={shortcut.keys}
+              className={`flex items-center justify-between gap-4 px-4 py-3 ${
+                index > 0 ? 'border-t border-[var(--color-border)]' : ''
+              }`}
+            >
+              <span className="text-sm text-[var(--color-text-secondary)]">{shortcut.label}</span>
+              <kbd className="shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-[var(--color-text-primary)] shadow-sm">
+                {shortcut.keys}
+              </kbd>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
+}
+
+function CapabilityHealthCard({
+  item,
+  onOpenTab,
+}: {
+  item: CapabilityHealthItem
+  onOpenTab: (tab: SettingsTab) => void
+}) {
+  const t = useTranslation()
+
+  return (
+    <div className={`rounded-xl border px-3 py-3 ${getCapabilityHealthClassName(item.tone)}`}>
+      <div className="flex items-start gap-3">
+        <span
+          className="material-symbols-outlined mt-0.5 text-[19px]"
+          aria-hidden="true"
+        >
+          {item.icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">{item.title}</h3>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${getCapabilityHealthBadgeClassName(item.tone)}`}>
+              {getCapabilityHealthStatusLabel(item.tone, t)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">{item.detail}</p>
+          {item.actionTab && item.actionLabel && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-2 px-0 text-[var(--color-brand)] hover:bg-transparent"
+              onClick={() => onOpenTab(item.actionTab!)}
+            >
+              {item.actionLabel}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function buildCapabilityHealthItems(
+  summary: CapabilitySummary,
+  t: ReturnType<typeof useTranslation>,
+): CapabilityHealthItem[] {
+  const providerName = summary.providerName || t('capabilities.noProvider')
+  const modelName = summary.model?.name || summary.model?.id || t('capabilities.unknown')
+  const providerReady = Boolean(summary.providerName || summary.model)
+  const parserTone = getAttachmentParserHealthTone(summary)
+  const mcpTone = getMcpHealthTone(summary)
+  const skillsTone = getSkillsHealthTone(summary)
+  const knowledgeTone = getKnowledgeHealthTone(summary)
+
+  return [
+    {
+      id: 'gugu-managed',
+      icon: 'hub',
+      title: t('settings.general.health.guguManaged.title'),
+      detail: providerReady
+        ? t('settings.general.health.guguManaged.ready', { provider: providerName, model: modelName })
+        : t('settings.general.health.guguManaged.attention'),
+      tone: providerReady ? 'ready' : 'attention',
+      actionLabel: t('settings.general.health.openProviders'),
+      actionTab: 'providers',
+    },
+    {
+      id: 'glm-parser',
+      icon: 'document_scanner',
+      title: t('settings.general.health.glm.title'),
+      detail: getAttachmentParserHealthDetail(summary, t),
+      tone: parserTone,
+      actionLabel: t('settings.general.health.openAttachmentParser'),
+      actionTab: 'attachmentParser',
+    },
+    {
+      id: 'mcp',
+      icon: 'dns',
+      title: t('settings.general.health.mcp.title'),
+      detail: getMcpHealthDetail(summary, t),
+      tone: mcpTone,
+      actionLabel: t('settings.general.health.openMcp'),
+      actionTab: 'mcp',
+    },
+    {
+      id: 'skills',
+      icon: 'auto_awesome',
+      title: t('settings.general.health.skills.title'),
+      detail: getSkillsHealthDetail(summary, t),
+      tone: skillsTone,
+      actionLabel: t('settings.general.health.openSkills'),
+      actionTab: 'skills',
+    },
+    {
+      id: 'rtk',
+      icon: 'terminal',
+      title: t('settings.general.health.rtk.title'),
+      detail: t('settings.general.health.rtk.optional'),
+      tone: 'optional',
+      actionLabel: t('settings.general.health.openTerminal'),
+      actionTab: 'terminal',
+    },
+    {
+      id: 'computer-use',
+      icon: 'mouse',
+      title: t('settings.general.health.computerUse.title'),
+      detail: t('settings.general.health.computerUse.optional'),
+      tone: 'optional',
+      actionLabel: t('settings.general.health.openComputerUse'),
+      actionTab: 'computerUse',
+    },
+    {
+      id: 'knowledge',
+      icon: 'account_tree',
+      title: t('settings.general.health.knowledge.title'),
+      detail: getKnowledgeHealthDetail(summary, t),
+      tone: knowledgeTone,
+      actionLabel: t('settings.general.health.openPlugins'),
+      actionTab: 'plugins',
+    },
+  ]
+}
+
+function getAttachmentParserHealthTone(summary: CapabilitySummary): CapabilityHealthTone {
+  if (summary.errors.attachmentParser) return 'attention'
+  if (summary.attachmentParser.status === 'ready') return 'ready'
+  if (summary.attachmentParser.status === 'needs_config' || summary.attachmentParser.status === 'error') return 'attention'
+  return 'optional'
+}
+
+function getAttachmentParserHealthDetail(
+  summary: CapabilitySummary,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  if (summary.errors.attachmentParser) return t('settings.general.health.glm.error')
+  switch (summary.attachmentParser.status) {
+    case 'ready':
+      return t('settings.general.health.glm.ready')
+    case 'needs_config':
+      return t('settings.general.health.glm.needsConfig')
+    case 'error':
+      return t('settings.general.health.glm.error')
+    case 'off':
+    default:
+      return t('settings.general.health.glm.off')
+  }
+}
+
+function getMcpHealthTone(summary: CapabilitySummary): CapabilityHealthTone {
+  if (summary.errors.mcp || summary.mcp.attention > 0) return 'attention'
+  if (summary.mcp.connected > 0) return 'ready'
+  return 'optional'
+}
+
+function getMcpHealthDetail(
+  summary: CapabilitySummary,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  if (summary.errors.mcp) return t('settings.general.health.mcp.error')
+  if (summary.mcp.attention > 0) {
+    return t('settings.general.health.mcp.attention', { count: summary.mcp.attention })
+  }
+  if (summary.mcp.connected > 0) {
+    return t('settings.general.health.mcp.ready', {
+      connected: summary.mcp.connected,
+      total: summary.mcp.total,
+    })
+  }
+  return t('settings.general.health.mcp.optional')
+}
+
+function getSkillsHealthTone(summary: CapabilitySummary): CapabilityHealthTone {
+  if (summary.errors.skills || summary.skills.total === 0) return 'attention'
+  return 'ready'
+}
+
+function getSkillsHealthDetail(
+  summary: CapabilitySummary,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  if (summary.errors.skills) return t('settings.general.health.skills.error')
+  if (summary.skills.total === 0) return t('settings.general.health.skills.missing')
+  return t('settings.general.health.skills.ready', {
+    invocable: summary.skills.invocable || summary.skills.total,
+    total: summary.skills.total,
+  })
+}
+
+function getKnowledgeHealthTone(summary: CapabilitySummary): CapabilityHealthTone {
+  if (summary.errors.plugins || summary.plugins.errors > 0) return 'attention'
+  if (summary.plugins.enabled > 0 || summary.mcp.connected > 0) return 'ready'
+  return 'optional'
+}
+
+function getKnowledgeHealthDetail(
+  summary: CapabilitySummary,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  if (summary.errors.plugins || summary.plugins.errors > 0) return t('settings.general.health.knowledge.attention')
+  if (summary.plugins.enabled > 0 || summary.mcp.connected > 0) {
+    return t('settings.general.health.knowledge.ready')
+  }
+  return t('settings.general.health.knowledge.optional')
+}
+
+function getCapabilityHealthStatusLabel(
+  tone: CapabilityHealthTone,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  switch (tone) {
+    case 'ready':
+      return t('settings.general.health.status.ready')
+    case 'attention':
+      return t('settings.general.health.status.attention')
+    case 'optional':
+    default:
+      return t('settings.general.health.status.optional')
+  }
+}
+
+function getCapabilityHealthClassName(tone: CapabilityHealthTone): string {
+  switch (tone) {
+    case 'ready':
+      return 'border-[var(--color-success)]/25 bg-[var(--color-success)]/5'
+    case 'attention':
+      return 'border-[var(--color-warning)]/35 bg-[var(--color-warning)]/8'
+    case 'optional':
+    default:
+      return 'border-[var(--color-border)] bg-[var(--color-surface-container-low)]'
+  }
+}
+
+function getCapabilityHealthBadgeClassName(tone: CapabilityHealthTone): string {
+  switch (tone) {
+    case 'ready':
+      return 'bg-[var(--color-success)]/12 text-[var(--color-success)]'
+    case 'attention':
+      return 'bg-[var(--color-warning)]/14 text-[var(--color-warning)]'
+    case 'optional':
+    default:
+      return 'bg-[var(--color-surface-container-high)] text-[var(--color-text-tertiary)]'
+  }
 }
 
 // ─── Agents Settings ──────────────────────────────────────

@@ -12,6 +12,8 @@ type SessionStore = {
   error: string | null
   selectedProjects: string[]
   availableProjects: string[]
+  removedProjects: string[]
+  newSessionWorkDir: string | null
 
   fetchSessions: (project?: string) => Promise<void>
   createSession: (workDir?: string) => Promise<string>
@@ -28,6 +30,9 @@ type SessionStore = {
   updateSessionTitle: (id: string, title: string) => void
   setActiveSession: (id: string | null) => void
   setSelectedProjects: (projects: string[]) => void
+  setNewSessionWorkDir: (workDir: string | null) => void
+  removeProjects: (projects: string[]) => void
+  restoreProject: (project: string) => void
 }
 
 function mergeFetchedSessionsWithOptimisticState(
@@ -65,6 +70,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   error: null,
   selectedProjects: [],
   availableProjects: [],
+  removedProjects: [],
+  newSessionWorkDir: null,
 
   fetchSessions: async (project?: string) => {
     set({ isLoading: true, error: null })
@@ -101,6 +108,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (resolved === undefined || resolved === null || resolved === '') {
       resolved = await resolveDefaultSessionWorkDir()
     }
+    if (resolved) {
+      get().restoreProject(resolved)
+    }
     const { sessionId: id } = await sessionsApi.create(resolved || undefined)
     const now = new Date().toISOString()
     const optimisticSession: SessionListItem = {
@@ -127,6 +137,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   forkSession: async (sourceSessionId, target) => {
     const result = await sessionsApi.fork(sourceSessionId, target)
+    if (result.workDir) {
+      get().restoreProject(result.workDir)
+    }
     const now = new Date().toISOString()
     const optimisticSession: SessionListItem = {
       id: result.sessionId,
@@ -179,5 +192,25 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   setActiveSession: (id) => set({ activeSessionId: id }),
-  setSelectedProjects: (projects) => set({ selectedProjects: projects }),
+  setNewSessionWorkDir: (workDir) => set({ newSessionWorkDir: workDir && workDir.trim() ? workDir : null }),
+  setSelectedProjects: (projects) => set((state) => ({
+    selectedProjects: projects.filter((project) => !state.removedProjects.includes(project)),
+  })),
+  removeProjects: (projects) => set((state) => {
+    const nextRemoved = [...new Set([
+      ...state.removedProjects,
+      ...projects.map((project) => project.trim()).filter(Boolean),
+    ])]
+    const shouldClearNewSessionWorkDir = Boolean(
+      state.newSessionWorkDir && nextRemoved.includes(state.newSessionWorkDir),
+    )
+    return {
+      removedProjects: nextRemoved,
+      selectedProjects: state.selectedProjects.filter((project) => !nextRemoved.includes(project)),
+      newSessionWorkDir: shouldClearNewSessionWorkDir ? null : state.newSessionWorkDir,
+    }
+  }),
+  restoreProject: (project) => set((state) => ({
+    removedProjects: state.removedProjects.filter((item) => item !== project),
+  })),
 }))

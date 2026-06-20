@@ -34,6 +34,7 @@ describe('sessionStore', () => {
       error: null,
       selectedProjects: [],
       availableProjects: [],
+      removedProjects: [],
     })
   })
 
@@ -101,5 +102,26 @@ describe('sessionStore', () => {
       workDir: '/Users/hanwenhao/Downloads/HTML',
       workDirExists: true,
     })
+  })
+
+  it('removes projects from the current sidebar state without deleting sessions', async () => {
+    useSessionStore.setState({
+      selectedProjects: ['/workspace/project-a', '/workspace/project-b'],
+      removedProjects: [],
+      newSessionWorkDir: '/workspace/project-a',
+    })
+
+    useSessionStore.getState().removeProjects(['/workspace/project-a'])
+
+    expect(useSessionStore.getState().removedProjects).toEqual(['/workspace/project-a'])
+    expect(useSessionStore.getState().selectedProjects).toEqual(['/workspace/project-b'])
+    expect(useSessionStore.getState().newSessionWorkDir).toBeNull()
+
+    createMock.mockResolvedValue({ sessionId: 'session-restored' })
+    listMock.mockImplementation(() => new Promise(() => {}))
+
+    await useSessionStore.getState().createSession('/workspace/project-a')
+
+    expect(useSessionStore.getState().removedProjects).toEqual([])
   })
 })

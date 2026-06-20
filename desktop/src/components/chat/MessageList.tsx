@@ -145,6 +145,150 @@ function getGuguBillingMessage(message: string): string {
     .trim()
 }
 
+type FriendlyErrorCopy = {
+  title: string
+  reason: string
+  impact: string
+  nextStep: string
+  detail?: string
+}
+
+function includesAny(value: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(value))
+}
+
+function buildFriendlyErrorCopy(
+  message: Extract<UIMessage, { type: 'error' }>,
+  displayMessage: string,
+  t: ReturnType<typeof useTranslation>,
+): FriendlyErrorCopy {
+  const rawMessage = message.message.trim()
+  const code = message.code ?? ''
+  const combined = `${code}\n${rawMessage}`
+
+  const base: FriendlyErrorCopy = {
+    title: t('chat.errorCard.title'),
+    reason: displayMessage || t('chat.errorCard.reason.generic'),
+    impact: t('chat.errorCard.impact.generic'),
+    nextStep: t('chat.errorCard.next.generic'),
+  }
+
+  if (isSessionTranscriptMissingError({ status: 404 }, rawMessage)) {
+    return {
+      ...base,
+      reason: t('chat.errorCard.reason.sessionMissing'),
+      impact: t('chat.errorCard.impact.sessionMissing'),
+      nextStep: t('chat.errorCard.next.sessionMissing'),
+    }
+  }
+
+  if (includesAny(combined, [/1P event logging:/i, /Failed to export \d+ events/i, /\[ede_diagnostic\]/i])) {
+    return {
+      ...base,
+      reason: t('chat.errorCard.reason.telemetry'),
+      impact: t('chat.errorCard.impact.telemetry'),
+      nextStep: t('chat.errorCard.next.telemetry'),
+      detail: rawMessage,
+    }
+  }
+
+  if (includesAny(combined, [/attachment parsing timed out/i, /parsing timed out/i, /timed out before responding/i, /附件.*超时/u])) {
+    return {
+      ...base,
+      reason: t('chat.errorCard.reason.attachmentTimeout'),
+      impact: t('chat.errorCard.impact.attachmentTimeout'),
+      nextStep: t('chat.errorCard.next.attachmentTimeout'),
+      detail: rawMessage,
+    }
+  }
+
+  if (includesAny(combined, [/over the \d+\s*MB/i, /超过.*\d+\s*MB/u, /exceeds?.*(limit|maximum|max)/i, /file too large/i, /文件.*过大/u])) {
+    return {
+      ...base,
+      reason: t('chat.errorCard.reason.fileTooLarge'),
+      impact: t('chat.errorCard.impact.fileTooLarge'),
+      nextStep: t('chat.errorCard.next.fileTooLarge'),
+      detail: rawMessage,
+    }
+  }
+
+  if (includesAny(combined, [/custom mode.*without a GLM key/i, /GLM.*not.*configured/i, /GLM.*未配置/u, /GLM.*未激活/u])) {
+    return {
+      ...base,
+      reason: t('chat.errorCard.reason.glmUnavailable'),
+      impact: t('chat.errorCard.impact.glmUnavailable'),
+      nextStep: t('chat.errorCard.next.glmUnavailable'),
+      detail: rawMessage,
+    }
+  }
+
+  if (includesAny(combined, [/No suitable shell found/i, /requires a Posix shell/i, /git-bash/i, /missing mode argument/i])) {
+    return {
+      ...base,
+      reason: t('chat.errorCard.reason.runtimeMissing'),
+      impact: t('chat.errorCard.impact.runtimeMissing'),
+      nextStep: t('chat.errorCard.next.runtimeMissing'),
+      detail: rawMessage,
+    }
+  }
+
+  if (code.startsWith('CLI_')) {
+    return {
+      ...base,
+      reason: displayMessage || t('chat.errorCard.reason.runtimeMissing'),
+      impact: t('chat.errorCard.impact.runtimeMissing'),
+      nextStep: t('chat.errorCard.next.runtimeMissing'),
+      detail: rawMessage !== displayMessage ? rawMessage : undefined,
+    }
+  }
+
+  return {
+    ...base,
+    detail: rawMessage !== displayMessage ? rawMessage : undefined,
+  }
+}
+
+function FriendlyErrorCard({
+  message,
+  displayMessage,
+}: {
+  message: Extract<UIMessage, { type: 'error' }>
+  displayMessage: string
+}) {
+  const t = useTranslation()
+  const copy = buildFriendlyErrorCopy(message, displayMessage, t)
+  return (
+    <div className="mb-3 rounded-lg border border-[var(--color-error)]/20 bg-[var(--color-error-container)]/28 px-4 py-3 text-sm text-[var(--color-on-error-container)]">
+      <div className="mb-2 flex items-center gap-2 font-semibold text-[var(--color-error)]">
+        <span className="material-symbols-outlined text-[18px]">error</span>
+        {copy.title}
+      </div>
+      <div className="space-y-2">
+        <div>
+          <div className="text-xs font-medium text-[var(--color-error)]">{t('chat.errorCard.reasonLabel')}</div>
+          <div className="mt-0.5 text-[var(--color-on-error-container)]">{copy.reason}</div>
+        </div>
+        <div>
+          <div className="text-xs font-medium text-[var(--color-error)]">{t('chat.errorCard.impactLabel')}</div>
+          <div className="mt-0.5 text-[var(--color-on-error-container)]">{copy.impact}</div>
+        </div>
+        <div>
+          <div className="text-xs font-medium text-[var(--color-error)]">{t('chat.errorCard.nextLabel')}</div>
+          <div className="mt-0.5 text-[var(--color-on-error-container)]">{copy.nextStep}</div>
+        </div>
+      </div>
+      {copy.detail && (
+        <details className="mt-3 text-xs text-[var(--color-on-error-container)]/85">
+          <summary className="cursor-pointer select-none text-[var(--color-error)]">{t('chat.errorCard.details')}</summary>
+          <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--color-surface-container-high)] px-3 py-2 font-mono text-[11px] leading-5">
+            {copy.detail}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
 function GuguQuotaCard({
   code,
   message,
@@ -377,9 +521,11 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const queueComposerPrefill = useChatStore((s) => s.queueComposerPrefill)
   const sendMessage = useChatStore((s) => s.sendMessage)
   const forkSession = useSessionStore((s) => s.forkSession)
-  const sessionWorkDir = useSessionStore((s) =>
-    resolvedSessionId ? s.sessions.find((session) => session.id === resolvedSessionId)?.workDir ?? null : null,
+  const sessionListItem = useSessionStore((s) =>
+    resolvedSessionId ? s.sessions.find((session) => session.id === resolvedSessionId) : undefined,
   )
+  const sessionWorkDir = sessionListItem?.workDir ?? null
+  const sessionMessageCount = sessionListItem?.messageCount ?? 0
   const isMemberSession = useTeamStore((s) =>
     resolvedSessionId ? Boolean(s.getMemberBySessionId(resolvedSessionId)) : false,
   )
@@ -405,6 +551,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
   const lastSessionIdRef = useRef<string | null | undefined>(resolvedSessionId)
+  const historyAutoloadKeyRef = useRef<string | null>(null)
   const t = useTranslation()
   const [rewindTarget, setRewindTarget] = useState<RewindTarget | null>(null)
   const [rewindPreview, setRewindPreview] = useState<SessionRewindResponse | null>(null)
@@ -433,9 +580,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     if (!resolvedSessionId || isMemberSession) return
     stopGeneration(resolvedSessionId)
     setTimeout(() => {
-      sendMessage(resolvedSessionId, '从这里继续')
+      sendMessage(resolvedSessionId, t('chat.activity.continueFromHere'))
     }, 0)
-  }, [isMemberSession, resolvedSessionId, sendMessage, stopGeneration])
+  }, [isMemberSession, resolvedSessionId, sendMessage, stopGeneration, t])
 
   const updateAutoScrollState = useCallback(() => {
     const container = scrollContainerRef.current
@@ -562,6 +709,29 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const shouldShowActivityPanel =
     !suppressTickActivityPanel &&
     (chatState !== 'idle' || Boolean(streamingText))
+  const shouldShowHistoryUnavailableFallback =
+    sessionMessageCount > 0 &&
+    renderItems.length === 0 &&
+    !streamingText &&
+    !historyLoading &&
+    !historyLoadError
+
+  useEffect(() => {
+    if (!resolvedSessionId || sessionMessageCount <= 0) return
+    if (messages.length > 0 || historyLoading || historyLoadError) return
+    const autoloadKey = `${resolvedSessionId}:${sessionMessageCount}`
+    if (historyAutoloadKeyRef.current === autoloadKey) return
+    historyAutoloadKeyRef.current = autoloadKey
+
+    void reloadHistory(resolvedSessionId)
+  }, [
+    historyLoadError,
+    historyLoading,
+    messages.length,
+    reloadHistory,
+    resolvedSessionId,
+    sessionMessageCount,
+  ])
 
   useEffect(() => {
     if (!resolvedSessionId) {
@@ -891,6 +1061,31 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
             </div>
           )
         })}
+
+        {shouldShowHistoryUnavailableFallback && (
+          <div className="mx-auto mt-10 max-w-[520px] rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 px-4 py-4 text-sm text-[var(--color-text-secondary)]">
+            <div className="mb-1 flex items-center gap-2 font-semibold text-[var(--color-text-primary)]">
+              <span className="material-symbols-outlined text-[18px] text-[var(--color-warning)]">history</span>
+              {t('chat.historyUnavailableTitle')}
+            </div>
+            <p className="leading-relaxed">
+              {t('chat.historyUnavailableBody')}
+            </p>
+            {resolvedSessionId && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-3"
+                onClick={() => {
+                  void reloadHistory(resolvedSessionId)
+                }}
+              >
+                <span className="material-symbols-outlined text-[15px]">refresh</span>
+                {t('chat.historyLoadRetry')}
+              </Button>
+            )}
+          </div>
+        )}
 
         {renderItems.length === 0 && !streamingText && historyLoadError && (
           <div className="mx-auto mt-10 max-w-[520px] rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 px-4 py-4 text-sm text-[var(--color-text-secondary)]">
@@ -1413,26 +1608,13 @@ export const MessageBlock = memo(function MessageBlock({
       const errorKey = message.code ? `error.${message.code}` as TranslationKey : null
       const errorText = errorKey ? t(errorKey) : null
       const displayMessage = (errorText && errorText !== errorKey) ? errorText : message.message
-      const showRawDetail =
-        Boolean(message.message) &&
-        message.message.trim() !== '' &&
-        message.message !== displayMessage
-      return (
-        <div className="mb-3 px-4 py-2.5 rounded-lg border border-[var(--color-error)]/20 bg-[var(--color-error-container)]/28 text-sm text-[var(--color-error)]">
-          <strong>Error:</strong> {displayMessage}
-          {showRawDetail && (
-            <div className="mt-1 whitespace-pre-wrap text-xs text-[var(--color-on-error-container)]/85">
-              {message.message}
-            </div>
-          )}
-        </div>
-      )
+      return <FriendlyErrorCard message={message} displayMessage={displayMessage} />
     }
     case 'task_summary':
       return <InlineTaskSummary tasks={message.tasks} />
     case 'system':
       return (
-        <div className="mb-3 text-center text-xs text-[var(--color-text-tertiary)]">
+        <div className="mb-3 whitespace-pre-wrap text-center text-xs leading-5 text-[var(--color-text-tertiary)]">
           {message.content}
         </div>
       )

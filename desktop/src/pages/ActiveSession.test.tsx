@@ -39,6 +39,57 @@ afterEach(() => {
 })
 
 describe('ActiveSession task polling', () => {
+  it('keeps the transcript panel visible while an existing session history is loading', () => {
+    const sessionId = 'existing-history-session'
+
+    useSessionStore.setState({
+      sessions: [{
+        id: sessionId,
+        title: 'Existing History',
+        createdAt: '2026-06-20T00:00:00.000Z',
+        modifiedAt: '2026-06-20T00:00:00.000Z',
+        messageCount: 21,
+        projectPath: '',
+        workDir: null,
+        workDirExists: true,
+      }],
+      activeSessionId: sessionId,
+      isLoading: false,
+      error: null,
+    })
+    useTabStore.setState({
+      tabs: [{ sessionId, title: 'Existing History', type: 'session', status: 'idle' }],
+      activeTabId: sessionId,
+    })
+    useChatStore.setState({
+      sessions: {
+        [sessionId]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    const { queryByTestId } = render(<ActiveSession />)
+
+    expect(queryByTestId('message-list')).toBeInTheDocument()
+    expect(queryByTestId('chat-input')).toBeInTheDocument()
+  })
+
   it('reconciles session history when the window regains focus', () => {
     const sessionId = 'focus-reconcile-session'
     const loadHistorySpy = vi.spyOn(useChatStore.getState(), 'loadHistory').mockResolvedValue(undefined)

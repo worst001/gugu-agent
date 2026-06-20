@@ -107,6 +107,7 @@ import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
 import { buildPlanModeMessage } from '../constants/agentRunModes'
 import { buildOfficeToolMessage } from '../constants/officeTools'
 import { sessionsApi } from '../api/sessions'
+import { wsManager } from '../api/websocket'
 
 const TEST_SESSION_ID = 'test-session-1'
 const initialState = useChatStore.getState()
@@ -160,6 +161,11 @@ describe('chatStore history mapping', () => {
     notifyChatTaskCompleteMock.mockReset()
     cliTaskStoreSnapshot.tasks = []
     cliTaskStoreSnapshot.sessionId = null
+    vi.mocked(wsManager.connect).mockClear()
+    vi.mocked(wsManager.disconnect).mockClear()
+    vi.mocked(wsManager.clearHandlers).mockClear()
+    vi.mocked(wsManager.onMessage).mockReset()
+    vi.mocked(wsManager.onMessage).mockImplementation(() => () => {})
     useSessionRuntimeStore.setState({ selections: {} })
     localStorage.clear()
     useChatStore.setState({
@@ -483,6 +489,14 @@ describe('chatStore history mapping', () => {
 
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'status',
+      state: 'thinking',
+      verb: '正在解析附件，已等待 15 秒',
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.statusElapsedSeconds).toBe(17)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'status',
       state: 'idle',
     })
     vi.runOnlyPendingTimers()
@@ -727,6 +741,84 @@ describe('chatStore history mapping', () => {
 
     expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
       type: 'prewarm_session',
+    })
+  })
+
+  it('routes websocket status updates to the matching session only', () => {
+    const handlers = new Map<string, Parameters<typeof wsManager.onMessage>[1]>()
+    vi.mocked(wsManager.onMessage).mockImplementation((sessionId, handler) => {
+      handlers.set(sessionId, handler)
+      return () => {}
+    })
+
+    useChatStore.getState().connectToSession('session-a')
+    useChatStore.getState().connectToSession('session-b')
+
+    handlers.get('session-a')?.({ type: 'status', state: 'thinking', verb: 'checking A', elapsed: 3 })
+    handlers.get('session-b')?.({ type: 'status', state: 'tool_executing', verb: 'checking B', elapsed: 5 })
+
+    const sessions = useChatStore.getState().sessions
+    expect(sessions['session-a']).toMatchObject({
+      chatState: 'thinking',
+      statusVerb: 'checking A',
+      statusElapsedSeconds: 3,
+    })
+    expect(sessions['session-b']).toMatchObject({
+      chatState: 'tool_executing',
+      statusVerb: 'checking B',
+      statusElapsedSeconds: 5,
+    })
+  })
+
+  it('stops only the requested session and clears its running state', () => {
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession({
+          chatState: 'permission_pending',
+          activeToolUseId: 'tool-a',
+          activeToolName: 'Bash',
+          activeThinkingId: 'thinking-a',
+          streamingToolInput: 'npm run build',
+          pendingPermission: {
+            requestId: 'perm-a',
+            toolName: 'Bash',
+            input: { command: 'npm run build' },
+          },
+          statusVerb: 'Waiting for permission',
+          statusElapsedSeconds: 12,
+        }),
+        'session-b': makeSession({
+          chatState: 'streaming',
+          streamingText: 'partial B',
+          activeThinkingId: 'thinking-b',
+          statusVerb: 'Streaming B',
+          statusElapsedSeconds: 8,
+        }),
+      },
+    })
+
+    useChatStore.getState().stopGeneration('session-a')
+
+    expect(sendMock).toHaveBeenCalledWith('session-a', { type: 'stop_generation' })
+    expect(sendMock).not.toHaveBeenCalledWith('session-b', { type: 'stop_generation' })
+    expect(useChatStore.getState().sessions['session-a']).toMatchObject({
+      chatState: 'idle',
+      activeToolUseId: null,
+      activeToolName: null,
+      activeThinkingId: null,
+      streamingToolInput: '',
+      pendingPermission: null,
+      pendingPermissionQueue: [],
+      pendingComputerUsePermission: null,
+      statusVerb: '',
+      statusElapsedSeconds: 0,
+    })
+    expect(useChatStore.getState().sessions['session-b']).toMatchObject({
+      chatState: 'streaming',
+      streamingText: 'partial B',
+      activeThinkingId: 'thinking-b',
+      statusVerb: 'Streaming B',
+      statusElapsedSeconds: 8,
     })
   })
 
@@ -1604,12 +1696,12 @@ describe('chatStore history mapping', () => {
     const session = useChatStore.getState().sessions[TEST_SESSION_ID]
     expect(session?.chatState).toBe('idle')
     expect(session?.streamingText).toBe('')
-    expect(session?.messages).toMatchObject([
-      {
-        type: 'system',
-        content: 'Please configure GLM API Key before parsing attachments.',
-      },
-    ])
+    expect(session?.messages).toHaveLength(1)
+    expect(session?.messages[0]).toMatchObject({ type: 'system' })
+    const content = session?.messages[0]?.type === 'system' ? session.messages[0].content : ''
+    expect(content).toContain('Attachment parsing did not finish')
+    expect(content).toContain('The file parsing model is unavailable or not configured.')
+    expect(content).toContain('Please configure GLM API Key before parsing attachments.')
   })
 
   it('attaches successful parser previews to the visible user message without adding a chat bubble', () => {

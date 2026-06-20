@@ -826,7 +826,7 @@ export class AttachmentParserService {
     }
 
     if (!response.ok) {
-      throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
+      throw new AttachmentParserError(formatManagedAttachmentParserError(parsed))
     }
 
     await this.managedBilling.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
@@ -850,13 +850,13 @@ export class AttachmentParserService {
     if (shouldFallbackManagedAttachmentTask(response, parsed)) return null
 
     if (!response.ok) {
-      throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
+      throw new AttachmentParserError(formatManagedAttachmentParserError(parsed))
     }
 
     await this.managedBilling.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
     const taskId = extractManagedAttachmentTaskId(parsed)
     if (!taskId) {
-      throw new AttachmentParserError('Gugu managed attachment parser did not return a task id.')
+      throw new AttachmentParserError('Gugu 托管附件解析未返回任务 ID，请稍后重试。')
     }
 
     return this.pollManagedAttachmentTask(auth, taskId)
@@ -882,7 +882,7 @@ export class AttachmentParserService {
       await this.managedBilling.updateGatewayCreditsFromHeaders(response.headers).catch(() => {})
 
       if (!response.ok) {
-        throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
+        throw new AttachmentParserError(formatManagedAttachmentParserError(parsed))
       }
 
       const status = extractManagedAttachmentTaskStatus(parsed)
@@ -890,16 +890,16 @@ export class AttachmentParserService {
         return (parsed as ManagedAttachmentTaskEnvelope).result
       }
       if (status === 'failed' || status === 'cancelled' || status === 'expired') {
-        throw new AttachmentParserError(`Gugu managed attachment parser failed: ${extractErrorMessage(parsed)}`)
+        throw new AttachmentParserError(formatManagedAttachmentParserError(parsed))
       }
       if (!status || !['queued', 'running'].includes(status)) {
-        throw new AttachmentParserError(`Gugu managed attachment parser returned an unknown task status: ${status || 'unknown'}.`)
+        throw new AttachmentParserError(`Gugu 托管附件解析返回了未知任务状态：${status || 'unknown'}。`)
       }
 
       await delay(readRetryAfterMs(response.headers) ?? MANAGED_ATTACHMENT_TASK_POLL_MS)
     }
 
-    throw new AttachmentParserError(`Gugu managed attachment parser is still running after ${Math.round(MANAGED_ATTACHMENT_TASK_TIMEOUT_MS / 1000)} seconds. Please try again later. Last response: ${extractErrorMessage(lastBody)}`)
+    throw new AttachmentParserError(`Gugu 托管附件解析超过 ${Math.round(MANAGED_ATTACHMENT_TASK_TIMEOUT_MS / 1000)} 秒仍未完成，请稍后重试。最后返回：${normalizeManagedAttachmentParserMessage(extractErrorMessage(lastBody))}`)
   }
 }
 
@@ -1337,6 +1337,31 @@ function extractErrorMessage(body: unknown): string {
   }
   if (typeof record.message === 'string') return record.message
   return JSON.stringify(body).slice(0, 300)
+}
+
+function formatManagedAttachmentParserError(body: unknown): string {
+  return `Gugu 托管附件解析失败：${normalizeManagedAttachmentParserMessage(extractErrorMessage(body))}`
+}
+
+function normalizeManagedAttachmentParserMessage(message: string): string {
+  const cleaned = message
+    .replace(/^Gugu managed attachment parser failed:\s*/i, '')
+    .trim()
+
+  const knownMessages: Record<string, string> = {
+    'GLM attachment parsing timed out before responding. Please try again.':
+      'GLM 附件解析响应超时，请稍后重试；如果连续失败，可以减少图片数量、压缩图片，或在设置中配置自己的 GLM Key 直连解析。',
+    'GLM attachment parsing request failed. Please try again.':
+      'GLM 附件解析请求失败，请稍后重试；如果连续失败，可以减少图片数量、压缩图片，或在设置中配置自己的 GLM Key 直连解析。',
+    'GLM file parsing timed out before responding. Please try again.':
+      'GLM 文件解析响应超时，请稍后重试；如果文件较大，可以压缩或拆分文件，或在设置中配置自己的 GLM Key 直连解析。',
+    'GLM file parsing request failed. Please try again.':
+      'GLM 文件解析请求失败，请稍后重试；如果连续失败，可以压缩或拆分文件，或在设置中配置自己的 GLM Key 直连解析。',
+    'GLM file parsing is still running or returned an empty result. Please try again shortly.':
+      'GLM 文件解析仍在处理中或暂未返回有效结果，请稍后重试。',
+  }
+
+  return knownMessages[cleaned] ?? cleaned
 }
 
 function readRetryAfterMs(headers: Headers): number | null {

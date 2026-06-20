@@ -142,6 +142,7 @@ describe('PermissionDialog', () => {
       )
 
       expect(screen.getByRole('button', { name: /Implement plan/ })).toBeInTheDocument()
+      expect(screen.getByText(/Confirm to let Gugu implement the plan/i)).toBeInTheDocument()
       const updateButton = screen.getByRole('button', { name: /Submit feedback/ })
       expect(updateButton).toBeDisabled()
       expect(screen.queryByRole('button', { name: /^Allow$/ })).not.toBeInTheDocument()

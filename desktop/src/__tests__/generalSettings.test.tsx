@@ -6,6 +6,7 @@ import { Settings } from '../pages/Settings'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useUIStore } from '../stores/uiStore'
 import { useUpdateStore } from '../stores/updateStore'
+import { useCapabilityStore, type CapabilitySummary } from '../stores/capabilityStore'
 import type { SavedProvider } from '../types/provider'
 import type { ProviderPreset } from '../types/providerPreset'
 import type { BillingConfigResponse, BillingReferralSummaryResponse, BillingStatusResponse } from '../types/billing'
@@ -57,6 +58,41 @@ const billingStoreState = {
   activateLicense: vi.fn(),
   refresh: vi.fn(),
   clearLicense: vi.fn(),
+}
+const refreshCapabilities = vi.fn()
+
+const capabilitySummary: CapabilitySummary = {
+  providerName: 'Gugu Managed',
+  providerId: 'gugu-managed',
+  model: {
+    id: 'gugu-managed-main',
+    name: 'Gugu Managed Main',
+    description: '',
+    context: '200k',
+  },
+  effort: 'high',
+  attachmentParser: {
+    status: 'ready',
+    enabled: true,
+    hasApiKey: false,
+    label: 'Parser ready',
+  },
+  mcp: {
+    total: 2,
+    connected: 1,
+    attention: 0,
+  },
+  skills: {
+    total: 12,
+    invocable: 10,
+  },
+  plugins: {
+    total: 3,
+    enabled: 1,
+    errors: 0,
+  },
+  updatedAt: Date.now(),
+  errors: {},
 }
 
 vi.mock('../api/agents', () => ({
@@ -146,6 +182,7 @@ const DEFAULT_ATTACHMENT_CONFIG = {
 
 describe('Settings > General tab', () => {
   beforeEach(() => {
+    refreshCapabilities.mockReset()
     MOCK_DELETE_PROVIDER.mockReset()
     MOCK_GET_SETTINGS.mockResolvedValue({})
     MOCK_UPDATE_SETTINGS.mockResolvedValue({})
@@ -173,6 +210,11 @@ describe('Settings > General tab', () => {
     })
 
     useUIStore.setState({ pendingSettingsTab: null })
+    useCapabilityStore.setState({
+      summary: capabilitySummary,
+      isLoading: false,
+      refreshCapabilities,
+    })
     useUpdateStore.setState({
       status: 'idle',
       availableVersion: null,
@@ -208,6 +250,45 @@ describe('Settings > General tab', () => {
     fireEvent.click(toggle)
 
     expect(useSettingsStore.getState().setSkipWebFetchPreflight).toHaveBeenCalledWith(false)
+  })
+
+  it('shows the keyboard shortcut reference', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+
+    expect(screen.getByText('Keyboard Shortcuts')).toBeInTheDocument()
+    expect(screen.getByText('New session')).toBeInTheDocument()
+    expect(screen.getByText('Close the current session tab')).toBeInTheDocument()
+    expect(screen.getByText('Run or send')).toBeInTheDocument()
+    expect(screen.getByText('Ctrl/Cmd + Enter')).toBeInTheDocument()
+    expect(screen.getByText('Ctrl/Cmd + Shift + [ / ]')).toBeInTheDocument()
+  })
+
+  it('shows a beginner-friendly capability checkup', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+
+    expect(screen.getByText('Capability Checkup')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Gugu Managed' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'GLM file parsing' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'MCP tools' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Skills' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'RTK command helper' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Computer Use' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'CodeGraph / Memory' })).toBeInTheDocument()
+    expect(screen.getAllByText('Available').length).toBeGreaterThanOrEqual(4)
+    expect(screen.getAllByText('Optional').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('refreshes the capability checkup', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+    fireEvent.click(screen.getByText('Refresh'))
+
+    expect(refreshCapabilities).toHaveBeenCalledWith(undefined, { force: true })
   })
 
   it('keeps extension tabs available alongside the terminal tab', () => {

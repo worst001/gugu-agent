@@ -8,21 +8,36 @@ import { ConfirmDialog } from '../shared/ConfirmDialog'
 import type { SessionListItem } from '../../types/session'
 import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
+import { resolveNewSessionWorkDir } from '../../utils/newSessionWorkDir'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 const isWindows = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
 
-type TimeGroup = 'today' | 'yesterday' | 'last7days' | 'last30days' | 'older'
+type SessionProjectGroup = {
+  id: string
+  title: string
+  pathLabel: string
+  latestModifiedAt: string
+  sessions: SessionListItem[]
+  projectKeys: string[]
+  missingCount: number
+  ungrouped: boolean
+}
 
-const TIME_GROUP_ORDER: TimeGroup[] = ['today', 'yesterday', 'last7days', 'last30days', 'older']
+type SidebarContextMenu =
+  | { type: 'session'; id: string; x: number; y: number }
+  | { type: 'project'; title: string; projectKeys: string[]; x: number; y: number }
 
 export function Sidebar() {
   const sessions = useSessionStore((s) => s.sessions)
   const selectedProjects = useSessionStore((s) => s.selectedProjects)
+  const removedProjects = useSessionStore((s) => s.removedProjects)
   const error = useSessionStore((s) => s.error)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const renameSession = useSessionStore((s) => s.renameSession)
+  const removeProjects = useSessionStore((s) => s.removeProjects)
+  const setNewSessionWorkDir = useSessionStore((s) => s.setNewSessionWorkDir)
   const addToast = useUIStore((s) => s.addToast)
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
@@ -30,11 +45,14 @@ export function Sidebar() {
   const activeTabType = useTabStore((s) => s.tabs.find((tab) => tab.sessionId === s.activeTabId)?.type)
   const closeTab = useTabStore((s) => s.closeTab)
   const disconnectSession = useChatStore((s) => s.disconnectSession)
+  const chatSessions = useChatStore((s) => s.sessions)
+  const t = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
-  const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<SidebarContextMenu | null>(null)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchSessions()
@@ -52,29 +70,62 @@ export function Sidebar() {
     return () => document.removeEventListener('click', close)
   }, [contextMenu])
 
+  const removedProjectSet = useMemo(() => new Set(removedProjects), [removedProjects])
+
   const filteredSessions = useMemo(() => {
     let result = sessions
+    if (removedProjectSet.size > 0) {
+      result = result.filter((session) => !isSessionInRemovedProject(session, removedProjectSet))
+    }
     if (selectedProjects.length > 0) {
       result = result.filter((s) => selectedProjects.includes(s.projectPath))
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
-      result = result.filter((s) => s.title.toLowerCase().includes(q))
+      result = result.filter((s) => [
+        s.title,
+        s.projectPath,
+        s.workDir ?? '',
+      ].some((value) => value.toLowerCase().includes(q)))
     }
     return result
-  }, [sessions, selectedProjects, searchQuery])
+  }, [removedProjectSet, sessions, selectedProjects, searchQuery])
 
-  const timeGroups = useMemo(() => groupByTime(filteredSessions), [filteredSessions])
+  const projectGroups = useMemo(() => groupByProject(filteredSessions), [filteredSessions])
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, id: string) => {
+  const handleSessionContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.preventDefault()
-    setContextMenu({ id, x: e.clientX, y: e.clientY })
+    setContextMenu({ type: 'session', id, x: e.clientX, y: e.clientY })
+  }, [])
+
+  const handleProjectContextMenu = useCallback((e: React.MouseEvent, group: SessionProjectGroup) => {
+    if (group.ungrouped || group.projectKeys.length === 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({
+      type: 'project',
+      title: group.title,
+      projectKeys: group.projectKeys,
+      x: e.clientX,
+      y: e.clientY,
+    })
   }, [])
 
   const handleDelete = useCallback((id: string) => {
     setContextMenu(null)
     setPendingDeleteSessionId(id)
   }, [])
+
+  const handleRemoveProject = useCallback((projectKeys: string[]) => {
+    setContextMenu(null)
+    removeProjects(projectKeys)
+    setCollapsedProjects((current) => {
+      const next = new Set(current)
+      projectKeys.forEach((project) => next.delete(project))
+      return next
+    })
+    addToast({ type: 'info', message: t('sidebar.projectGroup.removed') })
+  }, [addToast, removeProjects, t])
 
   const confirmDelete = useCallback(async () => {
     if (!pendingDeleteSessionId) return
@@ -114,16 +165,6 @@ export function Sidebar() {
     if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="button"]')) return
     startDraggingRef.current?.()
   }, [])
-
-  const t = useTranslation()
-
-  const timeGroupLabels: Record<TimeGroup, string> = {
-    today: t('sidebar.timeGroup.today'),
-    yesterday: t('sidebar.timeGroup.yesterday'),
-    last7days: t('sidebar.timeGroup.last7days'),
-    last30days: t('sidebar.timeGroup.last30days'),
-    older: t('sidebar.timeGroup.older'),
-  }
 
   return (
     <aside
@@ -165,11 +206,7 @@ export function Sidebar() {
           label={t('sidebar.newSession')}
           onClick={async () => {
             try {
-              const currentTabId = useTabStore.getState().activeTabId
-              const currentSession = currentTabId
-                ? useSessionStore.getState().sessions.find((s) => s.id === currentTabId)
-                : null
-              const workDir = currentSession?.workDir || undefined
+              const workDir = resolveNewSessionWorkDir()
               const sessionId = await useSessionStore.getState().createSession(workDir)
               useTabStore.getState().openTab(sessionId, t('sidebar.newSession'))
               useChatStore.getState().connectToSession(sessionId)
@@ -250,15 +287,50 @@ export function Sidebar() {
                   {searchQuery ? t('sidebar.noMatching') : t('sidebar.noSessions')}
                 </div>
               )}
-              {TIME_GROUP_ORDER.map((group) => {
-                const items = timeGroups.get(group)
-                if (!items || items.length === 0) return null
+              {projectGroups.map((group) => {
+                const collapsed = !searchQuery && collapsedProjects.has(group.id)
                 return (
-                  <div key={group} className="mb-1">
-                    <div className="px-2 pb-1 pt-4 text-[11px] font-semibold tracking-wide text-[var(--color-text-tertiary)]">
-                      {timeGroupLabels[group]}
-                    </div>
-                    {items.map((session) => (
+                  <div key={group.id} className="mb-1.5">
+                    <button
+                      type="button"
+                      onContextMenu={(e) => handleProjectContextMenu(e, group)}
+                      onClick={() => {
+                        setNewSessionWorkDir(group.ungrouped ? null : group.pathLabel)
+                        setCollapsedProjects((current) => {
+                          const next = new Set(current)
+                          if (next.has(group.id)) next.delete(group.id)
+                          else next.add(group.id)
+                          return next
+                        })
+                      }}
+                      className="group flex w-full min-w-0 items-center gap-2 rounded-[10px] px-2 pb-1 pt-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                      aria-expanded={!collapsed}
+                    >
+                      <span className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">
+                        {collapsed ? 'chevron_right' : 'expand_more'}
+                      </span>
+                      <span className="material-symbols-outlined text-[15px]">
+                        {group.ungrouped ? 'inventory_2' : 'folder'}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {group.ungrouped ? t('sidebar.projectGroup.ungrouped') : group.title}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-[var(--color-surface-container-high)] px-1.5 py-0.5 text-[10px] tabular-nums">
+                        {group.sessions.length}
+                      </span>
+                    </button>
+                    {!collapsed && group.pathLabel && (
+                      <div className="mb-1 truncate px-8 text-[10px] text-[var(--color-text-tertiary)]" title={group.pathLabel}>
+                        {group.pathLabel}
+                      </div>
+                    )}
+                    {!collapsed && group.sessions.map((session) => {
+                      const runtime = chatSessions[session.id]
+                      const isRunning = runtime && runtime.chatState !== 'idle'
+                      const sessionMeta = isRunning
+                        ? formatRuntimeMeta(runtime.chatState, runtime.elapsedSeconds, t)
+                        : formatSessionMeta(session, t)
+                      return (
                       <div key={session.id} className="relative">
                         {renamingId === session.id ? (
                           <input
@@ -278,10 +350,11 @@ export function Sidebar() {
                         ) : (
                           <button
                             onClick={() => {
+                              setNewSessionWorkDir(session.workDir || session.projectPath || null)
                               useTabStore.getState().openTab(session.id, session.title)
                               useChatStore.getState().connectToSession(session.id)
                             }}
-                            onContextMenu={(e) => handleContextMenu(e, session.id)}
+                            onContextMenu={(e) => handleSessionContextMenu(e, session.id)}
                             className={`
                               group w-full rounded-[12px] px-3 py-2 text-left text-sm transition-colors duration-200
                               ${session.id === activeTabId
@@ -307,14 +380,15 @@ export function Sidebar() {
                                   {t('sidebar.missingDir')}
                                 </span>
                               )}
-                              <span className="flex-shrink-0 text-[10px] text-[var(--color-text-tertiary)] opacity-0 transition-opacity group-hover:opacity-100">
-                                {formatRelativeTime(session.modifiedAt)}
+                              <span className={`flex-shrink-0 text-[10px] tabular-nums ${isRunning ? 'text-[var(--color-brand)]' : 'text-[var(--color-text-tertiary)]'}`}>
+                                {sessionMeta}
                               </span>
                             </span>
                           </button>
                         )}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )
               })}
@@ -344,21 +418,33 @@ export function Sidebar() {
           className="fixed z-50 min-w-[140px] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] py-1"
           style={{ left: contextMenu.x, top: contextMenu.y, boxShadow: 'var(--shadow-dropdown)' }}
         >
-          <button
-            onClick={() => {
-              const session = sessions.find((s) => s.id === contextMenu.id)
-              handleStartRename(contextMenu.id, session?.title || '')
-            }}
-            className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
-          >
-            {t('common.rename')}
-          </button>
-          <button
-            onClick={() => handleDelete(contextMenu.id)}
-            className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-error)] transition-colors hover:bg-[var(--color-surface-hover)]"
-          >
-            {t('common.delete')}
-          </button>
+          {contextMenu.type === 'session' ? (
+            <>
+              <button
+                onClick={() => {
+                  const session = sessions.find((s) => s.id === contextMenu.id)
+                  handleStartRename(contextMenu.id, session?.title || '')
+                }}
+                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              >
+                {t('common.rename')}
+              </button>
+              <button
+                onClick={() => handleDelete(contextMenu.id)}
+                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-error)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              >
+                {t('common.delete')}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => handleRemoveProject(contextMenu.projectKeys)}
+              title={contextMenu.title}
+              className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+            >
+              {t('common.remove')}
+            </button>
+          )}
         </div>
       )}
 
@@ -376,28 +462,54 @@ export function Sidebar() {
   )
 }
 
-function groupByTime(sessions: SessionListItem[]): Map<TimeGroup, SessionListItem[]> {
-  const groups = new Map<TimeGroup, SessionListItem[]>()
-  const now = new Date()
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const startOfYesterday = startOfToday - 86400000
-  const sevenDaysAgo = startOfToday - 7 * 86400000
-  const thirtyDaysAgo = startOfToday - 30 * 86400000
-
+function groupByProject(sessions: SessionListItem[]): SessionProjectGroup[] {
+  const groups = new Map<string, SessionProjectGroup>()
   for (const session of sessions) {
-    const ts = new Date(session.modifiedAt).getTime()
-    let group: TimeGroup
-    if (ts >= startOfToday) group = 'today'
-    else if (ts >= startOfYesterday) group = 'yesterday'
-    else if (ts >= sevenDaysAgo) group = 'last7days'
-    else if (ts >= thirtyDaysAgo) group = 'last30days'
-    else group = 'older'
+    const rawPath = session.workDir || session.projectPath || ''
+    const key = rawPath || '__ungrouped__'
+    const projectKeys = getSessionProjectKeys(session)
+    const current = groups.get(key)
+    const latestModifiedAt = current && new Date(current.latestModifiedAt).getTime() > new Date(session.modifiedAt).getTime()
+      ? current.latestModifiedAt
+      : session.modifiedAt
 
-    if (!groups.has(group)) groups.set(group, [])
-    groups.get(group)!.push(session)
+    if (current) {
+      current.sessions.push(session)
+      current.projectKeys = [...new Set([...current.projectKeys, ...projectKeys])]
+      current.latestModifiedAt = latestModifiedAt
+      current.missingCount += session.workDirExists ? 0 : 1
+      continue
+    }
+
+    groups.set(key, {
+      id: key,
+      title: rawPath ? basename(rawPath) : '',
+      pathLabel: rawPath,
+      latestModifiedAt,
+      sessions: [session],
+      projectKeys,
+      missingCount: session.workDirExists ? 0 : 1,
+      ungrouped: !rawPath,
+    })
   }
 
-  return groups
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      sessions: group.sessions.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime()),
+    }))
+    .sort((a, b) => new Date(b.latestModifiedAt).getTime() - new Date(a.latestModifiedAt).getTime())
+}
+
+function getSessionProjectKeys(session: SessionListItem): string[] {
+  return [...new Set([
+    session.workDir || session.projectPath || '',
+    session.projectPath || '',
+  ].filter(Boolean))]
+}
+
+function isSessionInRemovedProject(session: SessionListItem, removedProjectSet: Set<string>): boolean {
+  return getSessionProjectKeys(session).some((project) => removedProjectSet.has(project))
 }
 
 function NavItem({
@@ -449,6 +561,36 @@ function formatRelativeTime(dateStr: string): string {
   const day = Math.floor(hr / 24)
   if (day < 30) return `${day}d`
   return `${Math.floor(day / 30)}mo`
+}
+
+function formatSessionMeta(session: SessionListItem, t: ReturnType<typeof useTranslation>): string {
+  const messageCount = session.messageCount
+  const messageLabel = messageCount === 1
+    ? t('sidebar.sessionMeta.oneMessage')
+    : t('sidebar.sessionMeta.messages', { count: messageCount })
+  return `${formatRelativeTime(session.modifiedAt)} · ${messageLabel}`
+}
+
+function formatRuntimeMeta(chatState: string, elapsedSeconds: number, t: ReturnType<typeof useTranslation>): string {
+  const elapsed = formatElapsed(elapsedSeconds)
+  if (chatState === 'permission_pending') return t('sidebar.sessionMeta.waitingPermission')
+  return t('sidebar.sessionMeta.running', { elapsed })
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const min = Math.floor(seconds / 60)
+  const sec = seconds % 60
+  if (min < 60) return sec ? `${min}m ${sec}s` : `${min}m`
+  const hr = Math.floor(min / 60)
+  const restMin = min % 60
+  return restMin ? `${hr}h ${restMin}m` : `${hr}h`
+}
+
+function basename(input: string): string {
+  const normalized = input.replace(/\\/g, '/').replace(/\/+$/, '')
+  const parts = normalized.split('/').filter(Boolean)
+  return parts[parts.length - 1] || input || ''
 }
 
 function PlusIcon() {

@@ -25,7 +25,7 @@ const CACHE_TTL = 30_000
 
 export function ProjectFilter({ variant = 'default' }: { variant?: 'default' | 'embedded' }) {
   const t = useTranslation()
-  const { availableProjects, selectedProjects, setSelectedProjects } = useSessionStore()
+  const { availableProjects, selectedProjects, removedProjects, setSelectedProjects } = useSessionStore()
   const [open, setOpen] = useState(false)
   const [projects, setProjects] = useState<RecentProject[]>([])
   const [loading, setLoading] = useState(false)
@@ -93,9 +93,13 @@ export function ProjectFilter({ variant = 'default' }: { variant?: 'default' | '
   }, [open])
 
   const isAllSelected = selectedProjects.length === 0
+  const visibleAvailableProjects = useMemo(
+    () => availableProjects.filter((projectPath) => !removedProjects.includes(projectPath)),
+    [availableProjects, removedProjects],
+  )
 
   const options = useMemo(() => {
-    const availableSet = new Set(availableProjects)
+    const availableSet = new Set(visibleAvailableProjects)
     const optionsByPath = new Map<string, ProjectOption>()
 
     for (const project of projects) {
@@ -110,7 +114,7 @@ export function ProjectFilter({ variant = 'default' }: { variant?: 'default' | '
       })
     }
 
-    for (const projectPath of availableProjects) {
+    for (const projectPath of visibleAvailableProjects) {
       if (optionsByPath.has(projectPath)) continue
       optionsByPath.set(projectPath, {
         projectPath,
@@ -122,7 +126,7 @@ export function ProjectFilter({ variant = 'default' }: { variant?: 'default' | '
     }
 
     return [...optionsByPath.values()].sort(compareProjectOptions)
-  }, [availableProjects, projects, t])
+  }, [projects, t, visibleAvailableProjects])
 
   const optionByPath = useMemo(
     () => new Map(options.map((option) => [option.projectPath, option])),
@@ -149,7 +153,7 @@ export function ProjectFilter({ variant = 'default' }: { variant?: 'default' | '
     }
 
     const next = [...selectedProjects, projectPath]
-    setSelectedProjects(next.length >= availableProjects.length ? [] : next)
+    setSelectedProjects(next.length >= visibleAvailableProjects.length ? [] : next)
   }
 
   const selectAll = () => setSelectedProjects([])

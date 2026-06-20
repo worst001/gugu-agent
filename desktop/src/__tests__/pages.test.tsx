@@ -130,8 +130,27 @@ describe('Content-only pages render without errors', () => {
   it('EmptySession renders mascot and composer', () => {
     const { container } = render(<EmptySession />)
     expect(container.querySelector('textarea')).toBeInTheDocument()
+    expect(container.querySelector('[data-chat-submit-button="true"]')).toBeInTheDocument()
     expect(container.innerHTML).toContain('New session')
     expect(container.innerHTML).toContain('Ask anything')
+  })
+
+  it('EmptySession starter tasks fill the composer without auto-running', () => {
+    render(<EmptySession />)
+
+    expect(screen.getByText('Organize docs')).toBeInTheDocument()
+    expect(screen.getByText('Analyze sheet')).toBeInTheDocument()
+    expect(screen.getByText('Write email')).toBeInTheDocument()
+    expect(screen.getByText('Fix code')).toBeInTheDocument()
+    expect(screen.getByText('Read folder')).toBeInTheDocument()
+    expect(screen.getByText('Use computer')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Analyze sheet'))
+
+    expect(screen.getByRole('textbox')).toHaveValue(
+      'Help me analyze this spreadsheet. First inspect fields, missing values, duplicates, and outliers, then give conclusions.',
+    )
+    expect(screen.queryByText('Analyze sheet')).not.toBeInTheDocument()
   })
 
   it('EmptySession plus menu exposes uploads and slash commands before chat starts', () => {
@@ -164,6 +183,21 @@ describe('Content-only pages render without errors', () => {
   it('ActiveSession renders with chat components', () => {
     const SESSION_ID = 'test-active-session'
     useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })
+    useSessionStore.setState({
+      sessions: [{
+        id: SESSION_ID,
+        title: 'New Session',
+        createdAt: '2026-06-20T00:00:00.000Z',
+        modifiedAt: '2026-06-20T00:00:00.000Z',
+        messageCount: 0,
+        projectPath: '',
+        workDir: null,
+        workDirExists: true,
+      }],
+      activeSessionId: SESSION_ID,
+      isLoading: false,
+      error: null,
+    })
     useChatStore.setState({
       sessions: {
         [SESSION_ID]: {

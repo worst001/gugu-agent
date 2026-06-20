@@ -1606,6 +1606,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 </>
               )}
               <button
+                data-chat-submit-button={!isMemberSession && isActive ? 'false' : 'true'}
                 onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : () => handleSubmit()}
                 disabled={!isMemberSession && isActive ? false : !canSubmit}
                 title={!isMemberSession && isActive ? t('chat.stopTitle') : undefined}

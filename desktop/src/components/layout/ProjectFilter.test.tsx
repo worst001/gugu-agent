@@ -42,6 +42,7 @@ describe('ProjectFilter', () => {
       isLoading: false,
       error: null,
       selectedProjects: [],
+      removedProjects: [],
       availableProjects: [
         'Users-nanmi-workspace-myself_code-OpenCutSkill',
         'Users-nanmi-workspace-myself_code-claude-code-gugu',
@@ -92,5 +93,44 @@ describe('ProjectFilter', () => {
     })
 
     expect(screen.getAllByRole('button', { name: /NanmiCoder\/cc-haha/i })).toHaveLength(2)
+  })
+
+  it('hides projects removed from the sidebar', async () => {
+    useSessionStore.setState({
+      removedProjects: ['Users-nanmi-workspace-myself_code-OpenCutSkill'],
+    })
+    getRecentProjectsMock.mockResolvedValue({
+      projects: [
+        {
+          projectPath: 'Users-nanmi-workspace-myself_code-claude-code-gugu',
+          realPath: '/Users/nanmi/workspace/myself_code/claude-code-gugu',
+          projectName: 'claude-code-gugu',
+          isGit: true,
+          repoName: 'NanmiCoder/cc-haha',
+          branch: 'main',
+          modifiedAt: '2026-04-20T10:00:00.000Z',
+          sessionCount: 4,
+        },
+        {
+          projectPath: 'Users-nanmi-workspace-myself_code-OpenCutSkill',
+          realPath: '/Users/nanmi/workspace/myself_code/OpenCutSkill',
+          projectName: 'OpenCutSkill',
+          isGit: true,
+          repoName: 'NanmiCoder/OpenCutSkill',
+          branch: 'main',
+          modifiedAt: '2026-04-20T09:00:00.000Z',
+          sessionCount: 2,
+        },
+      ],
+    })
+
+    render(<ProjectFilter />)
+
+    fireEvent.click(screen.getByRole('button', { name: /All projects/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('NanmiCoder/cc-haha')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('NanmiCoder/OpenCutSkill')).not.toBeInTheDocument()
   })
 })

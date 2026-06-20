@@ -273,10 +273,15 @@ export function PermissionDialog({ requestId, toolName, input, description }: Pr
               </span>
             )}
           </div>
-          {description && (
-            <p className="mt-0.5 text-xs text-[var(--color-text-secondary)] truncate">{description}</p>
-          )}
-        </div>
+            {description && (
+              <p className="mt-0.5 text-xs text-[var(--color-text-secondary)] truncate">{description}</p>
+            )}
+            {isPending && (
+              <p className="mt-1 text-[11px] leading-5 text-[var(--color-text-tertiary)]">
+                {t(isExitPlanMode ? 'permission.planAwaitingHint' : 'permission.awaitingHint')}
+              </p>
+            )}
+          </div>
       </div>
 
       {/* Tool details */}

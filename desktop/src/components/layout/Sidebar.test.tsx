@@ -25,6 +25,7 @@ vi.mock('../../i18n', () => ({
       'common.cancel': 'Cancel',
       'common.delete': 'Delete',
       'common.rename': 'Rename',
+      'common.remove': 'Remove',
       'sidebar.timeGroup.today': 'Today',
       'sidebar.timeGroup.yesterday': 'Yesterday',
       'sidebar.timeGroup.last7days': 'Last 7 Days',
@@ -34,6 +35,12 @@ vi.mock('../../i18n', () => ({
       'sidebar.confirmDelete': 'Delete this session? This cannot be undone.',
       'sidebar.collapse': 'Collapse sidebar',
       'sidebar.expand': 'Expand sidebar',
+      'sidebar.projectGroup.ungrouped': 'Uncategorized sessions',
+      'sidebar.projectGroup.removed': 'Project removed from the sidebar. Session history was not deleted.',
+      'sidebar.sessionMeta.oneMessage': '1 msg',
+      'sidebar.sessionMeta.messages': '2 msgs',
+      'sidebar.sessionMeta.running': 'running 1m 15s',
+      'sidebar.sessionMeta.waitingPermission': 'waiting',
     }
 
     return translations[key] ?? key
@@ -70,6 +77,8 @@ describe('Sidebar', () => {
       error: null,
       selectedProjects: [],
       availableProjects: [],
+      removedProjects: [],
+      newSessionWorkDir: null,
       fetchSessions,
       createSession,
       deleteSession,
@@ -109,6 +118,76 @@ describe('Sidebar', () => {
     expect(screen.getByRole('complementary')).not.toHaveAttribute('data-tauri-drag-region')
   })
 
+  it('creates a new session in the last selected project group directory', async () => {
+    createSession.mockResolvedValue('session-new-1')
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/project-a',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: /project-a/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
+    })
+
+    await waitFor(() => {
+      expect(createSession).toHaveBeenCalledWith('/workspace/project-a')
+      expect(connectToSession).toHaveBeenCalledWith('session-new-1')
+    })
+  })
+
+  it('creates a new session in the last selected session directory', async () => {
+    createSession.mockResolvedValue('session-new-1')
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/project-a',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate bug',
+          createdAt: '2026-06-19T07:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 1,
+          projectPath: '/workspace/project-b',
+          workDir: '/workspace/project-b',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Investigate bug/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
+    })
+
+    await waitFor(() => {
+      expect(createSession).toHaveBeenCalledWith('/workspace/project-b')
+      expect(connectToSession).toHaveBeenCalledWith('session-new-1')
+    })
+  })
+
   it('opens each terminal click as a first-class app tab', () => {
     render(<Sidebar />)
 
@@ -134,6 +213,162 @@ describe('Sidebar', () => {
 
     expect(container.querySelector('a[href*="github.com"]')).not.toBeInTheDocument()
     expect(screen.queryByTitle('GitHub')).not.toBeInTheDocument()
+  })
+
+  it('groups sessions by project directory and collapses each project', () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/project-a',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate bug',
+          createdAt: '2026-06-19T07:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 1,
+          projectPath: '/workspace/project-b',
+          workDir: '/workspace/project-b',
+          workDirExists: true,
+        },
+        {
+          id: 'session-c',
+          title: 'Loose note',
+          createdAt: '2026-06-19T06:00:00.000Z',
+          modifiedAt: '2026-06-19T08:00:00.000Z',
+          messageCount: 0,
+          projectPath: '',
+          workDir: null,
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(screen.getByRole('button', { name: /project-a/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /project-b/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Uncategorized sessions/ })).toBeInTheDocument()
+    expect(screen.getByText('/workspace/project-a')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Build feature/ })).toHaveTextContent('2 msgs')
+
+    fireEvent.click(screen.getByRole('button', { name: /project-a/ }))
+
+    expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Investigate bug/ })).toBeInTheDocument()
+  })
+
+  it('auto-expands collapsed project groups while searching', () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/project-a',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: /project-a/ }))
+    expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('Search sessions'), { target: { value: 'build' } })
+
+    expect(screen.getByRole('button', { name: /Build feature/ })).toBeInTheDocument()
+  })
+
+  it('removes a project group from the sidebar without deleting its sessions', () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate bug',
+          createdAt: '2026-06-19T07:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 1,
+          projectPath: 'project-b-key',
+          workDir: '/workspace/project-b',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /project-a/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    expect(screen.queryByRole('button', { name: /project-a/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /project-b/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Investigate bug/ })).toBeInTheDocument()
+    expect(deleteSession).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().sessions.map((session) => session.id)).toEqual(['session-a', 'session-b'])
+    expect(useSessionStore.getState().removedProjects).toEqual(['/workspace/project-a', 'project-a-key'])
+    expect(addToast).toHaveBeenCalledWith({
+      type: 'info',
+      message: 'Project removed from the sidebar. Session history was not deleted.',
+    })
+  })
+
+  it('finds sessions by project directory while searching', () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/client-dashboard',
+          workDir: '/workspace/client-dashboard',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate bug',
+          createdAt: '2026-06-19T07:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 1,
+          projectPath: '/workspace/api-service',
+          workDir: '/workspace/api-service',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.change(screen.getByPlaceholderText('Search sessions'), {
+      target: { value: 'client-dashboard' },
+    })
+
+    expect(screen.getByRole('button', { name: /Build feature/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Investigate bug/ })).not.toBeInTheDocument()
   })
 
   it('shows a toast when session creation fails', async () => {
