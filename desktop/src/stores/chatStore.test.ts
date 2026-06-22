@@ -2109,6 +2109,39 @@ describe('chatStore history mapping', () => {
     }
   })
 
+  it('uses the original user prompt from attachment parser wire prompts when the local display echo is blank', () => {
+    seedSession()
+    const wire = [
+      'The user uploaded attachments. The following attachment parse results were generated from those files.',
+      '',
+      '<attachment_parse_results>',
+      '## Attachment 1: lesson.md',
+      'Parsed method: local text parser',
+      'A long lesson draft.',
+      '</attachment_parse_results>',
+      '',
+      '<user_message>',
+      'How many paragraphs are there?',
+      '</user_message>',
+    ].join('\n')
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, wire, [], {
+      displayContent: '',
+    })
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toMatchObject([
+      {
+        type: 'user_text',
+        content: 'How many paragraphs are there?',
+      },
+    ])
+    if (messages?.[0]?.type === 'user_text') {
+      expect(messages[0].content).not.toContain('<attachment_parse_results>')
+      expect(messages[0].content).not.toContain('<user_message>')
+    }
+  })
+
   it('keeps an intentionally blank local echo for unrecognized attachment parser payloads', () => {
     seedSession()
 

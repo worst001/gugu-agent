@@ -72,6 +72,10 @@ jobs:
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+      GUGU_MACOS_CODESIGN_IDENTITY: ${{ secrets.GUGU_MACOS_CODESIGN_IDENTITY }}
       GUGU_UPDATER_BASE_URL: https://gxy-download.oss-cn-shanghai.aliyuncs.com
     steps:
       - name: Checkout
@@ -87,12 +91,42 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
+      - name: Import Apple code signing certificate
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        shell: bash
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/gugu-apple-signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/gugu-signing.keychain-db"
+          KEYCHAIN_PASSWORD="${APPLE_KEYCHAIN_PASSWORD:-$(uuidgen)}"
+
+          if [[ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
+            echo "::error::APPLE_CERTIFICATE_PASSWORD is required when APPLE_CERTIFICATE_BASE64 is set."
+            exit 1
+          fi
+
+          echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/[ "]//g')
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
       - name: Build macOS artifacts
         shell: bash
         run: |
           if [[ "${{ github.event_name }}" == "push" || "${{ inputs.publish }}" == "true" || "${{ inputs.require_updater }}" == "true" ]]; then
             if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
               echo "::error::TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
+              exit 1
+            fi
+            if [[ -z "${GUGU_MACOS_CODESIGN_IDENTITY:-}" ]]; then
+              echo "::error::GUGU_MACOS_CODESIGN_IDENTITY is required for stable macOS TCC permissions."
+              exit 1
+            fi
+            if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
+              echo "::error::APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD are required for macOS code signing."
               exit 1
             fi
             export SIGN_BUILD=1

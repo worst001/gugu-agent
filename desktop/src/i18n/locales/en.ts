@@ -1265,7 +1265,7 @@
   'chat.dismiss': 'dismiss',
   'chat.stopTitle': 'Stop generation (Cmd+.)',
   'chat.runtimeControlsLocked': 'This turn is running. Change permissions after it finishes.',
-  'chat.emptyAssistantResult': 'This turn finished without a visible text result. You can say “continue” or resend the previous message.',
+  'chat.emptyAssistantResult': 'Gugu did not produce a visible final reply for this turn. It may have stopped after parsing attachments or running tools. Send “continue” and Gugu will keep going from the existing context.',
   'chat.rewindAction': 'Rewind to here',
   'chat.rewindModalTitle': 'Rewind Conversation',
   'chat.rewindConfirm': 'Rewind here',

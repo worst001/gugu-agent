@@ -12,6 +12,8 @@ CANONICAL_OUTPUT_DIR="${DESKTOP_DIR}/build-artifacts/macos-arm64"
 APP_BUNDLE_NAME="Gugu Agent.app"
 APP_BUNDLE_ID="com.guxingyao.guguagent.desktop"
 APP_VERSION="$(grep -m1 '"version"' "${DESKTOP_DIR}/src-tauri/tauri.conf.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+MACOS_CODESIGN_IDENTITY="${GUGU_MACOS_CODESIGN_IDENTITY:-${APPLE_SIGNING_IDENTITY:-${MACOS_CODESIGN_IDENTITY:-}}}"
+ALLOW_ADHOC_MACOS_RELEASE="${ALLOW_ADHOC_MACOS_RELEASE:-0}"
 
 usage() {
   cat <<'EOF'
@@ -26,6 +28,13 @@ Environment:
                    Signed builds require TAURI_SIGNING_PRIVATE_KEY or
                    TAURI_SIGNING_PRIVATE_KEY_PATH and emit updater artifacts
                    used by hot update.
+  GUGU_MACOS_CODESIGN_IDENTITY / APPLE_SIGNING_IDENTITY / MACOS_CODESIGN_IDENTITY
+                   Apple Developer ID Application identity for release builds.
+                   Required when SIGN_BUILD=1 unless ALLOW_ADHOC_MACOS_RELEASE=1.
+  ALLOW_ADHOC_MACOS_RELEASE=1
+                   Emergency/internal only. Allows SIGN_BUILD=1 without a
+                   stable Apple Developer ID identity. Users may need to
+                   re-grant macOS Accessibility/Screen Recording after update.
   OPEN_OUTPUT=1    Open the canonical artifact output directory in Finder after a successful build.
 
 Examples:
@@ -141,6 +150,21 @@ else
   if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
     echo "[build-macos-arm64] SIGN_BUILD=1 requires TAURI_SIGNING_PRIVATE_KEY or TAURI_SIGNING_PRIVATE_KEY_PATH for updater artifacts." >&2
     exit 1
+  fi
+
+  if [[ -z "${MACOS_CODESIGN_IDENTITY}" && "${ALLOW_ADHOC_MACOS_RELEASE}" != "1" ]]; then
+    echo "[build-macos-arm64] SIGN_BUILD=1 requires a stable Apple Developer ID signing identity." >&2
+    echo "[build-macos-arm64] Set GUGU_MACOS_CODESIGN_IDENTITY, APPLE_SIGNING_IDENTITY, or MACOS_CODESIGN_IDENTITY." >&2
+    echo "[build-macos-arm64] Without it, macOS TCC may treat each update as a new app and users may need to re-grant Accessibility/Screen Recording." >&2
+    echo "[build-macos-arm64] For emergency/internal unsigned builds only, set ALLOW_ADHOC_MACOS_RELEASE=1." >&2
+    exit 1
+  fi
+
+  if [[ -z "${MACOS_CODESIGN_IDENTITY}" ]]; then
+    echo "[build-macos-arm64] WARN: building SIGN_BUILD=1 with ad-hoc macOS code signing." >&2
+    echo "[build-macos-arm64] WARN: Tauri updater signatures will exist, but macOS Accessibility/Screen Recording permissions may not survive updates." >&2
+  else
+    echo "[build-macos-arm64] Using macOS code signing identity: ${MACOS_CODESIGN_IDENTITY}"
   fi
 fi
 
@@ -282,6 +306,66 @@ codesign_cdhash() {
     | awk -F= '/^CDHash=/{print $2; exit}'
 }
 
+codesign_team_id_from_identity() {
+  printf '%s' "${MACOS_CODESIGN_IDENTITY}" \
+    | sed -n 's/.*(\([A-Z0-9][A-Z0-9]*\)).*/\1/p' \
+    | tail -n 1
+}
+
+verify_expected_codesign_identity() {
+  local target="$1"
+  local label="$2"
+  local details
+  local expected_team_id
+
+  if [[ -z "${MACOS_CODESIGN_IDENTITY}" ]]; then
+    return
+  fi
+
+  details="$(codesign -d --verbose=4 "${target}" 2>&1)"
+  expected_team_id="${GUGU_MACOS_TEAM_ID:-${APPLE_TEAM_ID:-$(codesign_team_id_from_identity)}}"
+
+  if ! grep -Fq "Authority=${MACOS_CODESIGN_IDENTITY}" <<<"${details}"; then
+    echo "[build-macos-arm64] ERROR: ${label} is not signed by the expected identity: ${MACOS_CODESIGN_IDENTITY}" >&2
+    echo "${details}" >&2
+    exit 1
+  fi
+
+  if [[ -n "${expected_team_id}" ]] && ! grep -Fq "TeamIdentifier=${expected_team_id}" <<<"${details}"; then
+    echo "[build-macos-arm64] ERROR: ${label} TeamIdentifier does not match ${expected_team_id}" >&2
+    echo "${details}" >&2
+    exit 1
+  fi
+}
+
+verify_app_bundle_identifier() {
+  local app_bundle="$1"
+  local details
+  local expected_identifier
+
+  if [[ -z "${MACOS_CODESIGN_IDENTITY}" ]]; then
+    return
+  fi
+
+  expected_identifier="${GUGU_MACOS_BUNDLE_IDENTIFIER:-com.guxingyao.guguagent.desktop}"
+  details="$(codesign -d --verbose=4 "${app_bundle}" 2>&1)"
+
+  if ! grep -Fq "Identifier=${expected_identifier}" <<<"${details}"; then
+    echo "[build-macos-arm64] ERROR: app bundle identifier is not ${expected_identifier}" >&2
+    echo "${details}" >&2
+    exit 1
+  fi
+}
+
+codesign_path() {
+  local target="$1"
+  if [[ -n "${MACOS_CODESIGN_IDENTITY}" ]]; then
+    codesign --force --sign "${MACOS_CODESIGN_IDENTITY}" "${target}"
+  else
+    codesign --force --sign - --timestamp=none "${target}"
+  fi
+}
+
 sign_canonical_app_bundle() {
   local app_bundle="$1"
   local sidecar="${app_bundle}/Contents/MacOS/gugu-sidecar"
@@ -297,16 +381,24 @@ sign_canonical_app_bundle() {
     echo "[build-macos-arm64] ERROR: bundled RTK is missing or not executable: ${rtk}" >&2
     exit 1
   fi
-  codesign --force --sign - --timestamp=none "${rtk}"
+  codesign_path "${rtk}"
   codesign --verify --verbose=2 "${rtk}"
+  verify_expected_codesign_identity "${rtk}" "rtk"
+
+  if [[ -n "${MACOS_CODESIGN_IDENTITY}" && -x "${sidecar}" ]]; then
+    codesign_path "${sidecar}"
+    codesign --verify --verbose=2 "${sidecar}"
+    verify_expected_codesign_identity "${sidecar}" "sidecar"
+  fi
 
   # Tauri --no-sign leaves the outer .app with no sealed resources, which
-  # fails strict bundle validation once Resources/icon.icns exists. Sign only
-  # the outer bundle: do not pass --deep, because re-signing gugu-sidecar
-  # changes its code-signature hash and breaks existing macOS Keychain ACLs.
-  codesign --force --sign - --timestamp=none "${app_bundle}"
+  # fails strict bundle validation once Resources/icon.icns exists. For
+  # ad-hoc/internal builds, keep the sidecar hash stable to preserve existing
+  # macOS Keychain ACLs. For Developer ID release builds, sign nested binaries
+  # explicitly with the same stable identity before sealing the outer bundle.
+  codesign_path "${app_bundle}"
 
-  if [[ -x "${sidecar}" ]]; then
+  if [[ -z "${MACOS_CODESIGN_IDENTITY}" && -x "${sidecar}" ]]; then
     sidecar_cdhash_after="$(codesign_cdhash "${sidecar}")"
     if [[ "${sidecar_cdhash_before}" != "${sidecar_cdhash_after}" ]]; then
       echo "[build-macos-arm64] ERROR: sidecar signature hash changed while signing app bundle" >&2
@@ -317,6 +409,8 @@ sign_canonical_app_bundle() {
   fi
 
   codesign --verify --deep --strict --verbose=2 "${app_bundle}"
+  verify_expected_codesign_identity "${app_bundle}" "app bundle"
+  verify_app_bundle_identifier "${app_bundle}"
 }
 
 create_updater_archive() {
@@ -367,6 +461,7 @@ verify_updater_archive() {
   fi
 
   local extracted_rtk="${extracted_app}/Contents/MacOS/rtk"
+  local extracted_sidecar="${extracted_app}/Contents/MacOS/gugu-sidecar"
   if [[ ! -x "${extracted_rtk}" ]]; then
     echo "[build-macos-arm64] ERROR: updater archive is missing executable Contents/MacOS/rtk" >&2
     rm -rf "${extract_dir}"
@@ -374,6 +469,13 @@ verify_updater_archive() {
   fi
 
   codesign --verify --verbose=2 "${extracted_rtk}"
+  verify_expected_codesign_identity "${extracted_app}" "updater app bundle"
+  verify_app_bundle_identifier "${extracted_app}"
+  verify_expected_codesign_identity "${extracted_rtk}" "updater rtk"
+  if [[ -x "${extracted_sidecar}" ]]; then
+    codesign --verify --verbose=2 "${extracted_sidecar}"
+    verify_expected_codesign_identity "${extracted_sidecar}" "updater sidecar"
+  fi
 
   rm -rf "${extract_dir}"
 }

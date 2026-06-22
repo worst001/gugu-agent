@@ -1269,7 +1269,7 @@ export const zh: Record<TranslationKey, string> = {
   'chat.dismiss': '关闭',
   'chat.stopTitle': '停止生成 (Cmd+.)',
   'chat.runtimeControlsLocked': '本轮任务正在执行，结束后再修改权限设置。',
-  'chat.emptyAssistantResult': '本轮已经结束，但没有返回可显示的文字结果。你可以直接补充“继续”或重新发送上一条消息。',
+  'chat.emptyAssistantResult': 'Gugu 这一轮没有生成可显示的最终回复，可能停在附件解析或工具执行之后。你可以直接发送“继续”，Gugu 会基于已有上下文接着回答。',
   'chat.rewindAction': '回滚到这里',
   'chat.rewindModalTitle': '回滚对话',
   'chat.rewindConfirm': '执行回滚',

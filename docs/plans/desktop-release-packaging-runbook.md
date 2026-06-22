@@ -45,8 +45,19 @@
 6. **签名与 updater secret**
    - 不需要把 secret 明文给 agent。
    - 但必须确认 CI 中 Tauri updater 签名、macOS/Windows 相关签名配置仍可用。
+   - 注意：`TAURI_SIGNING_PRIVATE_KEY` 只负责 Tauri updater 校验，不等于 Apple Developer ID 代码签名。
 
-7. **测试账号与 Gugu Managed 可用性**
+7. **macOS Apple Developer ID 签名**
+   - 如果发布包含 macOS 正式包，CI 必须配置 Apple Developer ID 证书。
+   - 必需 secret：
+     - `APPLE_CERTIFICATE_BASE64`：`.p12` 证书的 base64 内容。
+     - `APPLE_CERTIFICATE_PASSWORD`：`.p12` 证书密码。
+     - `GUGU_MACOS_CODESIGN_IDENTITY`：例如 `Developer ID Application: ...`。
+     - `APPLE_KEYCHAIN_PASSWORD`：CI 临时 keychain 密码，可选但推荐。
+   - 没有稳定 Apple Developer ID 签名时，macOS 可能把每次更新后的 App 当成新程序，导致辅助功能/屏幕录制权限需要删除后重新添加。
+   - 这种包只能作为内部应急包，不能标记为“macOS 热更新稳定完成”。
+
+8. **测试账号与 Gugu Managed 可用性**
    - 至少能跑一次真实 Gugu Managed 对话。
    - 若包含支付、激活码、套餐相关改动，还需要单独支付冒烟。
 
@@ -269,6 +280,26 @@ Windows 上不要假设 `install()` 后可以立即 `relaunch()`。
 
 macOS 也必须测升级，不只测 DMG。
 
+### 8.1 代码签名与 TCC 权限稳定性
+
+macOS 的辅助功能和屏幕录制权限由系统 TCC 管理，权限绑定 App 的 bundle identifier、签名身份和实际可执行代码要求。
+
+正式 macOS 发布必须满足：
+
+- `desktop/src-tauri/tauri.conf.json` 的 `identifier` 稳定为 `com.guxingyao.guguagent.desktop`。
+- `SIGN_BUILD=1` 时必须使用稳定 Apple Developer ID identity，不允许静默使用 ad-hoc 签名。
+- CI 必须导入 `APPLE_CERTIFICATE_BASE64` / `APPLE_CERTIFICATE_PASSWORD`，并设置 `GUGU_MACOS_CODESIGN_IDENTITY`。
+- `TAURI_SIGNING_PRIVATE_KEY` 只能证明 updater archive 未被篡改，不能证明 macOS 系统权限会跨版本继承。
+- 如果设置 `ALLOW_ADHOC_MACOS_RELEASE=1`，该产物只能用于内部应急验证，发布报告必须明确写出：更新后可能需要重新授权辅助功能/屏幕录制。
+
+新增 macOS 发布阻断条件：
+
+- tag/正式发布缺少 Apple Developer ID 签名配置。
+- 用户从上一版本热更新后，辅助功能或屏幕录制权限失效，需要删除后重新添加。
+- `codesign --verify --deep --strict` 失败。
+
+### 8.2 升级冒烟
+
 1. 安装上一个公开稳定版本。
 2. 启动应用，确认旧版本正常。
 3. 触发热更新到 `X.Y.Z`。
@@ -279,6 +310,7 @@ macOS 也必须测升级，不只测 DMG。
 8. 确认 `.agents/skills` resource 可读。
 9. 新建会话跑一次普通请求。
 10. Office 工具箱、默认模型、自动接受、计划模式至少各冒烟一次。
+11. 打开 Computer Use 设置页，确认更新前已经授权的辅助功能/屏幕录制仍然有效，不需要删除重加。
 
 阻断条件：
 
@@ -287,6 +319,7 @@ macOS 也必须测升级，不只测 DMG。
 - 更新后应用打不开。
 - sidecar 无法启动。
 - resource 缺失。
+- 辅助功能/屏幕录制权限在更新后丢失。
 
 ## 9. 功能冒烟
 
@@ -520,6 +553,8 @@ macOS：
 [ ] 从 A.B.C 升级到 X.Y.Z 通过
 [ ] app 可启动
 [ ] sidecar 正常
+[ ] CI 使用 Apple Developer ID 签名，`GUGU_MACOS_CODESIGN_IDENTITY` 已配置
+[ ] 更新后辅助功能/屏幕录制权限仍有效，不需要删除重加
 [ ] resource/skills 正常，`gugu-agent-pack` 内可读 office-suite/document-master/spreadsheet-master/ppt-master/mail-master/file-master/local-office-files/pdf-master/excel-master/word-master
 [ ] RTK 0.42.3 已随 app 打包，并通过 hash/签名校验
 [ ] macOS 打包时已用 `GUGU_REQUIRE_BUNDLED_RTK=1` 构建 sidecar，缺失或 hash 不匹配必须失败
