@@ -489,6 +489,13 @@ export class SessionService {
   }
 
   private stripHiddenPromptScaffolding(text: string): string {
+    const englishAttachmentMatch = text.includes('<attachment_parse_results>')
+      ? text.match(/<user_message>\s*([\s\S]*?)\s*<\/user_message>/)
+      : null
+    if (englishAttachmentMatch?.[1]?.trim()) {
+      return this.stripHiddenPromptScaffolding(englishAttachmentMatch[1])
+    }
+
     const attachmentMatch = text.match(/<用户正文>\s*([\s\S]*?)\s*<\/用户正文>/)
     if (attachmentMatch?.[1]?.trim()) {
       return this.stripHiddenPromptScaffolding(attachmentMatch[1])
@@ -1245,10 +1252,11 @@ export class SessionService {
         const entries = await this.readJsonlFile(filePath)
         const workDir = this.resolveWorkDirFromEntries(entries, projectDir)
 
-        // Count transcript messages only (user + assistant)
-        const messageCount = entries.filter(
-          (e) => (e.type === 'user' || e.type === 'assistant') && e.message?.role
-        ).length
+        // Keep the sidebar/header count aligned with the messages endpoint.
+        // Raw transcript files can contain hidden command breadcrumbs,
+        // synthetic interruptions, and internal observer entries that are not
+        // renderable chat history.
+        const messageCount = this.entriesToMessages(entries).length
 
         const title = this.extractTitle(entries)
         if (this.isInternalObserverSession({ projectDir, workDir, title })) {

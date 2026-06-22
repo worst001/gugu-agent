@@ -141,13 +141,16 @@ Current MCP decisions:
   analysis. A future release should bundle the CodeGraph server/CLI, register
   MCP config to the bundled executable path, and initialize per-project
   `.codegraph/` indexes only on demand. Do not package `.codegraph/` indexes.
-- `plugin:claude-mem:mcp-search`: default enabled for desktop releases. In the
-  bundled desktop sidecar runtime, Gugu rewrites this MCP server to
+- `plugin:claude-mem:mcp-search`: bundled but default disabled for desktop
+  releases. It is an advanced opt-in memory feature and must not inject
+  cross-session or cross-directory memory into normal chats by default. When the
+  user manually enables it, the bundled desktop sidecar runtime rewrites this
+  MCP server to
   `gugu-sidecar claude-mem-mcp --plugin-root <bundled claude-mem>`, so users do
   not need to install `sh`, Git Bash, Node.js, `npx`, or any other host command.
   Local desktop/dev runs may launch the bundled `mcp-server.cjs` directly with
-  the current Bun/Node runtime. Desktop release smoke tests must verify the
-  rewritten command starts and reports `connected`.
+  the current Bun/Node runtime. Desktop release smoke tests must verify it shows
+  `disabled` by default and reports `connected` after manual opt-in.
 - `plugin:qmd:qmd`: do not enable by default unless Gugu Agent intentionally
   ships qmd as a local knowledge-base feature. A config that only runs
   `qmd mcp` is not release-ready because most users will not have `qmd` on

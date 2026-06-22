@@ -49,7 +49,8 @@ if (mode === 'adapters') {
     const { startServer } = await import('../../src/server/index.ts')
     startServer()
   } else if (mode === 'cli') {
-    await import('../../src/entrypoints/cli.tsx')
+    const { main: runCli } = await import('../../src/entrypoints/cli.tsx')
+    await runCli()
   } else {
     console.error(`gugu-sidecar: unknown mode "${mode}" (expected "server", "cli", "adapters" or "claude-mem-mcp")`)
     process.exit(2)

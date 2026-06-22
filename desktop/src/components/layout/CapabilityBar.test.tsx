@@ -49,7 +49,11 @@ describe('CapabilityBar', () => {
   beforeEach(() => {
     refreshCapabilities.mockReset()
     useSettingsStore.setState({ locale: 'en' })
-    useUIStore.setState({ sidebarOpen: true, pendingSettingsTab: null })
+    useUIStore.setState({
+      sidebarOpen: true,
+      capabilityPanelCollapsed: false,
+      pendingSettingsTab: null,
+    })
     useTabStore.setState({
       tabs: [{ sessionId: 'session-1', title: 'Session', type: 'session', status: 'idle' }],
       activeTabId: 'session-1',
@@ -119,5 +123,26 @@ describe('CapabilityBar', () => {
 
     expect(useTabStore.getState().activeTabId).toBe('__settings__')
     expect(useUIStore.getState().pendingSettingsTab).toBe('terminal')
+  })
+
+  it('collapses and expands the capability panel', () => {
+    render(<CapabilityBar />)
+
+    const collapseButton = screen.getByRole('button', { name: 'Collapse capabilities' })
+    expect(collapseButton).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('DeepSeek')).toBeInTheDocument()
+
+    fireEvent.click(collapseButton)
+
+    expect(useUIStore.getState().capabilityPanelCollapsed).toBe(true)
+    const expandButton = screen.getByRole('button', { name: 'Expand capabilities' })
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('DeepSeek')).not.toBeInTheDocument()
+
+    fireEvent.click(expandButton)
+
+    expect(useUIStore.getState().capabilityPanelCollapsed).toBe(false)
+    expect(screen.getByRole('button', { name: 'Collapse capabilities' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('DeepSeek')).toBeInTheDocument()
   })
 })

@@ -5,6 +5,11 @@ export const FALLBACK_SESSION_TITLE = 'New Session'
 const TITLE_MAX_LEN = 80
 
 function extractAttachmentParserDisplayText(content: string): string | null {
+  if (content.includes('<attachment_parse_results>') && content.includes('<user_message>')) {
+    const match = content.match(/<user_message>\s*([\s\S]*?)\s*<\/user_message>/)
+    return match?.[1] ?? null
+  }
+
   if (!content.includes('<附件解析结果>') || !content.includes('<用户正文>')) {
     return null
   }
@@ -30,6 +35,7 @@ function looksLikeHiddenScaffoldTitle(title: string): boolean {
     title.includes('Default mode remains natural') ||
     title.includes('product-facing planning mode') ||
     title.includes('Gugu Agent Office Toolbox') ||
+    title.includes('<attachment_parse_results>') ||
     title.includes('<闄勦欢瑙ｆ瀽缁撴灉>')
 }
 
@@ -50,6 +56,7 @@ export function sanitizeSessionTitle(title: string): string {
     cleaned.startsWith('[Agent mode:') ||
     looksLikeHiddenScaffoldTitle(cleaned) ||
     cleaned.includes('CE automation (binding)') ||
+    cleaned.includes('<attachment_parse_results>') ||
     cleaned.includes('<附件解析结果>')
   ) {
     return FALLBACK_SESSION_TITLE

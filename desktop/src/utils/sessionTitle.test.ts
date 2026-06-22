@@ -64,6 +64,20 @@ describe('sanitizeSessionTitle', () => {
     expect(sanitizeSessionTitle(wire)).toBe('Review this file')
   })
 
+  it('uses the visible user prompt for current attachment parser XML tags', () => {
+    const wire = [
+      'The user uploaded attachments. The following attachment parse results were generated from those files.',
+      '<attachment_parse_results>',
+      '# Parsed file',
+      '</attachment_parse_results>',
+      '<user_message>',
+      'How many paragraphs are there?',
+      '</user_message>',
+    ].join('\n')
+
+    expect(sanitizeSessionTitle(wire)).toBe('How many paragraphs are there?')
+  })
+
   it('uses the visible user prompt for nested attachment and CE wire messages', () => {
     const { wire: ceWire } = buildCeWorkflowMessage('standard', 'Review this PDF')
     const wire = [

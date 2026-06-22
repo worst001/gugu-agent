@@ -84,7 +84,7 @@ Desktop 安装包必须包含：
 - 当前项目 `.agents/skills`，作为 `gugu-agent-pack` resource 打入。
 - 默认启用所需的内置 skill、plugin、agent 功能。
 - Office 工具箱相关 skill/prompt/resource。
-- claude-mem 若作为默认能力，必须内置可运行路径，不能依赖小白用户安装 `sh`、`qmd`、Python 或其他宿主命令。
+- claude-mem 随包安装但默认关闭，不进入普通会话主链路；用户手动开启时，必须走内置可运行路径，不能依赖小白用户安装 `sh`、`qmd`、Python 或其他宿主命令。
 
 默认不应打入或默认启用：
 
@@ -310,7 +310,7 @@ macOS 也必须测升级，不只测 DMG。
   - 路由优先级：用户明确要求的最终产物类型优先于工具箱意图和输入格式，例如“把 PDF 做成 PPT”必须用 PDF workflow 读取来源、PPT workflow 产出结果。
 - 用户消息、会话标题、聊天记录不出现内部 scaffold。
 - 默认 MCP 不出现小白用户无法处理的红色 unavailable 项。
-- claude-mem 若默认启用，必须 connected。
+- claude-mem 默认应显示为 disabled；手动启用后必须 connected，且不能创建可见的 memory observer 聊天会话。
 
 ## 10. 发布顺序
 
@@ -481,7 +481,7 @@ D:/Claude Code/claude-code-gugu/secrets/oss-backups/
 [ ] release-notes/vX.Y.Z.md 已写
 [ ] Desktop 版本文件一致
 [ ] .agents/skills 已包含本次 skill/plugin/agent，且办公工具箱意图层与格式层 skill 都存在
-[ ] 默认 MCP 不依赖用户宿主命令
+[ ] 默认 MCP 不依赖用户宿主命令，claude-mem 默认 disabled
 [ ] root 测试通过或说明跳过原因
 [ ] desktop 测试通过
 [ ] desktop lint 通过

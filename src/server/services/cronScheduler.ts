@@ -15,6 +15,9 @@ import * as crypto from 'crypto'
 import { CronService, type CronTask } from './cronService.js'
 import { SessionService } from './sessionService.js'
 import { sendTaskNotification } from './notificationService.js'
+import {
+  resolveClaudeCliSpawnArgs,
+} from '../../utils/desktopBundledCli.js'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,6 +34,23 @@ export type TaskRun = {
   exitCode?: number
   durationMs?: number
   sessionId?: string // links to a session for rich output rendering
+}
+
+export function resolveCronCliSpawnArgs(
+  baseArgs: string[],
+  options?: {
+    cliPath?: string | null
+    execPath?: string
+    appRoot?: string
+    importMetaDir?: string
+    platform?: NodeJS.Platform
+  },
+): string[] {
+  return resolveClaudeCliSpawnArgs(baseArgs, {
+    ...options,
+    importMetaDir: options?.importMetaDir ?? import.meta.dir,
+    sourceLabel: 'scheduled tasks',
+  })
 }
 
 // ─── Output extraction ────────────────────────────────────────────────────────
@@ -241,21 +261,45 @@ function trimRuns(data: RunsFile): void {
 // ─── Scheduler ─────────────────────────────────────────────────────────────────
 
 const TASK_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
+const RUN_PROGRESS_FLUSH_INTERVAL_MS = 3_000
+type CronSpawnProcess = ReturnType<typeof Bun.spawn>
+type CronSpawn = (
+  command: string[],
+  options: Parameters<typeof Bun.spawn>[1],
+) => CronSpawnProcess
 
 export class CronScheduler {
   private intervalId: Timer | null = null
   private runningTasks = new Map<
     string,
-    { proc: ReturnType<typeof Bun.spawn>; startedAt: number; runId: string }
+    { proc: CronSpawnProcess; startedAt: number; runId: string }
   >()
   /** Track which minute each task last fired (prevents same-process duplicate within a minute). */
   private lastFiredMinuteKey = new Map<string, string>()
   private cronService: CronService
   private sessionService: SessionService
+  private spawn: CronSpawn
 
-  constructor(cronService?: CronService) {
+  constructor(cronService?: CronService, options?: { spawn?: CronSpawn }) {
     this.cronService = cronService || new CronService()
     this.sessionService = new SessionService()
+    this.spawn = options?.spawn ?? ((command, spawnOptions) => Bun.spawn(command, spawnOptions))
+  }
+
+  private async finalizeTaskRun(task: CronTask, run: TaskRun): Promise<void> {
+    await updateRun(run)
+
+    if (task.notification?.enabled && task.notification.channels.length > 0) {
+      sendTaskNotification(run, task.notification).catch((err) => {
+        console.error(`[CronScheduler] Notification error for task ${task.id}:`, err)
+      })
+    }
+
+    if (!task.recurring) {
+      await this.cronService.updateTask(task.id, { enabled: false }).catch(() => {
+        // Task may have been deleted.
+      })
+    }
   }
 
   /** Return a string key representing the calendar minute of `date`. */
@@ -396,11 +440,6 @@ export class CronScheduler {
     // Persist the "running" state
     await appendRun(run)
 
-    // Resolve paths relative to project root
-    const projectRoot = path.resolve(import.meta.dir, '../../..')
-    const cliPath = path.join(projectRoot, 'src/entrypoints/cli.tsx')
-    const preloadPath = path.join(projectRoot, 'preload.ts')
-
     const inputPayload = JSON.stringify({
       type: 'user',
       message: {
@@ -411,12 +450,9 @@ export class CronScheduler {
       session_id: sessionId || '',
     }) + '\n'
 
-    const proc = Bun.spawn(
-      [
-        'bun',
-        '--preload',
-        preloadPath,
-        cliPath,
+    let cliArgs: string[]
+    try {
+      cliArgs = resolveCronCliSpawnArgs([
         '--print',
         '--verbose',
         '--input-format',
@@ -424,14 +460,43 @@ export class CronScheduler {
         '--output-format',
         'stream-json',
         ...(sessionId ? ['--session-id', sessionId] : []),
-      ],
-      {
-        stdin: 'pipe',
-        stdout: 'pipe',
-        stderr: 'pipe',
-        cwd: workDir,
-      },
-    )
+      ])
+    } catch (error) {
+      const completedAt = new Date().toISOString()
+      const completedRun: TaskRun = {
+        ...run,
+        completedAt,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: new Date(completedAt).getTime() - new Date(startedAt).getTime(),
+      }
+      await this.finalizeTaskRun(task, completedRun)
+      return completedRun
+    }
+
+    let proc: CronSpawnProcess
+    try {
+      proc = this.spawn(
+        cliArgs,
+        {
+          stdin: 'pipe',
+          stdout: 'pipe',
+          stderr: 'pipe',
+          cwd: workDir,
+        },
+      )
+    } catch (error) {
+      const completedAt = new Date().toISOString()
+      const completedRun: TaskRun = {
+        ...run,
+        completedAt,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: new Date(completedAt).getTime() - new Date(startedAt).getTime(),
+      }
+      await this.finalizeTaskRun(task, completedRun)
+      return completedRun
+    }
 
     this.runningTasks.set(task.id, { proc, startedAt: Date.now(), runId })
 
@@ -457,6 +522,20 @@ export class CronScheduler {
     try {
       // Collect stdout
       const stdoutChunks: string[] = []
+      let lastProgressFlushAt = 0
+      const flushRunningProgress = async () => {
+        const now = Date.now()
+        if (now - lastProgressFlushAt < RUN_PROGRESS_FLUSH_INTERVAL_MS) return
+        lastProgressFlushAt = now
+        const rawOutput = stdoutChunks.join('')
+        const output = extractAssistantText(rawOutput)
+        await updateRun({
+          ...run,
+          status: 'running',
+          output: output.slice(0, 50_000),
+          durationMs: now - new Date(startedAt).getTime(),
+        })
+      }
       if (proc.stdout) {
         const reader = proc.stdout.getReader()
         const decoder = new TextDecoder()
@@ -465,6 +544,7 @@ export class CronScheduler {
             const { done, value } = await reader.read()
             if (done) break
             stdoutChunks.push(decoder.decode(value, { stream: true }))
+            await flushRunningProgress()
           }
         } catch {
           // stream may be interrupted on kill
@@ -510,21 +590,7 @@ export class CronScheduler {
         }
       }
 
-      await updateRun(completedRun)
-
-      // Send IM notification if configured
-      if (task.notification?.enabled && task.notification.channels.length > 0) {
-        sendTaskNotification(completedRun, task.notification).catch((err) => {
-          console.error(`[CronScheduler] Notification error for task ${task.id}:`, err)
-        })
-      }
-
-      // If non-recurring, disable after first run
-      if (!task.recurring) {
-        await this.cronService.updateTask(task.id, { enabled: false }).catch(() => {
-          // Task may have been deleted
-        })
-      }
+      await this.finalizeTaskRun(task, completedRun)
 
       return completedRun
     } catch (err) {
@@ -541,7 +607,7 @@ export class CronScheduler {
           new Date(completedAt).getTime() - new Date(startedAt).getTime(),
       }
 
-      await updateRun(failedRun)
+      await this.finalizeTaskRun(task, failedRun)
 
       return failedRun
     }

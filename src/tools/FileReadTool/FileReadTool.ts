@@ -545,9 +545,12 @@ export const FileReadTool = buildTool({
       !isPDFExtension(ext) &&
       !IMAGE_EXTENSIONS.has(ext.slice(1))
     ) {
+      const officeHint = ['.xls', '.xlsx', '.doc', '.docx', '.ppt', '.pptx'].includes(ext)
+        ? '这是 Office 二进制文件，普通 Read 工具不能直接读取。请通过附件上传/选择本地文件，并使用“处理文件”“分析表格”“总结文档”或对应办公技能解析。'
+        : `这是 ${ext} 二进制文件，普通 Read 工具不能直接读取。请使用适合该文件类型的工具或先转换为文本格式。`
       return {
         result: false,
-        message: `This tool cannot read binary files. The file appears to be a binary ${ext} file. Please use appropriate tools for binary file analysis.`,
+        message: officeHint,
         errorCode: 4,
       }
     }

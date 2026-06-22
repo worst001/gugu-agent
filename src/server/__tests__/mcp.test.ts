@@ -299,6 +299,61 @@ describe('MCP API', () => {
     expect(body.server.scope).toBe('dynamic')
   })
 
+  it('lists bundled claude-mem as disabled until the user opts in', async () => {
+    const pluginServerName = 'plugin:claude-mem:mcp-search'
+    const pluginServerConfig = {
+      scope: 'dynamic',
+      type: 'stdio',
+      command: 'gugu-sidecar',
+      args: ['claude-mem-mcp'],
+      env: {},
+      pluginSource: 'claude-mem@gugu-bundled',
+    } as const
+
+    getClaudeCodeMcpConfigsSpy = spyOn(mcpConfig, 'getClaudeCodeMcpConfigs').mockResolvedValue({
+      servers: {
+        [pluginServerName]: pluginServerConfig,
+      },
+      errors: [],
+    })
+
+    const list = makeRequest('GET', `/api/mcp?cwd=${encodeURIComponent(projectRoot)}`)
+    const listRes = await handleMcpApi(list.req, list.url, list.segments)
+    expect(listRes.status).toBe(200)
+    const listBody = await listRes.json()
+
+    expect(listBody.servers).toHaveLength(1)
+    expect(listBody.servers[0]).toMatchObject({
+      name: pluginServerName,
+      enabled: false,
+      status: 'disabled',
+    })
+    expect(hostPreflightSpy).not.toHaveBeenCalled()
+    expect(connectSpy).not.toHaveBeenCalled()
+
+    reconnectSpy = spyOn(mcpClient, 'reconnectMcpServerImpl').mockResolvedValue({
+      name: pluginServerName,
+      client: {
+        name: pluginServerName,
+        type: 'connected',
+        client: {} as never,
+        capabilities: {},
+        config: pluginServerConfig,
+        cleanup: mock(async () => {}),
+      },
+    })
+
+    const enable = makeRequest('POST', `/api/mcp/${encodeURIComponent(pluginServerName)}/toggle`, {
+      cwd: projectRoot,
+    })
+    const enableRes = await handleMcpApi(enable.req, enable.url, enable.segments)
+    expect(enableRes.status).toBe(200)
+    const enabledBody = await enableRes.json()
+
+    expect(enabledBody.server.enabled).toBe(true)
+    expect(reconnectSpy).toHaveBeenCalledWith(pluginServerName, pluginServerConfig)
+  })
+
   it('returns a failed server state when reconnect preflight fails on the host machine', async () => {
     const pluginServerName = 'plugin:telegram:telegram'
     const pluginServerConfig = {

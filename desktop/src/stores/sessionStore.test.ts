@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { createMock, listMock } = vi.hoisted(() => ({
+const { createMock, listMock, renameMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
   listMock: vi.fn(),
+  renameMock: vi.fn(),
 }))
 
 vi.mock('../api/sessions', () => ({
@@ -10,13 +11,15 @@ vi.mock('../api/sessions', () => ({
     create: createMock,
     list: listMock,
     delete: vi.fn(),
-    rename: vi.fn(),
+    rename: renameMock,
   },
 }))
 
 import { useSessionStore } from './sessionStore'
+import { useTabStore } from './tabStore'
 
 const initialState = useSessionStore.getState()
+const initialTabState = useTabStore.getState()
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -26,6 +29,7 @@ describe('sessionStore', () => {
   beforeEach(() => {
     createMock.mockReset()
     listMock.mockReset()
+    renameMock.mockReset()
     useSessionStore.setState({
       ...initialState,
       sessions: [],
@@ -35,11 +39,18 @@ describe('sessionStore', () => {
       selectedProjects: [],
       availableProjects: [],
       removedProjects: [],
+      newSessionWorkDir: null,
+    })
+    useTabStore.setState({
+      ...initialTabState,
+      tabs: [],
+      activeTabId: null,
     })
   })
 
   afterEach(() => {
     useSessionStore.setState(initialState)
+    useTabStore.setState(initialTabState)
   })
 
   it('returns a new session id before the background refresh completes', async () => {
@@ -123,5 +134,46 @@ describe('sessionStore', () => {
     await useSessionStore.getState().createSession('/workspace/project-a')
 
     expect(useSessionStore.getState().removedProjects).toEqual([])
+  })
+
+  it('keeps a pending sidebar new-session directory after creating a session', async () => {
+    createMock.mockResolvedValue({ sessionId: 'session-created' })
+    listMock.mockImplementation(() => new Promise(() => {}))
+    useSessionStore.setState({ newSessionWorkDir: '/workspace/project-a' })
+
+    await useSessionStore.getState().createSession('/workspace/project-a')
+
+    expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/project-a')
+  })
+
+  it('syncs an open tab title when a session is renamed', async () => {
+    renameMock.mockResolvedValue({ ok: true })
+    useSessionStore.setState({
+      sessions: [{
+        id: 'session-rename',
+        title: '旧标题',
+        createdAt: '2026-06-22T00:00:00.000Z',
+        modifiedAt: '2026-06-22T00:00:00.000Z',
+        messageCount: 3,
+        projectPath: '',
+        workDir: '/workspace/project-a',
+        workDirExists: true,
+      }],
+    })
+    useTabStore.setState({
+      tabs: [{
+        sessionId: 'session-rename',
+        title: '旧标题',
+        type: 'session',
+        status: 'idle',
+      }],
+      activeTabId: 'session-rename',
+    })
+
+    await useSessionStore.getState().renameSession('session-rename', '你是文案策划师')
+
+    expect(renameMock).toHaveBeenCalledWith('session-rename', '你是文案策划师')
+    expect(useSessionStore.getState().sessions[0]?.title).toBe('你是文案策划师')
+    expect(useTabStore.getState().tabs[0]?.title).toBe('你是文案策划师')
   })
 })

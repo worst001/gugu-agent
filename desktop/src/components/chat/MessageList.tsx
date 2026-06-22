@@ -58,6 +58,11 @@ type RewindTarget = {
   attachments?: UserTextMessage['attachments']
 }
 
+type MessageActionTarget = {
+  message: UserTextMessage
+  userMessageIndex: number
+}
+
 type PlanConfirmationTarget = {
   sessionId: string
   message: AssistantTextMessage
@@ -518,6 +523,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const reloadHistory = useChatStore((s) => s.reloadHistory)
   const forgetLocalUserEcho = useChatStore((s) => s.forgetLocalUserEcho)
   const rewindLocalMessages = useChatStore((s) => s.rewindLocalMessages)
+  const restartSessionRuntime = useChatStore((s) => s.restartSessionRuntime)
   const queueComposerPrefill = useChatStore((s) => s.queueComposerPrefill)
   const sendMessage = useChatStore((s) => s.sendMessage)
   const forkSession = useSessionStore((s) => s.forkSession)
@@ -526,6 +532,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   )
   const sessionWorkDir = sessionListItem?.workDir ?? null
   const sessionMessageCount = sessionListItem?.messageCount ?? 0
+  const sessionModifiedAt = sessionListItem?.modifiedAt ?? ''
   const isMemberSession = useTeamStore((s) =>
     resolvedSessionId ? Boolean(s.getMemberBySessionId(resolvedSessionId)) : false,
   )
@@ -719,7 +726,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   useEffect(() => {
     if (!resolvedSessionId || sessionMessageCount <= 0) return
     if (messages.length > 0 || historyLoading || historyLoadError) return
-    const autoloadKey = `${resolvedSessionId}:${sessionMessageCount}`
+    const autoloadKey = `${resolvedSessionId}:${sessionMessageCount}:${sessionModifiedAt}`
     if (historyAutoloadKeyRef.current === autoloadKey) return
     historyAutoloadKeyRef.current = autoloadKey
 
@@ -730,6 +737,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     messages.length,
     reloadHistory,
     resolvedSessionId,
+    sessionModifiedAt,
     sessionMessageCount,
   ])
 
@@ -866,6 +874,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
         })
       }
       await reloadHistory(resolvedSessionId)
+      restartSessionRuntime(resolvedSessionId)
       queueComposerPrefill(resolvedSessionId, {
         text: rewindTarget.content,
         attachments: rewindTarget.attachments,
@@ -923,6 +932,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     messages,
     queueComposerPrefill,
     reloadHistory,
+    restartSessionRuntime,
     resolvedSessionId,
     rewindLocalMessages,
     rewindTarget,
@@ -973,6 +983,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   ])
 
   let visibleUserMessageIndex = -1
+  let latestMessageActionTarget: MessageActionTarget | null = null
 
   return (
     <div
@@ -999,9 +1010,20 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
           }
 
           const msg = item.message
-          const rewindableUserIndex =
+          if (msg.type === 'user_text' && !msg.pending) {
+            visibleUserMessageIndex += 1
+            latestMessageActionTarget = {
+              message: msg,
+              userMessageIndex: visibleUserMessageIndex,
+            }
+          }
+          const userActionTarget =
             msg.type === 'user_text' && !msg.pending
-              ? ++visibleUserMessageIndex
+              ? latestMessageActionTarget
+              : null
+          const assistantActionTarget =
+            msg.type === 'assistant_text' && msg.origin !== 'proactive_tick'
+              ? latestMessageActionTarget
               : null
           const showPlanConfirmation =
             msg.type === 'assistant_text' &&
@@ -1023,7 +1045,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
                       })()
                     : null
                 }
-                rewindableUserIndex={rewindableUserIndex}
+                actionTarget={userActionTarget ?? assistantActionTarget}
                 onRequestRewind={
                   !isMemberSession
                     ? (message, userMessageIndex) => {
@@ -1491,7 +1513,7 @@ export const MessageBlock = memo(function MessageBlock({
   activeThinkingId,
   agentTaskNotifications,
   toolResult,
-  rewindableUserIndex,
+  actionTarget,
   onRequestRewind,
   onRequestFork,
 }: {
@@ -1501,7 +1523,7 @@ export const MessageBlock = memo(function MessageBlock({
   activeThinkingId: string | null
   agentTaskNotifications: Record<string, AgentTaskNotification>
   toolResult?: { content: unknown; isError: boolean } | null
-  rewindableUserIndex?: number | null
+  actionTarget?: MessageActionTarget | null
   onRequestRewind?: (
     message: Extract<UIMessage, { type: 'user_text' }>,
     userMessageIndex: number,
@@ -1532,17 +1554,12 @@ export const MessageBlock = memo(function MessageBlock({
               : undefined
           }
           onRewind={
-            typeof rewindableUserIndex === 'number' && onRequestRewind
-              ? () => onRequestRewind(message, rewindableUserIndex)
-              : undefined
-          }
-          onFork={
-            typeof rewindableUserIndex === 'number' && onRequestFork
-              ? () => onRequestFork(message, rewindableUserIndex)
+            actionTarget && onRequestRewind
+              ? () => onRequestRewind(actionTarget.message, actionTarget.userMessageIndex)
               : undefined
           }
           rewindLabel={t('chat.rewindAction')}
-          forkLabel={t('chat.forkAction')}
+          onFork={undefined}
         />
       )
     case 'assistant_text':
@@ -1554,6 +1571,13 @@ export const MessageBlock = memo(function MessageBlock({
               : message.content
           }
           localPathBase={localPathBase}
+          onRewind={undefined}
+          onFork={
+            actionTarget && onRequestFork
+              ? () => onRequestFork(actionTarget.message, actionTarget.userMessageIndex)
+              : undefined
+          }
+          forkLabel={t('chat.forkAction')}
         />
       )
     case 'thinking':

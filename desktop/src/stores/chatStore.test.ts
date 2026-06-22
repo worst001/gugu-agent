@@ -389,6 +389,83 @@ describe('chatStore history mapping', () => {
     ).toBe(true)
   })
 
+  it('shows only the user prompt in the local echo for current attachment parser XML tags', () => {
+    seedSession()
+    const wire = [
+      'The user uploaded attachments. The following attachment parse results were generated from those files.',
+      '',
+      '<attachment_parse_results>',
+      '## Attachment 1: lesson.md',
+      'Parsed method: local text parser',
+      '</attachment_parse_results>',
+      '',
+      '<user_message>',
+      'How many paragraphs are there?',
+      '</user_message>',
+    ].join('\n')
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, wire, [])
+
+    const session = useChatStore.getState().getSession(TEST_SESSION_ID)
+    expect(session.messages[0]).toMatchObject({
+      type: 'user_text',
+      content: 'How many paragraphs are there?',
+    })
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'user_message',
+      content: wire,
+      attachments: [],
+    })
+  })
+
+  it('does not resurrect raw attachment parser local echoes from older versions', async () => {
+    seedSession()
+    const wire = [
+      'The user uploaded attachments. The following attachment parse results were generated from those files.',
+      '',
+      '<attachment_parse_results>',
+      '## Attachment 1: lesson.md',
+      'Parsed method: local text parser',
+      '</attachment_parse_results>',
+      '',
+      '<user_message>',
+      'How many paragraphs are there?',
+      '</user_message>',
+    ].join('\n')
+    localStorage.setItem('gugu-agent-local-user-echoes-v1', JSON.stringify([
+      {
+        sessionId: TEST_SESSION_ID,
+        createdAt: Date.now(),
+        message: {
+          id: 'old-local-raw-echo',
+          type: 'user_text',
+          content: wire,
+          timestamp: Date.now(),
+        },
+      },
+    ]))
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'history-user-with-parser-output',
+          type: 'user',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: wire,
+        },
+      ],
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    const messages = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages
+    expect(messages).toHaveLength(1)
+    expect(messages?.[0]).toMatchObject({
+      id: 'history-user-with-parser-output',
+      type: 'user_text',
+      content: 'How many paragraphs are there?',
+    })
+  })
+
   it('replaces optimistic local-only messages when richer transcript history arrives', async () => {
     seedSession({
       messages: [{
@@ -1392,6 +1469,46 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('keeps consecutive proactive tick replies as separate assistant messages', () => {
+    seedSession({ chatState: 'idle' })
+
+    const store = useChatStore.getState()
+    const sendTickReply = (text: string) => {
+      store.handleServerMessage(TEST_SESSION_ID, {
+        type: 'turn_origin',
+        origin: 'proactive_tick',
+      })
+      store.handleServerMessage(TEST_SESSION_ID, {
+        type: 'content_start',
+        blockType: 'text',
+      })
+      store.handleServerMessage(TEST_SESSION_ID, {
+        type: 'content_delta',
+        text,
+      })
+      store.handleServerMessage(TEST_SESSION_ID, {
+        type: 'message_complete',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })
+    }
+
+    sendTickReply('first check-in')
+    sendTickReply('second check-in')
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'assistant_text',
+        content: 'first check-in',
+        origin: 'proactive_tick',
+      },
+      {
+        type: 'assistant_text',
+        content: 'second check-in',
+        origin: 'proactive_tick',
+      },
+    ])
+  })
+
   it('keeps throttled streaming text isolated between simultaneous sessions', () => {
     vi.useFakeTimers()
     try {
@@ -1643,6 +1760,38 @@ describe('chatStore history mapping', () => {
         id: 'user-glm-1',
         type: 'user_text',
         content: '这是什么',
+      },
+    ])
+  })
+
+  it('shows only the original prompt when restoring current attachment parser XML tags', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-attachment-xml-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [
+          'The user uploaded attachments. The following attachment parse results were generated from those files.',
+          '',
+          '<attachment_parse_results>',
+          '## Attachment 1: lesson.md',
+          'Parsed method: local text parser',
+          '</attachment_parse_results>',
+          '',
+          '<user_message>',
+          'How many paragraphs are there?',
+          '</user_message>',
+        ].join('\n'),
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-attachment-xml-1',
+        type: 'user_text',
+        content: 'How many paragraphs are there?',
       },
     ])
   })

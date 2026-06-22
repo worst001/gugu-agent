@@ -33,6 +33,21 @@ describe('titleService', () => {
     expect(deriveTitle(wire)).toBe('Review this file')
   })
 
+  test('extracts the visible prompt from current attachment parser XML tags', () => {
+    const wire = [
+      'The user uploaded attachments. The following attachment parse results were generated from those files.',
+      '<attachment_parse_results>',
+      '# Parsed file',
+      '</attachment_parse_results>',
+      '<user_message>',
+      'How many paragraphs are there?',
+      '</user_message>',
+    ].join('\n')
+
+    expect(getTitleInputText(wire)).toBe('How many paragraphs are there?')
+    expect(deriveTitle(wire)).toBe('How many paragraphs are there?')
+  })
+
   test('extracts the visible prompt from plan mode scaffolding', () => {
     const wire = [
       '[Agent mode: plan]',

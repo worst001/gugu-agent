@@ -23,7 +23,9 @@ function RunOutput({ run }: { run: TaskRun }) {
   if (!text) {
     return (
       <div className="mt-2 p-2.5 rounded-[var(--radius-sm)] bg-[var(--color-surface-container)] text-xs text-[var(--color-text-tertiary)] italic">
-        {run.sessionId ? t('tasks.outputHintSession') : t('tasks.noOutputText')}
+        {run.status === 'running'
+          ? t('tasks.outputHintRunning')
+          : run.sessionId ? t('tasks.outputHintSession') : t('tasks.noOutputText')}
       </div>
     )
   }
@@ -128,6 +130,10 @@ export function TaskRunsPanel({ taskId, onClose, refreshKey }: Props) {
             {runs.map((run) => {
               const cfg = STATUS_CONFIG[run.status] || STATUS_CONFIG.failed!
               const isExpanded = expandedId === run.id
+              const displayDurationMs = run.durationMs ??
+                (run.status === 'running'
+                  ? Math.max(0, Date.now() - new Date(run.startedAt).getTime())
+                  : null)
               return (
                 <div key={run.id} className="px-4 py-2.5">
                   <div className="flex items-center gap-3">
@@ -150,26 +156,28 @@ export function TaskRunsPanel({ taskId, onClose, refreshKey }: Props) {
                     </span>
 
                     {/* Duration */}
-                    {run.durationMs != null && (
+                    {displayDurationMs != null && (
                       <span className="text-xs text-[var(--color-text-tertiary)]">
-                        {t('tasks.duration', { s: Math.round(run.durationMs / 1000) })}
+                        {run.status === 'running'
+                          ? t('tasks.runningDuration', { s: Math.round(displayDurationMs / 1000) })
+                          : t('tasks.duration', { s: Math.round(displayDurationMs / 1000) })}
                       </span>
                     )}
 
                     <div className="ml-auto flex items-center gap-2">
                       {/* Open session — only after run completes (session is empty while running) */}
-                      {run.sessionId && run.status !== 'running' && (
+                      {run.sessionId && (
                         <button
                           onClick={() => openSession(run.sessionId!, run.taskName)}
                           className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-[var(--color-brand)] bg-[var(--color-brand)]/8 hover:bg-[var(--color-brand)]/15 rounded-[var(--radius-sm)] transition-colors"
                         >
                           <span className="material-symbols-outlined text-[14px]">open_in_new</span>
-                          {t('tasks.openSession')}
+                          {run.status === 'running' ? t('tasks.openRunningSession') : t('tasks.openSession')}
                         </button>
                       )}
 
                       {/* Summary toggle */}
-                      {(run.output || run.error) && (
+                      {(run.status === 'running' || run.output || run.error) && (
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : run.id)}
                           className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] transition-colors"

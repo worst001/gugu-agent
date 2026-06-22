@@ -10,6 +10,7 @@ import {
   cronMatches,
   fieldMatches,
   CronScheduler,
+  resolveCronCliSpawnArgs,
   type TaskRun,
 } from '../services/cronScheduler.js'
 import { CronService, type CronTask } from '../services/cronService.js'
@@ -34,6 +35,87 @@ async function cleanupTmpDir(dir: string): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+function createMockSpawn(output = '', exitCode = 0) {
+  return mock(() => {
+    const encoder = new TextEncoder()
+    const stdout = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (output) controller.enqueue(encoder.encode(output))
+        controller.close()
+      },
+    })
+    const stderr = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close()
+      },
+    })
+
+    return {
+      stdin: {
+        write: mock(() => {}),
+        end: mock(() => {}),
+      },
+      stdout,
+      stderr,
+      exited: Promise.resolve(exitCode),
+      kill: mock(() => {}),
+    } as unknown as ReturnType<typeof Bun.spawn>
+  })
+}
+
+function createStreamingMockSpawn(output: string) {
+  let stdoutController: ReadableStreamDefaultController<Uint8Array> | null = null
+  let resolveExit: ((code: number) => void) | null = null
+  const encoder = new TextEncoder()
+  const spawn = mock(() => {
+    const stdout = new ReadableStream<Uint8Array>({
+      start(controller) {
+        stdoutController = controller
+        controller.enqueue(encoder.encode(output))
+      },
+    })
+    const stderr = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close()
+      },
+    })
+
+    return {
+      stdin: {
+        write: mock(() => {}),
+        end: mock(() => {}),
+      },
+      stdout,
+      stderr,
+      exited: new Promise<number>((resolve) => {
+        resolveExit = resolve
+      }),
+      kill: mock(() => {}),
+    } as unknown as ReturnType<typeof Bun.spawn>
+  })
+
+  return {
+    spawn,
+    finish(exitCode = 0) {
+      stdoutController?.close()
+      resolveExit?.(exitCode)
+    },
+  }
+}
+
+async function waitForCondition(assertion: () => Promise<boolean>, timeoutMs = 1000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      if (await assertion()) return
+    } catch {
+      // The condition may depend on a file that is created asynchronously.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error('Timed out waiting for condition')
 }
 
 // ─── fieldMatches tests ────────────────────────────────────────────────────
@@ -155,6 +237,99 @@ describe('cronMatches', () => {
 
 // ─── CronScheduler execution tests ────────────────────────────────────────
 
+describe('resolveCronCliSpawnArgs', () => {
+  const originalCliPath = process.env.CLAUDE_CLI_PATH
+  const originalAppRoot = process.env.CLAUDE_APP_ROOT
+
+  afterEach(() => {
+    if (originalCliPath) {
+      process.env.CLAUDE_CLI_PATH = originalCliPath
+    } else {
+      delete process.env.CLAUDE_CLI_PATH
+    }
+    if (originalAppRoot) {
+      process.env.CLAUDE_APP_ROOT = originalAppRoot
+    } else {
+      delete process.env.CLAUDE_APP_ROOT
+    }
+  })
+
+  it('uses the bundled desktop sidecar in packaged builds', () => {
+    const args = resolveCronCliSpawnArgs(
+      ['--print', '--input-format', 'stream-json'],
+      {
+        cliPath: 'C:\\Program Files\\Gugu Agent\\gugu-sidecar.exe',
+        appRoot: 'C:\\Program Files\\Gugu Agent\\gugu-agent-pack',
+        platform: 'win32',
+      },
+    )
+
+    expect(args).toEqual([
+      'C:\\Program Files\\Gugu Agent\\gugu-sidecar.exe',
+      'cli',
+      '--app-root',
+      'C:\\Program Files\\Gugu Agent\\gugu-agent-pack',
+      '--print',
+      '--input-format',
+      'stream-json',
+    ])
+    expect(args.join(' ')).not.toContain('src\\entrypoints\\cli.tsx')
+  })
+
+  it('discovers a sibling sidecar when scheduled tasks run from the packaged app executable', async () => {
+    const installDir = await createTmpDir()
+    try {
+      const appExe = path.join(installDir, 'Gugu Agent.exe')
+      const sidecar = path.join(installDir, 'gugu-sidecar-x86_64-pc-windows-msvc.exe')
+      await fs.writeFile(appExe, '')
+      await fs.writeFile(sidecar, '')
+
+      const args = resolveCronCliSpawnArgs(
+        ['--print', '--input-format', 'stream-json'],
+        {
+          execPath: appExe,
+          appRoot: installDir,
+          importMetaDir: 'B:\\src\\server\\services',
+          platform: 'win32',
+        },
+      )
+
+      expect(args).toEqual([
+        sidecar,
+        'cli',
+        '--app-root',
+        installDir,
+        '--print',
+        '--input-format',
+        'stream-json',
+      ])
+      expect(args.join(' ')).not.toContain('B:\\src\\entrypoints\\cli.tsx')
+    } finally {
+      await cleanupTmpDir(installDir)
+    }
+  })
+
+  it('falls back to the source CLI only in Windows development mode', () => {
+    delete process.env.CLAUDE_CLI_PATH
+    delete process.env.CLAUDE_APP_ROOT
+
+    const args = resolveCronCliSpawnArgs(
+      ['--print'],
+      {
+        execPath: 'C:\\Program Files\\bun\\bun.exe',
+        importMetaDir: 'D:\\Claude Code\\claude-code-gugu\\src\\server\\services',
+        platform: 'win32',
+      },
+    )
+
+    expect(path.basename(args[0]!).replace(/\.exe$/i, '')).toBe('bun')
+    expect(args).toContain('--preload')
+    expect(args).toContain('D:\\Claude Code\\claude-code-gugu\\preload.ts')
+    expect(args).toContain('D:\\Claude Code\\claude-code-gugu\\src\\entrypoints\\cli.tsx')
+    expect(args).toContain('--print')
+  })
+})
+
 describe('CronScheduler', () => {
   let cronService: CronService
   let scheduler: CronScheduler
@@ -163,7 +338,7 @@ describe('CronScheduler', () => {
     tmpDir = await createTmpDir()
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     cronService = new CronService()
-    scheduler = new CronScheduler(cronService)
+    scheduler = new CronScheduler(cronService, { spawn: createMockSpawn() })
   })
 
   afterEach(async () => {
@@ -237,6 +412,47 @@ describe('CronScheduler', () => {
     expect(logContent.runs[0].prompt).toBe('echo test')
   })
 
+  it('should persist interim output while a task is still running', async () => {
+    const interimText = '阶段性进度：正在整理素材'
+    const streamJson = `${JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: interimText }] },
+    })}\n`
+    const streaming = createStreamingMockSpawn(streamJson)
+    scheduler = new CronScheduler(cronService, { spawn: streaming.spawn })
+    const task = await cronService.createTask({
+      cron: '* * * * *',
+      prompt: 'daily visual design log',
+      name: 'Visual Design Log',
+      recurring: true,
+    })
+
+    const runPromise = scheduler.executeTask(task)
+    const logPath = path.join(tmpDir, 'scheduled_tasks_log.json')
+    let completedRun: TaskRun | null = null
+
+    try {
+      await waitForCondition(async () => {
+        const logContent = JSON.parse(await fs.readFile(logPath, 'utf-8')) as {
+          runs: TaskRun[]
+        }
+        const run = logContent.runs.find((item) => item.taskId === task.id)
+        return Boolean(
+          run &&
+          run.status === 'running' &&
+          run.output?.includes(interimText) &&
+          typeof run.durationMs === 'number',
+        )
+      })
+    } finally {
+      streaming.finish()
+      completedRun = await runPromise
+    }
+
+    expect(completedRun?.status).toBe('completed')
+    expect(completedRun?.output).toContain(interimText)
+  })
+
   it('should disable non-recurring task after execution', async () => {
     const task = await cronService.createTask({
       cron: '* * * * *',
@@ -253,6 +469,27 @@ describe('CronScheduler', () => {
     // After execution, the task should be disabled
     const tasks = await cronService.listTasks()
     const updated = tasks.find((t) => t.id === task.id)
+    expect(updated?.enabled).toBe(false)
+  })
+
+  it('should disable non-recurring task when spawning the CLI fails', async () => {
+    scheduler = new CronScheduler(cronService, {
+      spawn: mock(() => {
+        throw new Error('spawn failed')
+      }) as never,
+    })
+    const task = await cronService.createTask({
+      cron: '* * * * *',
+      prompt: 'one-shot task with bad launcher',
+      recurring: false,
+    })
+
+    const run = await scheduler.executeTask(task)
+
+    const tasks = await cronService.listTasks()
+    const updated = tasks.find((t) => t.id === task.id)
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('spawn failed')
     expect(updated?.enabled).toBe(false)
   })
 
@@ -375,7 +612,7 @@ describe('Execution log trimming', () => {
     tmpDir = await createTmpDir()
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     cronService = new CronService()
-    scheduler = new CronScheduler(cronService)
+    scheduler = new CronScheduler(cronService, { spawn: createMockSpawn() })
   })
 
   afterEach(async () => {

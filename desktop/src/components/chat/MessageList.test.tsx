@@ -886,6 +886,41 @@ describe('MessageList nested tool calls', () => {
     expect(assistantShell?.className).not.toContain('ml-10')
     expect(userActions?.getAttribute('data-align')).toBe('end')
     expect(assistantActions?.getAttribute('data-align')).toBe('start')
+    expect(within(userShell as HTMLElement).queryByRole('button', { name: 'Fork from here' })).toBeNull()
+    expect(within(userShell as HTMLElement).getByRole('button', { name: 'Rewind to here' })).toBeTruthy()
+    expect(within(assistantShell as HTMLElement).getByRole('button', { name: 'Fork from here' })).toBeTruthy()
+    expect(within(assistantShell as HTMLElement).queryByRole('button', { name: 'Rewind to here' })).toBeNull()
+  })
+
+  it('does not show fork actions on proactive tick replies', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: '先帮我分析这个项目',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-tick',
+              type: 'assistant_text',
+              content: '我还在持续跟进，有进展会告诉你。',
+              origin: 'proactive_tick',
+              timestamp: 2,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const assistantShell = screen.getByText('我还在持续跟进，有进展会告诉你。').closest('[data-message-shell="assistant"]')
+    expect(assistantShell).toBeTruthy()
+    expect(within(assistantShell as HTMLElement).getByRole('button', { name: 'Copy reply' })).toBeTruthy()
+    expect(within(assistantShell as HTMLElement).queryByRole('button', { name: 'Fork from here' })).toBeNull()
   })
 
   it('uses the document column for markdown-heavy assistant replies', () => {
@@ -923,7 +958,7 @@ describe('MessageList nested tool calls', () => {
     expect(assistantShell?.className).not.toContain('ml-10')
   })
 
-  it('opens a rewind preview modal for user messages', async () => {
+  it('opens a rewind preview from the user prompt action', async () => {
     vi.spyOn(sessionsApi, 'rewind').mockResolvedValue({
       target: {
         targetUserMessageId: 'user-1',
@@ -950,6 +985,12 @@ describe('MessageList nested tool calls', () => {
               type: 'user_text',
               content: '回到这一步重做',
               timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: 'reply',
+              timestamp: 2,
             },
           ],
         }),
@@ -991,10 +1032,12 @@ describe('MessageList nested tool calls', () => {
     })
     const reloadHistory = vi.fn().mockResolvedValue(undefined)
     const queueComposerPrefill = vi.fn()
+    const restartSessionRuntime = vi.fn()
 
     useChatStore.setState({
       reloadHistory,
       queueComposerPrefill,
+      restartSessionRuntime,
       sessions: {
         [ACTIVE_TAB]: makeSessionState({
           messages: [
@@ -1016,6 +1059,12 @@ describe('MessageList nested tool calls', () => {
               content: '第二段',
               timestamp: 3,
             },
+            {
+              id: 'assistant-2',
+              type: 'assistant_text',
+              content: 'second ok',
+              timestamp: 4,
+            },
           ],
         }),
       },
@@ -1036,6 +1085,7 @@ describe('MessageList nested tool calls', () => {
       })
     })
     expect(reloadHistory).toHaveBeenCalledWith(ACTIVE_TAB)
+    expect(restartSessionRuntime).toHaveBeenCalledWith(ACTIVE_TAB)
     expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
       text: '第二段',
       attachments: undefined,
@@ -1062,11 +1112,13 @@ describe('MessageList nested tool calls', () => {
     const reloadHistory = vi.fn().mockResolvedValue(undefined)
     const queueComposerPrefill = vi.fn()
     const forgetLocalUserEcho = vi.fn()
+    const restartSessionRuntime = vi.fn()
 
     useChatStore.setState({
       reloadHistory,
       queueComposerPrefill,
       forgetLocalUserEcho,
+      restartSessionRuntime,
       sessions: {
         [ACTIVE_TAB]: makeSessionState({
           messages: [
@@ -1131,6 +1183,7 @@ describe('MessageList nested tool calls', () => {
     })
     expect(forgetLocalUserEcho).toHaveBeenCalledTimes(2)
     expect(reloadHistory).toHaveBeenCalledWith(ACTIVE_TAB)
+    expect(restartSessionRuntime).toHaveBeenCalledWith(ACTIVE_TAB)
     expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
       text: 'write second thing',
       attachments: undefined,

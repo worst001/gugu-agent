@@ -9,6 +9,7 @@ import type { SessionListItem } from '../../types/session'
 import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
 import { resolveNewSessionWorkDir } from '../../utils/newSessionWorkDir'
+import { filesystemApi } from '../../api/filesystem'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 const isWindows = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
@@ -25,8 +26,8 @@ type SessionProjectGroup = {
 }
 
 type SidebarContextMenu =
-  | { type: 'session'; id: string; x: number; y: number }
-  | { type: 'project'; title: string; projectKeys: string[]; x: number; y: number }
+  | { type: 'session'; id: string; path?: string; x: number; y: number }
+  | { type: 'project'; title: string; path: string; projectKeys: string[]; x: number; y: number }
 
 export function Sidebar() {
   const sessions = useSessionStore((s) => s.sessions)
@@ -95,8 +96,10 @@ export function Sidebar() {
 
   const handleSessionContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.preventDefault()
-    setContextMenu({ type: 'session', id, x: e.clientX, y: e.clientY })
-  }, [])
+    const session = sessions.find((item) => item.id === id)
+    const path = session?.workDir || session?.projectPath || undefined
+    setContextMenu({ type: 'session', id, path, x: e.clientX, y: e.clientY })
+  }, [sessions])
 
   const handleProjectContextMenu = useCallback((e: React.MouseEvent, group: SessionProjectGroup) => {
     if (group.ungrouped || group.projectKeys.length === 0) return
@@ -105,6 +108,7 @@ export function Sidebar() {
     setContextMenu({
       type: 'project',
       title: group.title,
+      path: group.pathLabel,
       projectKeys: group.projectKeys,
       x: e.clientX,
       y: e.clientY,
@@ -126,6 +130,28 @@ export function Sidebar() {
     })
     addToast({ type: 'info', message: t('sidebar.projectGroup.removed') })
   }, [addToast, removeProjects, t])
+
+  const handleOpenProjectFolder = useCallback(async (path: string) => {
+    setContextMenu(null)
+    try {
+      await filesystemApi.reveal(path)
+    } catch {
+      addToast({ type: 'error', message: t('sidebar.projectGroup.openFailed') })
+    }
+  }, [addToast, t])
+
+  const createSessionForWorkDir = useCallback(async (workDir?: string) => {
+    try {
+      const sessionId = await useSessionStore.getState().createSession(workDir)
+      useTabStore.getState().openTab(sessionId, t('sidebar.newSession'))
+      useChatStore.getState().connectToSession(sessionId)
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : t('sidebar.sessionListFailed'),
+      })
+    }
+  }, [addToast, t])
 
   const confirmDelete = useCallback(async () => {
     if (!pendingDeleteSessionId) return
@@ -204,19 +230,7 @@ export function Sidebar() {
           active={false}
           collapsed={!sidebarOpen}
           label={t('sidebar.newSession')}
-          onClick={async () => {
-            try {
-              const workDir = resolveNewSessionWorkDir()
-              const sessionId = await useSessionStore.getState().createSession(workDir)
-              useTabStore.getState().openTab(sessionId, t('sidebar.newSession'))
-              useChatStore.getState().connectToSession(sessionId)
-            } catch (error) {
-              addToast({
-                type: 'error',
-                message: error instanceof Error ? error.message : t('sidebar.sessionListFailed'),
-              })
-            }
-          }}
+          onClick={() => void createSessionForWorkDir(resolveNewSessionWorkDir())}
           icon={<PlusIcon />}
         >
           {t('sidebar.newSession')}
@@ -291,34 +305,38 @@ export function Sidebar() {
                 const collapsed = !searchQuery && collapsedProjects.has(group.id)
                 return (
                   <div key={group.id} className="mb-1.5">
-                    <button
-                      type="button"
+                    <div
+                      className="group flex min-w-0 items-center gap-1 rounded-[10px] pr-1 hover:text-[var(--color-text-secondary)]"
                       onContextMenu={(e) => handleProjectContextMenu(e, group)}
-                      onClick={() => {
-                        setNewSessionWorkDir(group.ungrouped ? null : group.pathLabel)
-                        setCollapsedProjects((current) => {
-                          const next = new Set(current)
-                          if (next.has(group.id)) next.delete(group.id)
-                          else next.add(group.id)
-                          return next
-                        })
-                      }}
-                      className="group flex w-full min-w-0 items-center gap-2 rounded-[10px] px-2 pb-1 pt-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
-                      aria-expanded={!collapsed}
                     >
-                      <span className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">
-                        {collapsed ? 'chevron_right' : 'expand_more'}
-                      </span>
-                      <span className="material-symbols-outlined text-[15px]">
-                        {group.ungrouped ? 'inventory_2' : 'folder'}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {group.ungrouped ? t('sidebar.projectGroup.ungrouped') : group.title}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-[var(--color-surface-container-high)] px-1.5 py-0.5 text-[10px] tabular-nums">
-                        {group.sessions.length}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewSessionWorkDir(group.ungrouped ? null : group.pathLabel)
+                          setCollapsedProjects((current) => {
+                            const next = new Set(current)
+                            if (next.has(group.id)) next.delete(group.id)
+                            else next.add(group.id)
+                            return next
+                          })
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2 pb-1 pt-3 text-left text-[11px] font-semibold text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]"
+                        aria-expanded={!collapsed}
+                      >
+                        <span className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">
+                          {collapsed ? 'chevron_right' : 'expand_more'}
+                        </span>
+                        <span className="material-symbols-outlined text-[15px]">
+                          {group.ungrouped ? 'inventory_2' : 'folder'}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {group.ungrouped ? t('sidebar.projectGroup.ungrouped') : group.title}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-[var(--color-surface-container-high)] px-1.5 py-0.5 text-[10px] tabular-nums">
+                          {group.sessions.length}
+                        </span>
+                      </button>
+                    </div>
                     {!collapsed && group.pathLabel && (
                       <div className="mb-1 truncate px-8 text-[10px] text-[var(--color-text-tertiary)]" title={group.pathLabel}>
                         {group.pathLabel}
@@ -420,6 +438,15 @@ export function Sidebar() {
         >
           {contextMenu.type === 'session' ? (
             <>
+              {contextMenu.path && (
+                <button
+                  onClick={() => void handleOpenProjectFolder(contextMenu.path!)}
+                  title={contextMenu.path}
+                  className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  {t('sidebar.projectGroup.openInFolder')}
+                </button>
+              )}
               <button
                 onClick={() => {
                   const session = sessions.find((s) => s.id === contextMenu.id)
@@ -437,13 +464,22 @@ export function Sidebar() {
               </button>
             </>
           ) : (
-            <button
-              onClick={() => handleRemoveProject(contextMenu.projectKeys)}
-              title={contextMenu.title}
-              className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
-            >
-              {t('common.remove')}
-            </button>
+            <>
+              <button
+                onClick={() => void handleOpenProjectFolder(contextMenu.path)}
+                title={contextMenu.path}
+                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              >
+                {t('sidebar.projectGroup.openInFolder')}
+              </button>
+              <button
+                onClick={() => handleRemoveProject(contextMenu.projectKeys)}
+                title={contextMenu.title}
+                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+              >
+                {t('common.remove')}
+              </button>
+            </>
           )}
         </div>
       )}

@@ -10,6 +10,12 @@ vi.mock('./CapabilityBar', () => ({
   CapabilityBar: () => <div data-testid="capability-bar" />,
 }))
 
+vi.mock('../../api/filesystem', () => ({
+  filesystemApi: {
+    reveal: vi.fn(),
+  },
+}))
+
 vi.mock('../../i18n', () => ({
   useTranslation: () => (key: string) => {
     const translations: Record<string, string> = {
@@ -36,6 +42,8 @@ vi.mock('../../i18n', () => ({
       'sidebar.collapse': 'Collapse sidebar',
       'sidebar.expand': 'Expand sidebar',
       'sidebar.projectGroup.ungrouped': 'Uncategorized sessions',
+      'sidebar.projectGroup.openInFolder': 'Open in folder',
+      'sidebar.projectGroup.openFailed': 'Could not open this project folder.',
       'sidebar.projectGroup.removed': 'Project removed from the sidebar. Session history was not deleted.',
       'sidebar.sessionMeta.oneMessage': '1 msg',
       'sidebar.sessionMeta.messages': '2 msgs',
@@ -52,6 +60,19 @@ import { useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
+import { filesystemApi } from '../../api/filesystem'
+
+function getProjectGroupButton(name: RegExp): HTMLElement {
+  const button = screen.getAllByRole('button', { name })
+    .find((element) => element.hasAttribute('aria-expanded'))
+  expect(button).toBeTruthy()
+  return button as HTMLElement
+}
+
+function queryProjectGroupButton(name: RegExp): HTMLElement | null {
+  return screen.queryAllByRole('button', { name })
+    .find((element) => element.hasAttribute('aria-expanded')) ?? null
+}
 
 describe('Sidebar', () => {
   const connectToSession = vi.fn()
@@ -68,6 +89,12 @@ describe('Sidebar', () => {
     createSession.mockReset()
     deleteSession.mockReset()
     addToast.mockReset()
+    vi.mocked(filesystemApi.reveal).mockReset()
+    vi.mocked(filesystemApi.reveal).mockResolvedValue({
+      ok: true,
+      path: '/workspace/project-a',
+      isDirectory: true,
+    })
 
     useTabStore.setState({ tabs: [], activeTabId: null })
     useSessionStore.setState({
@@ -137,13 +164,53 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    fireEvent.click(screen.getByRole('button', { name: /project-a/ }))
+    fireEvent.click(getProjectGroupButton(/project-a/))
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
     })
 
     await waitFor(() => {
       expect(createSession).toHaveBeenCalledWith('/workspace/project-a')
+      expect(connectToSession).toHaveBeenCalledWith('session-new-1')
+    })
+  })
+
+  it('updates the new session directory when selecting another project group', async () => {
+    createSession.mockResolvedValue('session-new-1')
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/project-a',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate bug',
+          createdAt: '2026-06-19T07:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 1,
+          projectPath: '/workspace/project-b',
+          workDir: '/workspace/project-b',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(getProjectGroupButton(/project-b/))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
+    })
+
+    await waitFor(() => {
+      expect(createSession).toHaveBeenCalledWith('/workspace/project-b')
       expect(connectToSession).toHaveBeenCalledWith('session-new-1')
     })
   })
@@ -253,13 +320,13 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    expect(screen.getByRole('button', { name: /project-a/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /project-b/ })).toBeInTheDocument()
+    expect(getProjectGroupButton(/project-a/)).toBeInTheDocument()
+    expect(getProjectGroupButton(/project-b/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Uncategorized sessions/ })).toBeInTheDocument()
     expect(screen.getByText('/workspace/project-a')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Build feature/ })).toHaveTextContent('2 msgs')
 
-    fireEvent.click(screen.getByRole('button', { name: /project-a/ }))
+    fireEvent.click(getProjectGroupButton(/project-a/))
 
     expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Investigate bug/ })).toBeInTheDocument()
@@ -283,7 +350,7 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    fireEvent.click(screen.getByRole('button', { name: /project-a/ }))
+    fireEvent.click(getProjectGroupButton(/project-a/))
     expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByPlaceholderText('Search sessions'), { target: { value: 'build' } })
@@ -319,12 +386,12 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: /project-a/ }))
+    fireEvent.contextMenu(getProjectGroupButton(/project-a/))
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
-    expect(screen.queryByRole('button', { name: /project-a/ })).not.toBeInTheDocument()
+    expect(queryProjectGroupButton(/project-a/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /project-b/ })).toBeInTheDocument()
+    expect(getProjectGroupButton(/project-b/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Investigate bug/ })).toBeInTheDocument()
     expect(deleteSession).not.toHaveBeenCalled()
     expect(useSessionStore.getState().sessions.map((session) => session.id)).toEqual(['session-a', 'session-b'])
@@ -332,6 +399,93 @@ describe('Sidebar', () => {
     expect(addToast).toHaveBeenCalledWith({
       type: 'info',
       message: 'Project removed from the sidebar. Session history was not deleted.',
+    })
+  })
+
+  it('opens a project group directory from the context menu', async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.contextMenu(getProjectGroupButton(/project-a/))
+    expect(screen.getByRole('button', { name: 'Open in folder' })).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open in folder' }))
+    })
+
+    expect(filesystemApi.reveal).toHaveBeenCalledWith('/workspace/project-a')
+    expect(screen.queryByRole('button', { name: 'Open in folder' })).not.toBeInTheDocument()
+  })
+
+  it('opens a session directory from the session context menu', async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Build feature/ }))
+    expect(screen.getByRole('button', { name: 'Open in folder' })).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open in folder' }))
+    })
+
+    expect(filesystemApi.reveal).toHaveBeenCalledWith('/workspace/project-a')
+  })
+
+  it('shows a toast when opening a project group directory fails', async () => {
+    vi.mocked(filesystemApi.reveal).mockRejectedValueOnce(new Error('missing'))
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.contextMenu(getProjectGroupButton(/project-a/))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open in folder' }))
+    })
+
+    expect(addToast).toHaveBeenCalledWith({
+      type: 'error',
+      message: 'Could not open this project folder.',
     })
   })
 

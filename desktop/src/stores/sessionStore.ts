@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { sessionsApi } from '../api/sessions'
 import { useSessionRuntimeStore } from './sessionRuntimeStore'
+import { useTabStore } from './tabStore'
 import type { SessionListItem } from '../types/session'
 import { resolveDefaultSessionWorkDir } from '../utils/defaultSessionWorkDir'
 import { sanitizeSessionTitle } from '../utils/sessionTitle'
@@ -175,6 +176,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   renameSession: async (id: string, title: string) => {
     await sessionsApi.rename(id, title)
     const displayTitle = sanitizeSessionTitle(title)
+    useTabStore.getState().updateTabTitle(id, displayTitle)
     set((s) => ({
       sessions: s.sessions.map((session) =>
         session.id === id ? { ...session, title: displayTitle } : session,
@@ -184,6 +186,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   updateSessionTitle: (id, title) => {
     const displayTitle = sanitizeSessionTitle(title)
+    useTabStore.getState().updateTabTitle(id, displayTitle)
     set((s) => ({
       sessions: s.sessions.map((session) =>
         session.id === id ? { ...session, title: displayTitle } : session,

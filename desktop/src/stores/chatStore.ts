@@ -166,10 +166,19 @@ function readLocalUserEchoes(): StoredLocalUserEcho[] {
         record.createdAt >= cutoff &&
         record.message?.type === 'user_text'
       )
-    })
+    }).map((echo) => ({
+      ...echo,
+      message: sanitizeLocalUserEchoMessage(echo.message),
+    }))
   } catch {
     return []
   }
+}
+
+function sanitizeLocalUserEchoMessage(message: LocalUserEcho): LocalUserEcho {
+  const content = stripHiddenUserPromptScaffolding(message.content).trim()
+  if (content === message.content) return message
+  return { ...message, content }
 }
 
 function writeLocalUserEchoes(echoes: StoredLocalUserEcho[]) {
@@ -394,6 +403,7 @@ type ChatStore = {
 
   getSession: (sessionId: string) => PerSessionState
   connectToSession: (sessionId: string) => void
+  restartSessionRuntime: (sessionId: string) => void
   disconnectSession: (sessionId: string) => void
   sendMessage: (
     sessionId: string,
@@ -516,7 +526,11 @@ function appendAssistantTextMessage(
 
   const normalizedContent = getUnsupportedAttachmentPrompt(content) ?? content
   const last = messages[messages.length - 1]
-  if (last?.type === 'assistant_text' && (last.origin ?? null) === (origin ?? null)) {
+  const shouldMergeWithLast =
+    origin !== 'proactive_tick' &&
+    last?.type === 'assistant_text' &&
+    (last.origin ?? null) === (origin ?? null)
+  if (shouldMergeWithLast) {
     if (last.content === normalizedContent) return messages
 
     const merged: UIMessage = {
@@ -704,6 +718,11 @@ function attachParserPreviewToLatestUserMessage(
 }
 
 function extractAttachmentParserDisplayText(content: string): string | null {
+  if (content.includes('<attachment_parse_results>') && content.includes('<user_message>')) {
+    const match = content.match(/<user_message>\s*([\s\S]*?)\s*<\/user_message>/)
+    return match?.[1] ?? null
+  }
+
   if (!content.includes('<附件解析结果>') || !content.includes('<用户正文>')) {
     return null
   }
@@ -906,6 +925,32 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, () => ({ slashCommands: [] })) }))
         }
       })
+  },
+
+  restartSessionRuntime: (sessionId) => {
+    const session = get().sessions[sessionId]
+    if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
+    discardPendingDelta(sessionId)
+    wsManager.disconnect(sessionId)
+    set((s) => ({
+      sessions: updateSessionIn(s.sessions, sessionId, () => ({
+        connectionState: 'disconnected',
+        chatState: 'idle',
+        activeThinkingId: null,
+        activeToolUseId: null,
+        activeToolName: null,
+        currentTurnOrigin: null,
+        streamingText: '',
+        streamingToolInput: '',
+        pendingPermission: null,
+        pendingPermissionQueue: [],
+        pendingComputerUsePermission: null,
+        elapsedTimer: null,
+        statusVerb: '',
+        statusElapsedSeconds: 0,
+      })),
+    }))
+    get().connectToSession(sessionId)
   },
 
   disconnectSession: (sessionId) => {
@@ -1729,7 +1774,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         break
       case 'session_title_updated':
         useSessionStore.getState().updateSessionTitle(msg.sessionId, msg.title)
-        useTabStore.getState().updateTabTitle(msg.sessionId, msg.title)
         break
       case 'system_notification':
         if (msg.subtype === 'slash_commands' && Array.isArray(msg.data)) {
@@ -1759,7 +1803,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }))
           useCLITaskStore.getState().clearTasks()
           useSessionStore.getState().updateSessionTitle(sessionId, 'New Session')
-          useTabStore.getState().updateTabTitle(sessionId, 'New Session')
           useTabStore.getState().updateTabStatus(sessionId, 'idle')
         }
         if (msg.subtype === 'compact_boundary') {
@@ -1966,7 +2009,11 @@ function pushAssistantHistoryText(
   if (!content.trim()) return
 
   const last = messages[messages.length - 1]
-  if (last?.type === 'assistant_text' && (last.origin ?? null) === (origin ?? null)) {
+  const shouldMergeWithLast =
+    origin !== 'proactive_tick' &&
+    last?.type === 'assistant_text' &&
+    (last.origin ?? null) === (origin ?? null)
+  if (shouldMergeWithLast) {
     last.content += content
     if (model && !last.model) last.model = model
     if (origin && !last.origin) last.origin = origin

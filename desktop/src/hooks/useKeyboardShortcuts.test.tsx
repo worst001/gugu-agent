@@ -80,6 +80,7 @@ describe('useKeyboardShortcuts', () => {
       expect(createSession).toHaveBeenCalledWith('/workspace/selected-project')
       expect(connectToSession).toHaveBeenCalledWith('session-new')
     })
+    expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/selected-project')
   })
 
   it('closes the active idle session with Cmd/Ctrl+W', () => {

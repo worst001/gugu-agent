@@ -1502,18 +1502,16 @@ export function areMcpConfigsAllowedWithEnterpriseMcpConfig(
 }
 
 /**
- * Built-in MCP server that defaults to disabled. Unlike user-configured servers
- * (opt-out via disabledMcpServers), this requires explicit opt-in via
- * enabledMcpServers. Shows up in /mcp as disabled until the user enables it.
+ * MCP servers that are shipped with the app but should not participate in
+ * normal chats unless the user explicitly opts in. They appear in /mcp as
+ * disabled and use enabledMcpServers as the persistent opt-in list.
  */
-/* eslint-disable @typescript-eslint/no-require-imports */
-const DEFAULT_DISABLED_BUILTIN = (
-  require('../../utils/computerUse/common.js') as typeof import('../../utils/computerUse/common.js')
-).COMPUTER_USE_MCP_SERVER_NAME
-/* eslint-enable @typescript-eslint/no-require-imports */
+const DEFAULT_DISABLED_MCP_SERVERS = new Set<string>([
+  'plugin:claude-mem:mcp-search',
+])
 
-function isDefaultDisabledBuiltin(_name: string): boolean {
-  return false // Computer Use 默认启用，无需用户手动 enable
+function isDefaultDisabledMcpServer(name: string): boolean {
+  return DEFAULT_DISABLED_MCP_SERVERS.has(name)
 }
 
 /**
@@ -1523,7 +1521,7 @@ function isDefaultDisabledBuiltin(_name: string): boolean {
  */
 export function isMcpServerDisabled(name: string): boolean {
   const projectConfig = getCurrentProjectConfig()
-  if (isDefaultDisabledBuiltin(name)) {
+  if (isDefaultDisabledMcpServer(name)) {
     const enabledServers = projectConfig.enabledMcpServers || []
     return !enabledServers.includes(name)
   }
@@ -1548,10 +1546,10 @@ function toggleMembership(
  */
 export function setMcpServerEnabled(name: string, enabled: boolean): void {
   const isBuiltinStateChange =
-    isDefaultDisabledBuiltin(name) && isMcpServerDisabled(name) === enabled
+    isDefaultDisabledMcpServer(name) && isMcpServerDisabled(name) === enabled
 
   saveCurrentProjectConfig(current => {
-    if (isDefaultDisabledBuiltin(name)) {
+    if (isDefaultDisabledMcpServer(name)) {
       const prev = current.enabledMcpServers || []
       const next = toggleMembership(prev, name, enabled)
       if (next === prev) return current

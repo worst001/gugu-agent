@@ -20,6 +20,8 @@ describe('ConversationService', () => {
   let originalGatewayUrl: string | undefined
   let originalDesktopDefaultGatewayUrl: string | undefined
   let originalGuguRtkPath: string | undefined
+  let originalCliPath: string | undefined
+  let originalAppRoot: string | undefined
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cc-haha-conversation-service-'))
@@ -36,6 +38,8 @@ describe('ConversationService', () => {
     originalGatewayUrl = process.env.GUGU_GATEWAY_URL
     originalDesktopDefaultGatewayUrl = process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
     originalGuguRtkPath = process.env.GUGU_RTK_PATH
+    originalCliPath = process.env.CLAUDE_CLI_PATH
+    originalAppRoot = process.env.CLAUDE_APP_ROOT
 
     process.env.CLAUDE_CONFIG_DIR = tmpDir
     process.env.ANTHROPIC_AUTH_TOKEN = 'test-token'
@@ -51,6 +55,8 @@ describe('ConversationService', () => {
     delete process.env.GUGU_GATEWAY_URL
     delete process.env.GUGU_DESKTOP_DEFAULT_GATEWAY_URL
     delete process.env.GUGU_RTK_PATH
+    delete process.env.CLAUDE_CLI_PATH
+    delete process.env.CLAUDE_APP_ROOT
   })
 
   afterEach(async () => {
@@ -92,6 +98,10 @@ describe('ConversationService', () => {
 
     if (originalGuguRtkPath === undefined) delete process.env.GUGU_RTK_PATH
     else process.env.GUGU_RTK_PATH = originalGuguRtkPath
+    if (originalCliPath === undefined) delete process.env.CLAUDE_CLI_PATH
+    else process.env.CLAUDE_CLI_PATH = originalCliPath
+    if (originalAppRoot === undefined) delete process.env.CLAUDE_APP_ROOT
+    else process.env.CLAUDE_APP_ROOT = originalAppRoot
 
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
@@ -446,6 +456,23 @@ describe('ConversationService', () => {
     } else {
       expect(args[0]).toContain(path.join('bin', 'claude-gugu'))
     }
+  })
+
+  test('uses bundled sidecar launcher for desktop conversations', () => {
+    process.env.CLAUDE_CLI_PATH = 'C:\\Program Files\\Gugu Agent\\gugu-sidecar.exe'
+    process.env.CLAUDE_APP_ROOT = 'C:\\Program Files\\Gugu Agent\\gugu-agent-pack'
+
+    const service = new ConversationService() as any
+    const args = service.resolveCliArgs(['--print']) as string[]
+
+    expect(args).toEqual([
+      'C:\\Program Files\\Gugu Agent\\gugu-sidecar.exe',
+      'cli',
+      '--app-root',
+      'C:\\Program Files\\Gugu Agent\\gugu-agent-pack',
+      '--print',
+    ])
+    expect(args.join(' ')).not.toContain('src\\entrypoints\\cli.tsx')
   })
 
   test('buildSessionCliArgs enables partial assistant messages for desktop streaming', () => {

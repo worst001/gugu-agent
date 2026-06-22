@@ -41,6 +41,13 @@ export function getTitleInputText(raw: string): string {
   const text = raw.replace(/\r\n/g, '\n').trim()
   if (!text) return ''
 
+  const englishAttachmentMatch = text.includes('<attachment_parse_results>')
+    ? text.match(/<user_message>\s*([\s\S]*?)\s*<\/user_message>/)
+    : null
+  if (englishAttachmentMatch?.[1] !== undefined) {
+    return getTitleInputText(englishAttachmentMatch[1])
+  }
+
   const attachmentMatch = text.match(/<用户正文>\s*([\s\S]*?)\s*<\/用户正文>/)
   if (attachmentMatch?.[1] !== undefined) {
     return getTitleInputText(attachmentMatch[1])

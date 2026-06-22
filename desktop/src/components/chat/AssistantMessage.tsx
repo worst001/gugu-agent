@@ -6,9 +6,21 @@ type Props = {
   content: string
   isStreaming?: boolean
   localPathBase?: string | null
+  onRewind?: () => void
+  onFork?: () => void
+  rewindLabel?: string
+  forkLabel?: string
 }
 
-export function AssistantMessage({ content, isStreaming, localPathBase }: Props) {
+export function AssistantMessage({
+  content,
+  isStreaming,
+  localPathBase,
+  onRewind,
+  onFork,
+  rewindLabel,
+  forkLabel,
+}: Props) {
   const documentLayout = shouldUseDocumentLayout(content)
 
   return (
@@ -39,6 +51,10 @@ export function AssistantMessage({ content, isStreaming, localPathBase }: Props)
         <MessageActionBar
           copyText={isStreaming ? undefined : content}
           copyLabel="Copy reply"
+          onRewind={isStreaming ? undefined : onRewind}
+          rewindLabel={rewindLabel}
+          onFork={isStreaming ? undefined : onFork}
+          forkLabel={forkLabel}
           align="start"
         />
       </div>

@@ -476,6 +476,9 @@ describe('SessionService', () => {
       type: 'assistant',
       content: [{ type: 'text', text: '正常助手消息' }],
     })
+
+    const listed = await service.listSessions()
+    expect(listed.sessions[0]!.messageCount).toBe(2)
   })
 
   it('should reconstruct parent agent tool linkage from parentUuid chains', async () => {

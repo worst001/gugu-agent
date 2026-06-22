@@ -142,6 +142,33 @@ describe('FileReadTool persisted tool-result handles', () => {
       errorCode: 10,
     })
   })
+
+  test('explains Office binary files with an actionable local message', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'cc-gugu-project-'))
+    tempDirs.push(projectDir)
+    setOriginalCwd(projectDir)
+    setCwdState(projectDir)
+
+    const result = await FileReadTool.validateInput?.(
+      { file_path: join(projectDir, 'sheet.xlsx') },
+      {
+        getAppState: () => ({
+          toolPermissionContext: {
+            mode: 'default',
+            additionalWorkingDirectories: new Map(),
+            alwaysAllowRules: {},
+            alwaysDenyRules: {},
+            alwaysAskRules: {},
+            isBypassPermissionsModeAvailable: false,
+          },
+        }),
+      } as never,
+    )
+
+    expect(result?.result).toBe(false)
+    expect(result?.message).toContain('Office 二进制文件')
+    expect(result?.message).toContain('分析表格')
+  })
 })
 
 function createReadContext() {

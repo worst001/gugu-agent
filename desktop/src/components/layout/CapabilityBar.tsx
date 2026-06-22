@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { AlertTriangle, Cpu, FileScan, Gauge, Plug, Puzzle, Sparkles, Terminal } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Cpu, FileScan, Gauge, Plug, Puzzle, Sparkles, Terminal } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { useCapabilityStore, type AttachmentParserCapabilityStatus } from '../../stores/capabilityStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -9,6 +9,8 @@ import { useUIStore, type SettingsTab } from '../../stores/uiStore'
 export function CapabilityBar() {
   const t = useTranslation()
   const sidebarOpen = useUIStore((state) => state.sidebarOpen)
+  const capabilityPanelCollapsed = useUIStore((state) => state.capabilityPanelCollapsed)
+  const toggleCapabilityPanel = useUIStore((state) => state.toggleCapabilityPanel)
   const activeTabId = useTabStore((state) => state.activeTabId)
   const sessions = useSessionStore((state) => state.sessions)
   const summary = useCapabilityStore((state) => state.summary)
@@ -101,18 +103,37 @@ export function CapabilityBar() {
   return (
     <section className="px-3 pb-2" aria-label={t('capabilities.title')}>
       <div className="rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-2.5">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">
-            {t('capabilities.title')}
+        <button
+          type="button"
+          aria-expanded={!capabilityPanelCollapsed}
+          aria-label={capabilityPanelCollapsed ? t('capabilities.expandPanel') : t('capabilities.collapsePanel')}
+          title={capabilityPanelCollapsed ? t('capabilities.expandPanel') : t('capabilities.collapsePanel')}
+          onClick={toggleCapabilityPanel}
+          className={`flex w-full items-center justify-between gap-2 rounded-[10px] text-left transition-colors hover:bg-[var(--color-sidebar-item-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
+            capabilityPanelCollapsed ? 'px-1 py-0.5' : 'mb-2 px-1 py-0.5'
+          }`}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            {capabilityPanelCollapsed ? (
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+            )}
+            <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">
+              {t('capabilities.title')}
+            </span>
           </span>
-          {isLoading ? (
-            <span className="h-3 w-3 animate-spin rounded-full border border-[var(--color-brand)] border-t-transparent" aria-label={t('common.loading')} />
-          ) : hasAttention ? (
-            <AlertTriangle className="h-3.5 w-3.5 text-[var(--color-warning)]" aria-hidden="true" />
-          ) : null}
-        </div>
+          <span className="flex shrink-0 items-center">
+            {isLoading ? (
+              <span className="h-3 w-3 animate-spin rounded-full border border-[var(--color-brand)] border-t-transparent" aria-label={t('common.loading')} />
+            ) : hasAttention ? (
+              <AlertTriangle className="h-3.5 w-3.5 text-[var(--color-warning)]" aria-hidden="true" />
+            ) : null}
+          </span>
+        </button>
 
-        <div className="grid grid-cols-2 gap-1.5">
+        {!capabilityPanelCollapsed && (
+          <div className="grid grid-cols-2 gap-1.5">
           <CapabilityChip
             label={providerLabel}
             detail={modelLabel}
@@ -176,7 +197,8 @@ export function CapabilityBar() {
             onClick={() => openSettings('terminal')}
             title={t('settings.terminal.description')}
           />
-        </div>
+          </div>
+        )}
       </div>
     </section>
   )

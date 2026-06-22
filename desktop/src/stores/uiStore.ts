@@ -3,6 +3,7 @@ import type { ThemeMode } from '../types/settings'
 
 const THEME_STORAGE_KEY = 'cc-haha-theme'
 const SIDEBAR_WIDTH_STORAGE_KEY = 'gugu-agent-sidebar-width-v1'
+const CAPABILITY_PANEL_COLLAPSED_STORAGE_KEY = 'gugu-agent-capability-panel-collapsed-v1'
 const DEFAULT_SIDEBAR_WIDTH = 280
 const MIN_SIDEBAR_WIDTH = 220
 const MAX_SIDEBAR_WIDTH = 420
@@ -26,6 +27,13 @@ function getStoredSidebarWidth(): number {
     if (Number.isFinite(stored)) return clampSidebarWidth(stored)
   } catch { /* localStorage unavailable */ }
   return DEFAULT_SIDEBAR_WIDTH
+}
+
+function getStoredCapabilityPanelCollapsed(): boolean {
+  try {
+    return localStorage.getItem(CAPABILITY_PANEL_COLLAPSED_STORAGE_KEY) === 'true'
+  } catch { /* localStorage unavailable */ }
+  return false
 }
 
 export function applyTheme(theme: ThemeMode) {
@@ -67,6 +75,7 @@ type UIStore = {
   theme: ThemeMode
   sidebarOpen: boolean
   sidebarWidth: number
+  capabilityPanelCollapsed: boolean
   activeView: ActiveView
   pendingSettingsTab: SettingsTab | null
   activeModal: string | null
@@ -78,6 +87,8 @@ type UIStore = {
   setSidebarOpen: (open: boolean) => void
   setSidebarWidth: (width: number) => void
   resetSidebarWidth: () => void
+  setCapabilityPanelCollapsed: (collapsed: boolean) => void
+  toggleCapabilityPanel: () => void
   setActiveView: (view: ActiveView) => void
   setPendingSettingsTab: (tab: SettingsTab | null) => void
   openModal: (id: string) => void
@@ -92,6 +103,7 @@ export const useUIStore = create<UIStore>((set) => ({
   theme: getStoredTheme(),
   sidebarOpen: true,
   sidebarWidth: getStoredSidebarWidth(),
+  capabilityPanelCollapsed: getStoredCapabilityPanelCollapsed(),
   activeView: 'code',
   pendingSettingsTab: null,
   activeModal: null,
@@ -122,6 +134,17 @@ export const useUIStore = create<UIStore>((set) => ({
   resetSidebarWidth: () => {
     try { localStorage.removeItem(SIDEBAR_WIDTH_STORAGE_KEY) } catch { /* noop */ }
     set({ sidebarWidth: DEFAULT_SIDEBAR_WIDTH })
+  },
+  setCapabilityPanelCollapsed: (collapsed) => {
+    try { localStorage.setItem(CAPABILITY_PANEL_COLLAPSED_STORAGE_KEY, String(collapsed)) } catch { /* noop */ }
+    set({ capabilityPanelCollapsed: collapsed })
+  },
+  toggleCapabilityPanel: () => {
+    set((state) => {
+      const next = !state.capabilityPanelCollapsed
+      try { localStorage.setItem(CAPABILITY_PANEL_COLLAPSED_STORAGE_KEY, String(next)) } catch { /* noop */ }
+      return { capabilityPanelCollapsed: next }
+    })
   },
   setActiveView: (view) => set({ activeView: view }),
   setPendingSettingsTab: (tab) => set({ pendingSettingsTab: tab }),

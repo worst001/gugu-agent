@@ -17,8 +17,7 @@ import {
 import { billingService, type BillingStatusResponse } from './billingService.js'
 import { sessionService } from './sessionService.js'
 import {
-  buildClaudeCliArgs,
-  resolveClaudeCliLauncher,
+  resolveClaudeCliSpawnArgs,
 } from '../../utils/desktopBundledCli.js'
 import type { PermissionUpdate } from '../../types/permissions.js'
 
@@ -992,25 +991,13 @@ export class ConversationService {
   }
 
   private resolveCliArgs(baseArgs: string[]): string[] {
-    const launcher = resolveClaudeCliLauncher({
+    return resolveClaudeCliSpawnArgs(baseArgs, {
       cliPath: process.env.CLAUDE_CLI_PATH,
       execPath: process.execPath,
+      appRoot: process.env.CLAUDE_APP_ROOT,
+      importMetaDir: import.meta.dir,
+      sourceLabel: 'desktop conversations',
     })
-
-    if (!launcher) {
-      if (process.platform === 'win32') {
-        return [
-          process.execPath,
-          '--preload',
-          path.resolve(import.meta.dir, '../../../preload.ts'),
-          path.resolve(import.meta.dir, '../../entrypoints/cli.tsx'),
-          ...baseArgs,
-        ]
-      }
-      return [path.resolve(import.meta.dir, '../../../bin/claude-gugu'), ...baseArgs]
-    }
-
-    return buildClaudeCliArgs(launcher, baseArgs, process.env.CLAUDE_APP_ROOT)
   }
 
   private clearStaleLock(sessionId: string): boolean {
