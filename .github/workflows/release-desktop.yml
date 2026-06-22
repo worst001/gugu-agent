@@ -121,13 +121,18 @@ jobs:
               echo "::error::TAURI_SIGNING_PRIVATE_KEY is required for updater artifacts."
               exit 1
             fi
-            if [[ -z "${GUGU_MACOS_CODESIGN_IDENTITY:-}" ]]; then
-              echo "::error::GUGU_MACOS_CODESIGN_IDENTITY is required for stable macOS TCC permissions."
-              exit 1
-            fi
-            if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
-              echo "::error::APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD are required for macOS code signing."
-              exit 1
+            if [[ -n "${APPLE_CERTIFICATE_BASE64:-}" || -n "${APPLE_CERTIFICATE_PASSWORD:-}" || -n "${GUGU_MACOS_CODESIGN_IDENTITY:-}" ]]; then
+              if [[ -z "${GUGU_MACOS_CODESIGN_IDENTITY:-}" ]]; then
+                echo "::error::GUGU_MACOS_CODESIGN_IDENTITY is required when Apple code signing is configured."
+                exit 1
+              fi
+              if [[ -z "${APPLE_CERTIFICATE_BASE64:-}" || -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; then
+                echo "::error::APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD are required when Apple code signing is configured."
+                exit 1
+              fi
+            else
+              echo "::warning::Apple Developer ID secrets are not configured; building macOS artifacts with ad-hoc code signing. TCC permissions may need to be re-granted after update."
+              export ALLOW_ADHOC_MACOS_RELEASE=1
             fi
             export SIGN_BUILD=1
           fi
