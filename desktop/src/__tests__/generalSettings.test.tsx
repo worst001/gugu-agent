@@ -918,8 +918,8 @@ describe('Settings > Billing tab', () => {
       ...billingStoreState.status!,
       status: 'active',
       plan: 'Pro',
-      creditsTotal: 600,
-      creditsRemaining: 600,
+      creditsTotal: 800,
+      creditsRemaining: 800,
       message: 'Gateway entitlement is active.',
     }
     billingStoreState.config = {

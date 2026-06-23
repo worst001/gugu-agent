@@ -114,8 +114,8 @@ describe('BillingService', () => {
       deviceToken: 'token-1',
       status: 'active',
       plan: 'pro',
-      creditsTotal: 600,
-      creditsRemaining: 600,
+      creditsTotal: 800,
+      creditsRemaining: 800,
       isTrial: false,
     })
     const calls: Array<{ url: string; authorization: string | null }> = []
@@ -128,8 +128,8 @@ describe('BillingService', () => {
         return jsonResponse({
           status: 'active',
           plan: 'pro',
-          creditsTotal: 600,
-          creditsRemaining: 600,
+          creditsTotal: 800,
+          creditsRemaining: 800,
           isTrial: false,
         })
       }
