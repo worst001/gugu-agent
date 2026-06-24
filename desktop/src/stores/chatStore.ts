@@ -57,6 +57,7 @@ export type PerSessionState = {
   } | null
   tokenUsage: TokenUsage
   elapsedSeconds: number
+  isCompacting?: boolean
   statusVerb: string
   statusElapsedSeconds?: number
   slashCommands: Array<{ name: string; description: string }>
@@ -86,6 +87,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   pendingComputerUsePermission: null,
   tokenUsage: { input_tokens: 0, output_tokens: 0 },
   elapsedSeconds: 0,
+  isCompacting: false,
   statusVerb: '',
   statusElapsedSeconds: 0,
   slashCommands: [],
@@ -101,6 +103,7 @@ function createDefaultSessionState(): PerSessionState {
 }
 
 type LocalUserEcho = Extract<UIMessage, { type: 'user_text' }>
+type SystemUiMessage = Extract<UIMessage, { type: 'system' }>
 
 type StoredLocalUserEcho = {
   sessionId: string
@@ -468,7 +471,9 @@ function toImageDataUrl(data: string | undefined, mimeType?: string): string | u
 // sessions can stream at once, and a global buffer mixes assistant text.
 const pendingDeltas = new Map<string, string>()
 const flushTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const compactBoundaryFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH = 16
+const COMPACT_BOUNDARY_FALLBACK_MS = 3_000
 
 function clearPendingDeltaTimer(sessionId: string): void {
   const timer = flushTimers.get(sessionId)
@@ -494,9 +499,18 @@ function discardPendingDelta(sessionId: string): void {
   pendingDeltas.delete(sessionId)
 }
 
+function clearCompactBoundaryFallbackTimer(sessionId: string): void {
+  const timer = compactBoundaryFallbackTimers.get(sessionId)
+  if (timer) {
+    clearTimeout(timer)
+    compactBoundaryFallbackTimers.delete(sessionId)
+  }
+}
+
 function hasActiveTurn(session: PerSessionState): boolean {
   return (
     session.chatState !== 'idle' ||
+    session.isCompacting ||
     Boolean(session.streamingText.trim()) ||
     Boolean(session.streamingToolInput.trim()) ||
     Boolean(session.pendingPermission) ||
@@ -650,11 +664,39 @@ function appendSystemMessage(
   messages: UIMessage[],
   content: string,
   timestamp: number,
+  variant?: SystemUiMessage['variant'],
 ): UIMessage[] {
   if (!content.trim()) return messages
   const last = messages[messages.length - 1]
-  if (last?.type === 'system' && last.content === content) return messages
-  return [...messages, { id: nextId(), type: 'system', content, timestamp }]
+  if (last?.type === 'system' && last.content === content && last.variant === variant) return messages
+  return [...messages, { id: nextId(), type: 'system', content, timestamp, ...(variant ? { variant } : {}) }]
+}
+
+function completeCompactSystemMessage(
+  messages: UIMessage[],
+  content: string,
+  timestamp: number,
+): UIMessage[] {
+  if (!content.trim()) return messages
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.type === 'system' && message.variant === 'compact_pending') {
+      return [
+        ...messages.slice(0, index),
+        { ...message, content, timestamp, variant: 'compact_complete' },
+        ...messages.slice(index + 1),
+      ]
+    }
+  }
+  return appendSystemMessage(messages, content, timestamp, 'compact_complete')
+}
+
+function isCompactCommandText(content: string): boolean {
+  const normalized = content.trim()
+  return normalized === '/compact' ||
+    normalized === t('chat.contextIndicator.autoCompactDisplay') ||
+    normalized === '自动压缩上下文' ||
+    normalized === 'Auto compacting context'
 }
 
 function getStringField(input: Record<string, unknown>, key: string): string {
@@ -719,8 +761,12 @@ function attachParserPreviewToLatestUserMessage(
 
 function extractAttachmentParserDisplayText(content: string): string | null {
   if (content.includes('<attachment_parse_results>') && content.includes('<user_message>')) {
-    const match = content.match(/<user_message>\s*([\s\S]*?)\s*<\/user_message>/)
-    return match?.[1] ?? null
+    const start = content.lastIndexOf('<user_message>')
+    const end = content.lastIndexOf('</user_message>')
+    if (start >= 0 && end > start) {
+      return content.slice(start + '<user_message>'.length, end)
+    }
+    return null
   }
 
   if (!content.includes('<附件解析结果>') || !content.includes('<用户正文>')) {
@@ -740,14 +786,25 @@ function extractOfficeToolboxDisplayText(content: string): string | null {
   return request
 }
 
+function trimTrailingHiddenScaffoldClosers(content: string): string {
+  let stripped = content.trim()
+  const closingTags = ['</user_message>', '</用户正文>', '</鐢ㄦ埛姝ｆ枃>']
+  for (let i = 0; i < 5; i += 1) {
+    const tag = closingTags.find((candidate) => stripped.endsWith(candidate))
+    if (!tag) return stripped
+    stripped = stripped.slice(0, -tag.length).trim()
+  }
+  return stripped
+}
+
 function stripHiddenUserPromptScaffolding(content: string): string {
   let stripped = content
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < 8; i += 1) {
     const next = extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
       ?? extractOfficeToolboxDisplayText(stripped)
     if (next === null || next === stripped) return stripped
-    stripped = next
+    stripped = trimTrailingHiddenScaffoldClosers(next)
   }
   return stripped
 }
@@ -936,6 +993,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       sessions: updateSessionIn(s.sessions, sessionId, () => ({
         connectionState: 'disconnected',
         chatState: 'idle',
+        isCompacting: false,
         activeThinkingId: null,
         activeToolUseId: null,
         activeToolName: null,
@@ -953,10 +1011,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     get().connectToSession(sessionId)
   },
 
-  disconnectSession: (sessionId) => {
-    const session = get().sessions[sessionId]
-    if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
-    const text = consumePendingDelta(sessionId)
+    disconnectSession: (sessionId) => {
+      const session = get().sessions[sessionId]
+      if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
+      clearCompactBoundaryFallbackTimer(sessionId)
+      const text = consumePendingDelta(sessionId)
     if (text) {
       set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, (sess) => ({ streamingText: sess.streamingText + text })) }))
     }
@@ -968,6 +1027,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   sendMessage: (sessionId, content, attachments, options) => {
+    const existingSession = get().sessions[sessionId]
+    const isCompactCommand = content.trim() === '/compact'
+    if (existingSession?.isCompacting && !isCompactCommand) {
+      return
+    }
+    if (isCompactCommand) {
+      clearCompactBoundaryFallbackTimer(sessionId)
+    }
+
     const hasExplicitDisplayContent = Boolean(options && 'displayContent' in options)
     const userFacingContent = resolveUserFacingContent(
       content,
@@ -975,6 +1043,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       hasExplicitDisplayContent,
     )
     const isMemberSession = !!useTeamStore.getState().getMemberBySessionId(sessionId)
+    const isLocalCompactCommand = !isMemberSession && isCompactCommand
     const attachmentsForDisplay = options?.displayAttachments ?? attachments
     const uiAttachments: UIAttachment[] | undefined =
       attachmentsForDisplay && attachmentsForDisplay.length > 0
@@ -996,14 +1065,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       void taskStore.resetCompletedTasks()
     }
 
-    const localUserMessage: LocalUserEcho = {
-      id: nextId(),
-      type: 'user_text',
-      content: userFacingContent,
-      attachments: isMemberSession ? undefined : uiAttachments,
-      timestamp: nowMs(),
-      ...(isMemberSession ? { pending: true } : {}),
-    }
+    const localUserMessage: LocalUserEcho | null = isLocalCompactCommand
+      ? null
+      : {
+          id: nextId(),
+          type: 'user_text',
+          content: userFacingContent,
+          attachments: isMemberSession ? undefined : uiAttachments,
+          timestamp: nowMs(),
+          ...(isMemberSession ? { pending: true } : {}),
+        }
     set((s) => {
       const session = s.sessions[sessionId] ?? createDefaultSessionState()
       const bufferedDelta = consumePendingDelta(sessionId)
@@ -1020,7 +1091,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           timestamp: Date.now(),
         })
       }
-      newMessages.push(localUserMessage)
+      if (localUserMessage) {
+        newMessages.push(localUserMessage)
+      } else {
+        newMessages.push({
+          id: nextId(),
+          type: 'system',
+          content: t('chat.contextIndicator.autoCompactInProgress'),
+          timestamp: Date.now(),
+          variant: 'compact_pending',
+        })
+      }
 
       if (!isMemberSession && session.elapsedTimer) clearInterval(session.elapsedTimer)
 
@@ -1044,6 +1125,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             ...session,
             messages: newMessages,
             chatState: 'thinking',
+            isCompacting: isCompactCommand,
             activeThinkingId: null,
             currentTurnOrigin: null,
             elapsedSeconds: 0,
@@ -1057,7 +1139,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
     })
 
-    if (!isMemberSession) {
+    if (!isMemberSession && localUserMessage) {
       rememberLocalUserEcho(sessionId, localUserMessage)
     }
 
@@ -1067,6 +1149,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           set((s) => ({
             sessions: updateSessionIn(s.sessions, sessionId, (session) => ({
               chatState: 'idle',
+              isCompacting: false,
               currentTurnOrigin: null,
               messages: [
                 ...session.messages,
@@ -1155,6 +1238,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   stopGeneration: (sessionId) => {
     wsManager.send(sessionId, { type: 'stop_generation' })
+    clearCompactBoundaryFallbackTimer(sessionId)
     const text = consumePendingDelta(sessionId)
     if (text) {
       set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, (sess) => ({ streamingText: sess.streamingText + text })) }))
@@ -1169,6 +1253,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           [sessionId]: {
             ...session,
             chatState: 'idle',
+            isCompacting: false,
             activeToolUseId: null,
             activeToolName: null,
             activeThinkingId: null,
@@ -1273,6 +1358,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             messages: mergeLocalUserEchoes(sessionId, uiMessages),
             agentTaskNotifications: restoredNotifications,
             chatState: 'idle',
+            isCompacting: false,
             activeThinkingId: null,
             activeToolUseId: null,
             activeToolName: null,
@@ -1346,6 +1432,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       sessions: updateSessionIn(state.sessions, sessionId, () => ({
         messages: session.messages.slice(0, targetIndex),
         chatState: 'idle',
+        isCompacting: false,
         activeThinkingId: null,
         activeToolUseId: null,
         activeToolName: null,
@@ -1380,12 +1467,36 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   clearMessages: (sessionId) => {
     discardPendingDelta(sessionId)
-    set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, () => ({ messages: [], streamingText: '', chatState: 'idle', currentTurnOrigin: null })) }))
+    clearCompactBoundaryFallbackTimer(sessionId)
+    set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, () => ({ messages: [], streamingText: '', chatState: 'idle', isCompacting: false, currentTurnOrigin: null })) }))
   },
 
   handleServerMessage: (sessionId, msg) => {
     const update = (updater: (session: PerSessionState) => Partial<PerSessionState>) => {
       set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, updater) }))
+    }
+    const scheduleCompactBoundaryFallback = () => {
+      clearCompactBoundaryFallbackTimer(sessionId)
+      const timer = setTimeout(() => {
+        compactBoundaryFallbackTimers.delete(sessionId)
+        set((s) => ({
+          sessions: updateSessionIn(s.sessions, sessionId, (session) => {
+            if (!session.isCompacting) return {}
+            return {
+              messages: completeCompactSystemMessage(
+                session.messages,
+                t('chat.contextIndicator.autoCompactComplete'),
+                Date.now(),
+              ),
+              isCompacting: false,
+              chatState: 'idle',
+              statusVerb: '',
+              statusElapsedSeconds: 0,
+            }
+          }),
+        }))
+      }, COMPACT_BOUNDARY_FALLBACK_MS)
+      compactBoundaryFallbackTimers.set(sessionId, timer)
     }
 
     switch (msg.type) {
@@ -1681,8 +1792,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           : undefined
         const text = `${session.streamingText}${consumePendingDelta(sessionId)}`
         const turnOrigin = session.currentTurnOrigin
+        const wasCompacting = session.isCompacting === true
         const shouldInsertEmptyResultNotice =
           turnOrigin !== 'proactive_tick' &&
+          !wasCompacting &&
           !text.trim() &&
           !hasVisibleFinalMessageAfterLatestUser(session.messages)
         if (text.trim()) {
@@ -1713,11 +1826,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (shouldNotifyCompletion) {
           void notifyChatTaskComplete({ sessionId, sessionTitle })
         }
+        if (wasCompacting) {
+          scheduleCompactBoundaryFallback()
+        }
         break
       }
 
       case 'error':
         {
+          clearCompactBoundaryFallbackTimer(sessionId)
           const unsupportedAttachmentPrompt = getUnsupportedAttachmentPrompt(msg.message)
           const maxTurnsReachedPrompt = getMaxTurnsReachedPrompt(msg.message)
           const agentRecoveryPrompt = getAgentRecoveryPrompt(msg.message)
@@ -1737,6 +1854,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             return {
               messages: newMessages,
               chatState: 'idle',
+              isCompacting: false,
               activeThinkingId: null,
               streamingText: '',
               currentTurnOrigin: null,
@@ -1780,6 +1898,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           update(() => ({ slashCommands: msg.data as Array<{ name: string; description: string }> }))
         }
         if (msg.subtype === 'session_cleared') {
+          clearCompactBoundaryFallbackTimer(sessionId)
           const session = get().sessions[sessionId]
           if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
           update(() => ({
@@ -1794,6 +1913,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             chatState: 'idle',
+            isCompacting: false,
             elapsedTimer: null,
             elapsedSeconds: 0,
             statusVerb: '',
@@ -1806,14 +1926,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           useTabStore.getState().updateTabStatus(sessionId, 'idle')
         }
         if (msg.subtype === 'compact_boundary') {
+          clearCompactBoundaryFallbackTimer(sessionId)
           update((session) => ({
-            messages: appendSystemMessage(
+            messages: completeCompactSystemMessage(
               session.messages,
-              typeof msg.message === 'string' && msg.message.trim()
-                ? msg.message
-                : 'Context compacted',
+              t('chat.contextIndicator.autoCompactComplete'),
               Date.now(),
             ),
+            isCompacting: false,
           }))
         }
         if (msg.subtype === 'agent_recovery') {
@@ -1831,6 +1951,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }
 
           const session = get().sessions[sessionId]
+          clearCompactBoundaryFallbackTimer(sessionId)
           if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
           update((session) => ({
             messages: appendSystemMessage(
@@ -1841,6 +1962,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               Date.now(),
             ),
             chatState: 'idle',
+            isCompacting: false,
             streamingText: '',
             activeThinkingId: null,
             currentTurnOrigin: null,
@@ -1861,6 +1983,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }))
           } else {
             const session = get().sessions[sessionId]
+            clearCompactBoundaryFallbackTimer(sessionId)
             if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
             update((session) => ({
               messages: appendSystemMessage(
@@ -1871,6 +1994,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 Date.now(),
               ),
               chatState: 'idle',
+              isCompacting: false,
               streamingText: '',
               activeThinkingId: null,
               currentTurnOrigin: null,
@@ -1886,6 +2010,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         if (msg.subtype === 'max_turns_reached') {
           const session = get().sessions[sessionId]
+          clearCompactBoundaryFallbackTimer(sessionId)
           if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
           update((session) => ({
             messages: appendSystemMessage(
@@ -1896,6 +2021,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               Date.now(),
             ),
             chatState: 'idle',
+            isCompacting: false,
             streamingText: '',
             activeThinkingId: null,
             currentTurnOrigin: null,
@@ -2133,10 +2259,21 @@ export function mapHistoryMessagesToUiMessages(
         })
         continue
       }
+      const visibleContent = stripHiddenUserPromptScaffolding(msg.content)
+      if (isCompactCommandText(visibleContent)) {
+        uiMessages.push({
+          id: msg.id || nextId(),
+          type: 'system',
+          content: t('chat.contextIndicator.autoCompactComplete'),
+          timestamp,
+          variant: 'compact_complete',
+        })
+        continue
+      }
       uiMessages.push({
         id: msg.id || nextId(),
         type: 'user_text',
-        content: stripHiddenUserPromptScaffolding(msg.content),
+        content: visibleContent,
         timestamp,
       })
       continue
@@ -2183,7 +2320,18 @@ export function mapHistoryMessagesToUiMessages(
         else if (block.type === 'tool_result') uiMessages.push({ id: nextId(), type: 'tool_result', toolUseId: block.tool_use_id ?? '', content: block.content, isError: !!block.is_error, timestamp, parentToolUseId: msg.parentToolUseId, ...(origin ? { origin } : {}) })
       }
       if (textParts.length > 0 || attachments.length > 0) {
-        uiMessages.push({ id: msg.id || nextId(), type: 'user_text', content: textParts.join('\n'), attachments: attachments.length > 0 ? attachments : undefined, timestamp })
+        const visibleContent = textParts.join('\n')
+        if (attachments.length === 0 && isCompactCommandText(visibleContent)) {
+          uiMessages.push({
+            id: msg.id || nextId(),
+            type: 'system',
+            content: t('chat.contextIndicator.autoCompactComplete'),
+            timestamp,
+            variant: 'compact_complete',
+          })
+        } else {
+          uiMessages.push({ id: msg.id || nextId(), type: 'user_text', content: visibleContent, attachments: attachments.length > 0 ? attachments : undefined, timestamp })
+        }
       }
     }
   }

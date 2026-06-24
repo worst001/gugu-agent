@@ -12,7 +12,7 @@ import * as os from 'os'
 import { fileURLToPath } from 'node:url'
 import { ConversationService, conversationService } from '../services/conversationService.js'
 import { SessionService } from '../services/sessionService.js'
-import { ProviderService } from '../services/providerService.js'
+import { GUGU_MANAGED_PROVIDER_ID, ProviderService } from '../services/providerService.js'
 
 // ============================================================================
 // ConversationService unit tests
@@ -428,9 +428,11 @@ describe('ConversationService', () => {
 
   it('should reconstruct usage and metadata from a persisted transcript', async () => {
     const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+    const previousApiKey = process.env.ANTHROPIC_API_KEY
     const tmpConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-transcript-'))
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-workdir-'))
     process.env.CLAUDE_CONFIG_DIR = tmpConfigDir
+    process.env.ANTHROPIC_API_KEY = 'test-transcript-usage-key'
 
     try {
       const svc = new SessionService()
@@ -480,6 +482,11 @@ describe('ConversationService', () => {
         delete process.env.CLAUDE_CONFIG_DIR
       } else {
         process.env.CLAUDE_CONFIG_DIR = previousConfigDir
+      }
+      if (previousApiKey === undefined) {
+        delete process.env.ANTHROPIC_API_KEY
+      } else {
+        process.env.ANTHROPIC_API_KEY = previousApiKey
       }
       await fs.rm(tmpConfigDir, { recursive: true, force: true })
       await fs.rm(workDir, { recursive: true, force: true })
@@ -1440,7 +1447,7 @@ describe('WebSocket Chat Integration', () => {
       )
 
       expect(startCalls[0]).toMatchObject({ sessionId })
-      expect(startCalls[0]?.options?.providerId).toBeNull()
+      expect(startCalls[0]?.options?.providerId).toBe(GUGU_MANAGED_PROVIDER_ID)
       expect(startCalls[1]).toMatchObject({
         sessionId,
         options: {
@@ -1796,6 +1803,117 @@ describe('WebSocket Chat Integration', () => {
         options: {
           providerId: providerB.id,
           model: 'restart-b-opus',
+        },
+      })
+    } finally {
+      conversationService.startSession = originalStartSession
+      conversationService.stopSession(sessionId)
+    }
+  }, 20_000)
+
+  it('should restore the default runtime after a one-turn CE fast preference', async () => {
+    const providerService = new ProviderService()
+    const provider = await providerService.addProvider({
+      presetId: 'custom',
+      name: 'Provider Temporary Fast',
+      apiKey: 'key-temporary-fast',
+      baseUrl: 'http://127.0.0.1:1/anthropic',
+      apiFormat: 'anthropic',
+      models: {
+        main: 'temporary-main',
+        haiku: 'temporary-haiku',
+        sonnet: 'temporary-sonnet',
+        opus: 'temporary-opus',
+      },
+    })
+    await providerService.activateProvider(provider.id)
+
+    const createRes = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workDir: process.cwd() }),
+    })
+    expect(createRes.status).toBe(201)
+    const { sessionId } = await createRes.json() as { sessionId: string }
+
+    const originalStartSession = conversationService.startSession.bind(conversationService)
+    const startCalls: Array<{
+      sessionId: string
+      options: { permissionMode?: string; model?: string; effort?: string; providerId?: string | null } | undefined
+    }> = []
+
+    conversationService.startSession = (async function patchedStartSession(
+      sid: string,
+      workDir: string,
+      sdkUrl: string,
+      options?: { permissionMode?: string; model?: string; effort?: string; providerId?: string | null },
+    ) {
+      startCalls.push({ sessionId: sid, options })
+      return originalStartSession(sid, workDir, sdkUrl, options)
+    }) as typeof conversationService.startSession
+
+    try {
+      const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+      let phase: 'boot' | 'turn1' | 'turn2' | 'done' = 'boot'
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.close()
+          reject(new Error(`Timed out waiting for temporary fast runtime restore for session ${sessionId}`))
+        }, 15_000)
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data as string)
+
+          if (msg.type === 'connected' && phase === 'boot') {
+            ws.send(JSON.stringify({
+              type: 'user_message',
+              content: 'quick turn',
+              ceModelPreference: 'fast',
+            }))
+            phase = 'turn1'
+            return
+          }
+
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            ws.close()
+            reject(new Error(msg.message))
+            return
+          }
+
+          if (msg.type === 'message_complete' && phase === 'turn1') {
+            ws.send(JSON.stringify({ type: 'user_message', content: 'normal follow-up' }))
+            phase = 'turn2'
+            return
+          }
+
+          if (msg.type === 'message_complete' && phase === 'turn2') {
+            clearTimeout(timeout)
+            phase = 'done'
+            ws.close()
+            resolve()
+          }
+        }
+
+        ws.onerror = () => {
+          reject(new Error(`WebSocket error for temporary fast runtime restore session ${sessionId}`))
+        }
+      })
+
+      expect(startCalls).toHaveLength(2)
+      expect(startCalls[0]).toMatchObject({
+        sessionId,
+        options: {
+          providerId: provider.id,
+          model: 'temporary-haiku',
+        },
+      })
+      expect(startCalls[1]).toMatchObject({
+        sessionId,
+        options: {
+          providerId: provider.id,
+          model: 'temporary-main',
         },
       })
     } finally {

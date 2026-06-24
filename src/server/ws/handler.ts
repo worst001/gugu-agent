@@ -1597,11 +1597,17 @@ async function restartSessionForStartupOverrides(
   sessionId: string,
   startupOverrides?: SessionStartupOverrides,
 ): Promise<void> {
+  if (!conversationService.hasSession(sessionId)) return
+
   const requestedMode = startupOverrides?.permissionMode
-  const requestedRuntime = startupOverrides?.model
-    ? { providerId: startupOverrides.providerId, model: startupOverrides.model }
+  const runtimeSettings = {
+    ...(await getRuntimeSettings(sessionId)),
+    ...startupOverrides,
+  }
+  const requestedRuntime = runtimeSettings.model
+    ? { providerId: runtimeSettings.providerId, model: runtimeSettings.model }
     : undefined
-  if ((!requestedMode && !requestedRuntime) || !conversationService.hasSession(sessionId)) return
+  if (!requestedMode && !requestedRuntime) return
 
   const currentMode = requestedMode ? conversationService.getSessionPermissionMode(sessionId) : undefined
   const currentRuntime = sessionStartupRuntime.get(sessionId)
@@ -1620,10 +1626,6 @@ async function restartSessionForStartupOverrides(
   const sdkUrl =
     `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
     `?token=${encodeURIComponent(crypto.randomUUID())}`
-  const runtimeSettings = {
-    ...(await getRuntimeSettings(sessionId)),
-    ...startupOverrides,
-  }
   await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
   rememberSessionRuntime(sessionId, runtimeSettings)
   console.log(`[WS] Restarted CLI for ${sessionId} with startup overrides: ${JSON.stringify({

@@ -9,9 +9,17 @@ import { useUIStore } from '../stores/uiStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
 import { DirectoryPicker } from '../components/shared/DirectoryPicker'
 import { AgentRunModeControl } from '../components/controls/AgentRunModeControl'
+import { OfficeToolboxControl } from '../components/controls/OfficeToolboxControl'
 import { PermissionModeSelector } from '../components/controls/PermissionModeSelector'
 import { CE_WORKFLOW_DEFAULT_ROLE_ID } from '../constants/ceWorkflowRoles'
 import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage } from '../constants/agentRunModes'
+import {
+  buildOfficeToolMessage,
+  getOfficeToolOption,
+  getOfficeToolPlaceholderKey,
+  officeToolRequiresAttachment,
+  type OfficeToolId,
+} from '../constants/officeTools'
 import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../stores/agentRunModeStore'
 import { DRAFT_CE_WORKFLOW_KEY, useCeWorkflowRoleStore } from '../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
@@ -99,6 +107,7 @@ export function EmptySession() {
   const [slashFilter, setSlashFilter] = useState('')
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashCommands, setSlashCommands] = useState<SlashCommandOption[]>([])
+  const [selectedOfficeTool, setSelectedOfficeTool] = useState<OfficeToolId | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -114,6 +123,9 @@ export function EmptySession() {
   const addToast = useUIStore((state) => state.addToast)
   const canAcceptAttachments = !isSubmitting
   const showStarterTasks = !input.trim() && attachments.length === 0 && !isSubmitting
+  const composerPlaceholder = selectedOfficeTool
+    ? t(getOfficeToolPlaceholderKey(selectedOfficeTool))
+    : t('empty.placeholder')
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -322,6 +334,18 @@ export function EmptySession() {
       return
     }
 
+    const officeTool = selectedOfficeTool
+    if (officeTool && officeToolRequiresAttachment(officeTool) && attachments.length === 0) {
+      addToast({
+        type: 'warning',
+        message: t('chat.officeTool.requiresAttachment', {
+          tool: t(getOfficeToolOption(officeTool).labelKey),
+        }),
+        duration: 6500,
+      })
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const sessionId = await createSession(workDir || undefined)
@@ -345,15 +369,26 @@ export function EmptySession() {
       const availableSkillNames = slashCommands.length > 0
         ? slashCommands.map((command) => command.name)
         : undefined
+      const officeMessage = officeTool
+        ? buildOfficeToolMessage(officeTool, text, { hasAttachments: attachmentPayload.length > 0 })
+        : null
       const { wire, display, modelPreference } = buildAgentRunModeMessage(
         draftMode,
         draftRole,
-        text,
+        officeMessage?.wire ?? text,
         availableSkillNames,
       )
+      const officeDisplayContent = officeMessage && officeTool
+        ? officeMessage.display.trim() || (
+          attachmentPayload.length > 0
+            ? t(getOfficeToolOption(officeTool).shortLabelKey)
+            : officeMessage.display
+        )
+        : display
       sendMessage(sessionId, wire, attachmentPayload, {
-        displayContent: display,
+        displayContent: officeDisplayContent,
         displayAttachments: attachmentPayload,
+        ...(officeTool ? { officeTool } : {}),
         ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
       })
       if (draftMode === 'plan') {
@@ -362,6 +397,7 @@ export function EmptySession() {
       }
       setInput('')
       setAttachments([])
+      setSelectedOfficeTool(null)
     } catch (error) {
       addToast({
         type: 'error',
@@ -830,6 +866,27 @@ export function EmptySession() {
               <AttachmentGallery attachments={attachments} variant="composer" onRemove={removeAttachment} />
             )}
 
+            {selectedOfficeTool && (
+              <div className="flex min-w-0">
+                <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-low)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-[var(--color-text-tertiary)]">workspaces</span>
+                  <span className="min-w-0 truncate">
+                    {t('chat.officeTool.intentLabel', {
+                      tool: t(getOfficeToolOption(selectedOfficeTool).shortLabelKey),
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOfficeTool(null)}
+                    aria-label={t('chat.officeTool.clearSelection')}
+                    className="-mr-1 rounded-full p-0.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">close</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-start gap-3">
               <textarea
                 ref={textareaRef}
@@ -839,7 +896,7 @@ export function EmptySession() {
                 onPaste={handlePaste}
                 className="flex-1 resize-none border-none bg-transparent py-2 leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
                 style={{ fontFamily: 'var(--font-body)' }}
-                placeholder={t('empty.placeholder')}
+                placeholder={composerPlaceholder}
                 rows={2}
               />
             </div>
@@ -879,6 +936,11 @@ export function EmptySession() {
               </div>
 
               <div className="flex items-center gap-3">
+                <OfficeToolboxControl
+                  value={selectedOfficeTool}
+                  onChange={setSelectedOfficeTool}
+                  disabled={isSubmitting}
+                />
                 <AgentRunModeControl sessionKey={DRAFT_AGENT_RUN_MODE_KEY} disabled={isSubmitting} />
                 <button
                   data-chat-submit-button="true"

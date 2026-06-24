@@ -230,9 +230,7 @@ Original URL: ${response.originalUrl}
 Redirect URL: ${response.redirectUrl}
 Status: ${response.statusCode} ${statusText}
 
-To complete your request, I need to fetch content from the redirected URL. Please use WebFetch again with these parameters:
-- url: "${response.redirectUrl}"
-- prompt: "${prompt}"`
+Do not fetch the redirected URL automatically. Tell the user that the original URL redirects to a different host, show the redirected URL, and ask them to confirm before fetching it.`
 
       const output: Output = {
         bytes: Buffer.byteLength(message),

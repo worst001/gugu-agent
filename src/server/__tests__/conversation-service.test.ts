@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -129,6 +129,71 @@ describe('ConversationService', () => {
 
     expect(paths).toContain(path.join(os.homedir(), '.local', 'bin'))
     expect(paths).toContain(path.join(os.homedir(), '.cargo', 'bin'))
+  })
+
+  test('stopSession kills the CLI process tree for long-running child commands', () => {
+    const service = new ConversationService() as any
+    const kill = mock((_signal?: NodeJS.Signals) => {})
+    const spawnedKillCommands: string[][] = []
+    service.spawnKillHelper = (command: string[]) => {
+      spawnedKillCommands.push(command)
+    }
+    service.sessions.set('session-process-tree', {
+      proc: { pid: 4242, kill },
+      outputCallbacks: [],
+      workDir: process.cwd(),
+      permissionMode: 'default',
+      sdkToken: 'token',
+      sdkSocket: null,
+      pendingOutbound: [],
+      stderrLines: [],
+      stdoutLines: [],
+      sdkMessages: [],
+      initMessage: null,
+      pendingPermissionRequests: new Map(),
+    })
+
+    service.stopSession('session-process-tree')
+
+    expect(kill).toHaveBeenCalled()
+    expect(service.hasSession('session-process-tree')).toBe(false)
+    if (process.platform === 'win32') {
+      expect(spawnedKillCommands[0]).toEqual(['taskkill', '/PID', '4242', '/T', '/F'])
+      expect(kill).toHaveBeenCalledWith(undefined)
+    } else {
+      expect(spawnedKillCommands[0]).toEqual(['kill', '-TERM', '-4242'])
+      expect(spawnedKillCommands[1]).toEqual(['pkill', '-TERM', '-P', '4242'])
+      expect(kill).toHaveBeenCalledWith('SIGTERM')
+    }
+  })
+
+  test('buildProcessTreeKillPlan force-kills POSIX child process trees', () => {
+    const service = new ConversationService() as any
+
+    expect(service.buildProcessTreeKillPlan(4242, 'linux')).toEqual({
+      immediate: [
+        ['kill', '-TERM', '-4242'],
+        ['pkill', '-TERM', '-P', '4242'],
+      ],
+      force: [
+        ['kill', '-KILL', '-4242'],
+        ['pkill', '-KILL', '-P', '4242'],
+      ],
+    })
+    expect(service.buildProcessTreeKillPlan(4242, 'darwin')).toEqual({
+      immediate: [
+        ['kill', '-TERM', '-4242'],
+        ['pkill', '-TERM', '-P', '4242'],
+      ],
+      force: [
+        ['kill', '-KILL', '-4242'],
+        ['pkill', '-KILL', '-P', '4242'],
+      ],
+    })
+    expect(service.buildProcessTreeKillPlan(4242, 'win32')).toEqual({
+      immediate: [['taskkill', '/PID', '4242', '/T', '/F']],
+      force: [],
+    })
   })
 
   test('buildChildEnv keeps inherited bundled RTK path ahead of user-writable fallback bins', () => {

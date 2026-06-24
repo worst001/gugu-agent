@@ -135,6 +135,20 @@ describe('Content-only pages render without errors', () => {
     expect(container.innerHTML).toContain('Ask anything')
   })
 
+  it('EmptySession exposes the office toolbox in the default composer', () => {
+    render(<EmptySession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    expect(screen.getByRole('button', { name: 'Analyze spreadsheet' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
+    expect(screen.getByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'Say what data or metrics should be analyzed...',
+    )
+    expect(screen.getByRole('button', { name: 'Clear office tool' })).toBeInTheDocument()
+  })
+
   it('EmptySession starter tasks fill the composer without auto-running', () => {
     render(<EmptySession />)
 

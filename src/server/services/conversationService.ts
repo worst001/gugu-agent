@@ -194,6 +194,7 @@ export class ConversationService {
         stdin: 'pipe',
         stdout: 'pipe',
         stderr: 'pipe',
+        ...(process.platform !== 'win32' ? { detached: true } : {}),
       })
     } catch (spawnErr) {
       throw new ConversationStartupError(
@@ -547,8 +548,80 @@ export class ConversationService {
   stopSession(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (session) {
-      session.proc.kill()
+      this.killSessionProcessTree(session)
       this.sessions.delete(sessionId)
+    }
+  }
+
+  private killSessionProcessTree(session: SessionProcess): void {
+    const pid = typeof (session.proc as { pid?: unknown }).pid === 'number'
+      ? (session.proc as { pid: number }).pid
+      : null
+
+    const platform = process.platform
+    const plan = pid ? this.buildProcessTreeKillPlan(pid, platform) : null
+
+    for (const command of plan?.immediate ?? []) {
+      this.spawnKillHelper(command)
+    }
+
+    this.killProcess(session, platform === 'win32' ? undefined : 'SIGTERM')
+
+    if (pid && platform !== 'win32') {
+      const forceTimer = setTimeout(() => {
+        for (const command of plan?.force ?? []) {
+          this.spawnKillHelper(command)
+        }
+        this.killProcess(session, 'SIGKILL')
+      }, 1_500)
+      forceTimer.unref?.()
+    }
+  }
+
+  private buildProcessTreeKillPlan(
+    pid: number,
+    platform: NodeJS.Platform = process.platform,
+  ): { immediate: string[][]; force: string[][] } {
+    if (platform === 'win32') {
+      return {
+        immediate: [['taskkill', '/PID', String(pid), '/T', '/F']],
+        force: [],
+      }
+    }
+    return {
+      immediate: [
+        ['kill', '-TERM', `-${pid}`],
+        ['pkill', '-TERM', '-P', String(pid)],
+      ],
+      force: [
+        ['kill', '-KILL', `-${pid}`],
+        ['pkill', '-KILL', '-P', String(pid)],
+      ],
+    }
+  }
+
+  private killProcess(session: SessionProcess, signal?: NodeJS.Signals): void {
+    try {
+      session.proc.kill(signal)
+    } catch (err) {
+      console.warn(
+        `[ConversationService] Failed to kill CLI process: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
+  private spawnKillHelper(command: string[]): void {
+    try {
+      const proc = Bun.spawn(command, {
+        stdin: 'ignore',
+        stdout: 'ignore',
+        stderr: 'ignore',
+      })
+      void proc.exited.catch(() => {})
+    } catch (err) {
+      console.warn(
+        `[ConversationService] Failed to run process-tree killer (${command[0]}): ${err instanceof Error ? err.message : String(err)}`,
+      )
     }
   }
 

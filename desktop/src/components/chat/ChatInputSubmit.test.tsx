@@ -105,6 +105,7 @@ function makeChatSession(overrides: Partial<PerSessionState> = {}): PerSessionSt
     pendingComputerUsePermission: null,
     tokenUsage: { input_tokens: 0, output_tokens: 0 },
     elapsedSeconds: 0,
+    isCompacting: false,
     statusVerb: '',
     statusElapsedSeconds: 0,
     slashCommands: [],
@@ -183,6 +184,27 @@ describe('ChatInput submit', () => {
     expect(textbox.className).toContain('break-all')
     expect(toolbar?.className).toContain('bg-[var(--color-surface-container-lowest)]')
     expect(toolbar?.className).toContain('rounded-b-xl')
+  })
+
+  it('locks the composer while context compaction is running', () => {
+    seedEmptySession('compacting-session')
+    useChatStore.setState({
+      sessions: {
+        'compacting-session': makeChatSession({
+          chatState: 'idle',
+          isCompacting: true,
+        }),
+      },
+    })
+
+    render(<ActiveSession />)
+
+    expect(screen.getByRole('textbox')).toBeDisabled()
+    expect(screen.getByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'Compacting context. Ask the next question after it finishes...',
+    )
+    expect(screen.getByRole('button', { name: /Run/ })).toBeDisabled()
   })
 
   it('keeps a selected project visible while replacing a brand-new empty session', async () => {

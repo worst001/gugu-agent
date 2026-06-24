@@ -128,6 +128,7 @@ function makeSession(overrides: Partial<PerSessionState> = {}): PerSessionState 
     pendingComputerUsePermission: null,
     tokenUsage: { input_tokens: 0, output_tokens: 0 },
     elapsedSeconds: 0,
+    isCompacting: false,
     statusVerb: '',
     statusElapsedSeconds: 0,
     slashCommands: [],
@@ -575,6 +576,116 @@ describe('chatStore history mapping', () => {
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'status',
       state: 'idle',
+    })
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('blocks new user messages while context compaction is running', () => {
+    vi.useFakeTimers()
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, '/compact', undefined, {
+      displayContent: 'Auto compacting context',
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.isCompacting).toBe(true)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'system',
+        content: 'Auto compacting context',
+        variant: 'compact_pending',
+      },
+    ])
+    const messageCountAfterCompact = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages.length ?? 0
+    sendMock.mockClear()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'this should wait')
+
+    expect(sendMock).not.toHaveBeenCalled()
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toHaveLength(messageCountAfterCompact)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'status',
+      state: 'idle',
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.isCompacting).toBe(true)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 10, output_tokens: 1 },
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.isCompacting).toBe(true)
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'this should still wait')
+    expect(sendMock).not.toHaveBeenCalled()
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toHaveLength(messageCountAfterCompact)
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'compact_boundary',
+      message: 'Context compacted',
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toHaveLength(messageCountAfterCompact)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]).toMatchObject({
+      type: 'system',
+      content: 'Context automatically compacted',
+      variant: 'compact_complete',
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.isCompacting).toBe(false)
+
+    sendMock.mockClear()
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'continue after compact')
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, expect.objectContaining({
+      type: 'user_message',
+      content: 'continue after compact',
+    }))
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 11, output_tokens: 2 },
+    })
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('unlocks context compaction if the boundary event never arrives', () => {
+    vi.useFakeTimers()
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, '/compact', undefined, {
+      displayContent: 'Auto compacting context',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 10, output_tokens: 1 },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.isCompacting).toBe(true)
+
+    vi.advanceTimersByTime(2_999)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.isCompacting).toBe(true)
+
+    vi.advanceTimersByTime(1)
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.isCompacting).toBe(false)
+    expect(session?.messages[0]).toMatchObject({
+      type: 'system',
+      content: 'Context automatically compacted',
+      variant: 'compact_complete',
+    })
+
+    sendMock.mockClear()
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'continue after compact fallback')
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, expect.objectContaining({
+      type: 'user_message',
+      content: 'continue after compact fallback',
+    }))
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 11, output_tokens: 2 },
     })
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
@@ -1309,7 +1420,7 @@ describe('chatStore history mapping', () => {
     })
 
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
-      { type: 'system', content: 'Context compacted' },
+      { type: 'system', content: 'Context automatically compacted', variant: 'compact_complete' },
     ])
   })
 
@@ -1728,6 +1839,45 @@ describe('chatStore history mapping', () => {
         id: 'user-office-plan-1',
         type: 'user_text',
         content: '做一份发布会 PPT',
+      },
+    ])
+  })
+
+  it('strips deeply nested hidden scaffolding from restored transcript text', () => {
+    const prompt = 'Summarize this long uploaded lesson'
+    const { wire: officeWire } = buildOfficeToolMessage('document-summary', prompt, {
+      hasAttachments: true,
+    })
+    const { wire: planWire } = buildPlanModeMessage(officeWire)
+    const attachmentWire = [
+      'The user uploaded attachments. The following attachment parse results were generated from those files.',
+      '',
+      '<attachment_parse_results>',
+      '## Attachment 1: lesson.md',
+      'Parsed method: local text parser',
+      'Long lesson content.',
+      '</attachment_parse_results>',
+      '',
+      '<user_message>',
+      planWire,
+      '</user_message>',
+    ].join('\n')
+    const { wire } = buildPlanModeMessage(attachmentWire)
+
+    const mapped = mapHistoryMessagesToUiMessages([
+      {
+        id: 'user-deeply-nested-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: wire,
+      },
+    ])
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-deeply-nested-1',
+        type: 'user_text',
+        content: prompt,
       },
     ])
   })

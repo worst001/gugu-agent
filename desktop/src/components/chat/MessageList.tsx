@@ -1506,6 +1506,30 @@ function InlinePlanConfirmation({
   )
 }
 
+function CompactStatusDivider({
+  message,
+}: {
+  message: Extract<UIMessage, { type: 'system' }>
+}) {
+  const isPending = message.variant === 'compact_pending'
+  return (
+    <div
+      className="my-5 flex items-center gap-3 text-xs text-[var(--color-text-tertiary)]"
+      role="status"
+      aria-label={message.content}
+    >
+      <div className="h-px flex-1 bg-[var(--color-border-separator)]" />
+      <div className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-1">
+        <span className={`material-symbols-outlined text-[14px] ${isPending ? 'animate-spin' : ''}`}>
+          {isPending ? 'autorenew' : 'check_circle'}
+        </span>
+        <span className="truncate">{message.content}</span>
+      </div>
+      <div className="h-px flex-1 bg-[var(--color-border-separator)]" />
+    </div>
+  )
+}
+
 export const MessageBlock = memo(function MessageBlock({
   sessionId,
   localPathBase,
@@ -1637,6 +1661,9 @@ export const MessageBlock = memo(function MessageBlock({
     case 'task_summary':
       return <InlineTaskSummary tasks={message.tasks} />
     case 'system':
+      if (message.variant === 'compact_pending' || message.variant === 'compact_complete') {
+        return <CompactStatusDivider message={message} />
+      }
       return (
         <div className="mb-3 whitespace-pre-wrap text-center text-xs leading-5 text-[var(--color-text-tertiary)]">
           {message.content}

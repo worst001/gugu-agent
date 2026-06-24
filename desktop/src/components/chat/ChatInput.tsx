@@ -154,18 +154,20 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
   const isMemberSession = !!memberInfo
   const isActive = chatState !== 'idle'
+  const isCompacting = !isMemberSession && sessionState?.isCompacting === true
+  const isInputLocked = isActive || isCompacting
   const isWorkspaceMissing = activeSession?.workDirExists === false
-  const canSubmit = !isWorkspaceMissing && (
+  const canSubmit = !isWorkspaceMissing && !isCompacting && (
     input.trim().length > 0 ||
     (!isMemberSession && attachments.length > 0) ||
     (!isMemberSession && selectedOfficeTool !== null && officeToolRequiresAttachment(selectedOfficeTool))
   )
-  const canAcceptAttachments = !isMemberSession && !isActive && !isWorkspaceMissing
+  const canAcceptAttachments = !isMemberSession && !isInputLocked && !isWorkspaceMissing
   const canOptimizePrompt = Boolean(
     activeTabId &&
     !isMemberSession &&
     !isWorkspaceMissing &&
-    !isActive &&
+    !isInputLocked &&
     !isPromptOptimizing &&
     input.trim().length > 0,
   )
@@ -173,7 +175,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     activeTabId &&
     !isMemberSession &&
     !isWorkspaceMissing &&
-    !isActive &&
+    !isInputLocked &&
     !isVoiceTranscribing &&
     voiceSupported,
   )
@@ -198,12 +200,12 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   }, [isActive])
 
   useEffect(() => {
-    if (!isActive) return
+    if (!isInputLocked) return
     setPlusMenuOpen(false)
     setSlashMenuOpen(false)
     setFileSearchOpen(false)
     setLocalSlashPanel(null)
-  }, [isActive])
+  }, [isInputLocked])
 
   useEffect(() => {
     setVoiceSupported(isCloudVoiceInputAvailable() || isSpeechRecognitionAvailable())
@@ -533,6 +535,14 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const handleSubmit = (overrideText?: string) => {
     if (!activeTabId) return
     if (!isMemberSession && isActive) return
+    if (!isMemberSession && isCompacting) {
+      useUIStore.getState().addToast({
+        type: 'info',
+        message: t('chat.compactingSubmitBlocked'),
+        duration: 5000,
+      })
+      return
+    }
     const text = (overrideText ?? input).trim()
     const selectedToolNeedsAttachment = !isMemberSession &&
       selectedOfficeTool !== null &&
@@ -723,7 +733,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   }, [])
 
   const handleAutoCompact = useCallback((context: SessionContextSnapshot) => {
-    if (!activeTabId || isMemberSession || isActive || isWorkspaceMissing) return
+    if (!activeTabId || isMemberSession || isActive || isCompacting || isWorkspaceMissing) return
     useUIStore.getState().addToast({
       type: 'info',
       message: t('chat.contextIndicator.autoCompactStarted', {
@@ -734,7 +744,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     sendMessage(activeTabId, '/compact', undefined, {
       displayContent: t('chat.contextIndicator.autoCompactDisplay'),
     })
-  }, [activeTabId, isActive, isMemberSession, isWorkspaceMissing, sendMessage, t])
+  }, [activeTabId, isActive, isCompacting, isMemberSession, isWorkspaceMissing, sendMessage, t])
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     // Ignore key events during IME composition (e.g. Chinese input method)
@@ -1229,6 +1239,8 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       ? t('chat.placeholderMissing')
       : isMemberSession
         ? t('teams.memberPlaceholder')
+        : isCompacting
+          ? t('chat.compactingPlaceholder')
         : selectedOfficeTool
           ? t(getOfficeToolPlaceholderKey(selectedOfficeTool))
           : isHeroComposer
@@ -1491,7 +1503,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   onCompositionEnd={() => { composingRef.current = false }}
                   onPaste={handlePaste}
                   placeholder={composerPlaceholder}
-                  disabled={isWorkspaceMissing}
+                  disabled={isWorkspaceMissing || isCompacting}
                   rows={2}
                   className="min-w-0 flex-1 resize-none overflow-x-hidden break-all border-none bg-transparent py-2 leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
                 />
@@ -1507,7 +1519,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
               onCompositionEnd={() => { composingRef.current = false }}
               onPaste={handlePaste}
               placeholder={composerPlaceholder}
-              disabled={isWorkspaceMissing}
+              disabled={isWorkspaceMissing || isCompacting}
               rows={1}
               className="w-full resize-none overflow-x-hidden break-all bg-transparent py-2 pb-12 text-sm leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)] disabled:opacity-50"
             />
@@ -1523,7 +1535,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     <button
                       type="button"
                       onClick={() => setPlusMenuOpen((value) => !value)}
-                      disabled={isActive || isWorkspaceMissing}
+                      disabled={isInputLocked || isWorkspaceMissing}
                       aria-label="Open composer tools"
                       className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
                     >
@@ -1578,7 +1590,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   </button>
 
                   <PermissionModeSelector
-                    disabled={isActive}
+                    disabled={isInputLocked}
                     disabledReason={t('chat.runtimeControlsLocked')}
                   />
                   <ContextUsageIndicator
@@ -1600,9 +1612,9 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                   <OfficeToolboxControl
                     value={selectedOfficeTool}
                     onChange={setSelectedOfficeTool}
-                    disabled={isWorkspaceMissing || isActive}
+                    disabled={isWorkspaceMissing || isInputLocked}
                   />
-                  <AgentRunModeControl sessionKey={activeTabId} disabled={isWorkspaceMissing || isActive} />
+                  <AgentRunModeControl sessionKey={activeTabId} disabled={isWorkspaceMissing || isInputLocked} />
                 </>
               )}
               <button

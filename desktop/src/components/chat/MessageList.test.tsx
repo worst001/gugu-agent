@@ -101,6 +101,38 @@ describe('MessageList nested tool calls', () => {
     expect(within(activityPanel).getAllByText('Waiting for your confirmation').length).toBeGreaterThan(0)
   })
 
+  it('renders context compaction markers as status dividers', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'compact-1',
+              type: 'system',
+              content: 'Auto compacting context',
+              timestamp: 1,
+              variant: 'compact_pending',
+            },
+            {
+              id: 'compact-2',
+              type: 'system',
+              content: 'Context automatically compacted',
+              timestamp: 2,
+              variant: 'compact_complete',
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByRole('status', { name: 'Auto compacting context' })).toBeTruthy()
+    expect(screen.getByRole('status', { name: 'Context automatically compacted' })).toBeTruthy()
+    expect(screen.getByText('autorenew')).toBeTruthy()
+    expect(screen.getByText('check_circle')).toBeTruthy()
+  })
+
   it('shows a recovery card instead of a blank transcript when known history has no visible messages', async () => {
     const reloadHistory = vi.spyOn(useChatStore.getState(), 'reloadHistory').mockResolvedValue(undefined)
 
