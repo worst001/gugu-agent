@@ -776,6 +776,11 @@ button, input, textarea, select, a, [role="button"] {
   color: #FFB18B !important;
 }
 
+[data-theme="dark"] .official-channel-icon {
+  filter: brightness(0) invert(1);
+  opacity: 0.86;
+}
+
 [data-theme="dark"] [data-message-shell="assistant"] > div:first-child {
   background: rgba(31, 27, 24, 0.94);
   border-color: rgba(80, 67, 58, 0.66);
