@@ -312,6 +312,39 @@ codesign_team_id_from_identity() {
     | tail -n 1
 }
 
+find_app_macos_binary() {
+  local app_bundle="$1"
+  local base_name="$2"
+  local candidate
+
+  for candidate in \
+    "${app_bundle}/Contents/MacOS/${base_name}" \
+    "${app_bundle}/Contents/MacOS/${base_name}-${TARGET_TRIPLE}"
+  do
+    if [[ -f "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+require_app_macos_binary() {
+  local app_bundle="$1"
+  local base_name="$2"
+  local label="$3"
+  local path
+
+  if path="$(find_app_macos_binary "${app_bundle}" "${base_name}")"; then
+    printf '%s\n' "${path}"
+    return 0
+  fi
+
+  echo "[build-macos-arm64] ERROR: bundled ${label} is missing: ${app_bundle}/Contents/MacOS/${base_name}{,-${TARGET_TRIPLE}}" >&2
+  exit 1
+}
+
 verify_expected_codesign_identity() {
   local target="$1"
   local label="$2"
@@ -368,24 +401,27 @@ codesign_path() {
 
 sign_canonical_app_bundle() {
   local app_bundle="$1"
-  local sidecar="${app_bundle}/Contents/MacOS/gugu-sidecar"
-  local rtk="${app_bundle}/Contents/MacOS/rtk"
+  local sidecar=""
+  local rtk=""
   local sidecar_cdhash_before=""
   local sidecar_cdhash_after=""
 
-  if [[ -x "${sidecar}" ]]; then
+  sidecar="$(find_app_macos_binary "${app_bundle}" "gugu-sidecar" || true)"
+  rtk="$(require_app_macos_binary "${app_bundle}" "rtk" "RTK")"
+
+  if [[ -n "${sidecar}" && -x "${sidecar}" ]]; then
     sidecar_cdhash_before="$(codesign_cdhash "${sidecar}")"
   fi
 
   if [[ ! -x "${rtk}" ]]; then
-    echo "[build-macos-arm64] ERROR: bundled RTK is missing or not executable: ${rtk}" >&2
+    echo "[build-macos-arm64] ERROR: bundled RTK is not executable: ${rtk}" >&2
     exit 1
   fi
   codesign_path "${rtk}"
   codesign --verify --verbose=2 "${rtk}"
   verify_expected_codesign_identity "${rtk}" "rtk"
 
-  if [[ -n "${MACOS_CODESIGN_IDENTITY}" && -x "${sidecar}" ]]; then
+  if [[ -n "${MACOS_CODESIGN_IDENTITY}" && -n "${sidecar}" && -x "${sidecar}" ]]; then
     codesign_path "${sidecar}"
     codesign --verify --verbose=2 "${sidecar}"
     verify_expected_codesign_identity "${sidecar}" "sidecar"
@@ -398,7 +434,7 @@ sign_canonical_app_bundle() {
   # explicitly with the same stable identity before sealing the outer bundle.
   codesign_path "${app_bundle}"
 
-  if [[ -z "${MACOS_CODESIGN_IDENTITY}" && -x "${sidecar}" ]]; then
+  if [[ -z "${MACOS_CODESIGN_IDENTITY}" && -n "${sidecar}" && -x "${sidecar}" ]]; then
     sidecar_cdhash_after="$(codesign_cdhash "${sidecar}")"
     if [[ "${sidecar_cdhash_before}" != "${sidecar_cdhash_after}" ]]; then
       echo "[build-macos-arm64] ERROR: sidecar signature hash changed while signing app bundle" >&2
@@ -444,6 +480,8 @@ verify_updater_archive() {
   local archive="$1"
   local extract_dir
   local extracted_app
+  local extracted_rtk
+  local extracted_sidecar
 
   extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/gugu-agent-updater-verify.XXXXXX")"
   COPYFILE_DISABLE=1 LC_ALL=C tar -xzf "${archive}" -C "${extract_dir}"
@@ -460,10 +498,10 @@ verify_updater_archive() {
     exit 1
   fi
 
-  local extracted_rtk="${extracted_app}/Contents/MacOS/rtk"
-  local extracted_sidecar="${extracted_app}/Contents/MacOS/gugu-sidecar"
+  extracted_rtk="$(require_app_macos_binary "${extracted_app}" "rtk" "updater RTK")"
+  extracted_sidecar="$(find_app_macos_binary "${extracted_app}" "gugu-sidecar" || true)"
   if [[ ! -x "${extracted_rtk}" ]]; then
-    echo "[build-macos-arm64] ERROR: updater archive is missing executable Contents/MacOS/rtk" >&2
+    echo "[build-macos-arm64] ERROR: updater archive RTK is not executable: ${extracted_rtk}" >&2
     rm -rf "${extract_dir}"
     exit 1
   fi
@@ -538,12 +576,18 @@ if [[ "${SIGN_BUILD:-0}" == "1" ]]; then
 EOF
 fi
 
+CANONICAL_RTK_STATUS="missing"
+if [[ -d "${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}" ]] \
+  && find_app_macos_binary "${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}" "rtk" >/dev/null; then
+  CANONICAL_RTK_STATUS="present"
+fi
+
 cat > "${CANONICAL_OUTPUT_DIR}/BUILD_INFO.txt" <<EOF
 Target triple: ${TARGET_TRIPLE}
 Canonical output: ${CANONICAL_OUTPUT_DIR}
 Source DMG: ${LATEST_DMG:-not found}
 Source app: ${LATEST_APP:-not found}
-Bundled RTK: $(if [[ -x "${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}/Contents/MacOS/rtk" ]]; then echo "present"; else echo "missing"; fi)
+Bundled RTK: ${CANONICAL_RTK_STATUS}
 Source updater archive: ${LATEST_UPDATER_ARCHIVE:-not found}
 Source updater signature: ${LATEST_UPDATER_SIGNATURE:-not found}
 Source updater manifest: ${LATEST_UPDATER_MANIFEST:-not found}
