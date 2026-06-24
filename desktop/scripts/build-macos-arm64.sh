@@ -243,6 +243,17 @@ build_canonical_dmg() {
   cp -R "${app_bundle}" "${staging_dir}/"
   ln -s /Applications "${staging_dir}/Applications"
 
+  if [[ "${CI:-false}" == "true" || "${SKIP_DMG_FINDER_LAYOUT:-0}" == "1" ]]; then
+    hdiutil create \
+      -volname "Gugu Agent" \
+      -srcfolder "${staging_dir}" \
+      -ov \
+      -format UDZO \
+      "${dmg_output}" >/dev/null
+    rm -rf "${staging_dir}"
+    return
+  fi
+
   # Create a read-write DMG first so we can customize the Finder layout
   hdiutil create \
   -volname "Gugu Agent" \
