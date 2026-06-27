@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { sessionsApi, type RecentProject } from '../../api/sessions'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTranslation } from '../../i18n'
+import { isProjectInSet } from '../../utils/projectKeys'
 
 type DropdownPos = {
   top: number
@@ -94,7 +95,10 @@ export function ProjectFilter({ variant = 'default' }: { variant?: 'default' | '
 
   const isAllSelected = selectedProjects.length === 0
   const visibleAvailableProjects = useMemo(
-    () => availableProjects.filter((projectPath) => !removedProjects.includes(projectPath)),
+    () => {
+      const removedProjectSet = new Set(removedProjects)
+      return availableProjects.filter((projectPath) => !isProjectInSet(removedProjectSet, projectPath))
+    },
     [availableProjects, removedProjects],
   )
 

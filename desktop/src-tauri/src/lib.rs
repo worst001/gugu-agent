@@ -194,6 +194,30 @@ fn reveal_path(path: String) -> Result<RevealPathResult, String> {
     })
 }
 
+#[tauri::command]
+fn open_path(path: String) -> Result<RevealPathResult, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("invalid local path".to_string());
+    }
+
+    let resolved = PathBuf::from(trimmed)
+        .canonicalize()
+        .map_err(|err| format!("path not found: {err}"))?;
+    let metadata = fs::metadata(&resolved).map_err(|err| format!("read path metadata: {err}"))?;
+    let is_directory = metadata.is_dir();
+
+    let mut command = build_open_path_command(&resolved);
+    command
+        .spawn()
+        .map_err(|err| format!("open file: {err}"))?;
+
+    Ok(RevealPathResult {
+        path: resolved.to_string_lossy().to_string(),
+        is_directory,
+    })
+}
+
 #[cfg(target_os = "windows")]
 fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
     let mut command = StdCommand::new("explorer.exe");
@@ -202,6 +226,13 @@ fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
     } else {
         command.arg("/select,").arg(path);
     }
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn build_open_path_command(path: &PathBuf) -> StdCommand {
+    let mut command = StdCommand::new("cmd.exe");
+    command.arg("/C").arg("start").arg("").arg(path);
     command
 }
 
@@ -216,6 +247,13 @@ fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
     command
 }
 
+#[cfg(target_os = "macos")]
+fn build_open_path_command(path: &PathBuf) -> StdCommand {
+    let mut command = StdCommand::new("open");
+    command.arg(path);
+    command
+}
+
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
     let mut command = StdCommand::new("xdg-open");
@@ -226,6 +264,13 @@ fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
     } else {
         command.arg(path);
     }
+    command
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn build_open_path_command(path: &PathBuf) -> StdCommand {
+    let mut command = StdCommand::new("xdg-open");
+    command.arg(path);
     command
 }
 
@@ -1858,6 +1903,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_server_url,
             reveal_path,
+            open_path,
             restart_adapters_sidecar,
             prepare_for_update_install,
             terminal_spawn,

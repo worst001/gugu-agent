@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildPlanModeMessage } from '../constants/agentRunModes'
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
 import { buildOfficeToolMessage } from '../constants/officeTools'
+import { buildTaskContextMessage } from '../constants/taskContextGraph'
 import { sanitizeSessionTitle } from './sessionTitle'
 
 describe('sanitizeSessionTitle', () => {
@@ -91,5 +92,32 @@ describe('sanitizeSessionTitle', () => {
     ].join('\n')
 
     expect(sanitizeSessionTitle(wire)).toBe('Review this PDF')
+  })
+
+  it('uses the visible user prompt for task context router wire messages', () => {
+    const message = buildTaskContextMessage('Please debug this crash', {
+      text: 'Please debug this crash',
+      workDir: 'D:/project/app',
+    })
+
+    expect(message).not.toBeNull()
+    expect(sanitizeSessionTitle(message?.wire ?? '')).toBe('Please debug this crash')
+  })
+
+  it('uses the visible user prompt for nested task context and office toolbox wire messages', () => {
+    const { wire: officeWire } = buildOfficeToolMessage('ppt-draft', 'Build a launch deck', {
+      hasAttachments: false,
+    })
+    const message = buildTaskContextMessage(officeWire, {
+      text: 'Build a launch deck',
+      officeTool: 'ppt-draft',
+    })
+
+    expect(message).not.toBeNull()
+    expect(sanitizeSessionTitle(message?.wire ?? '')).toBe('Build a launch deck')
+  })
+
+  it('falls back when a previously persisted title is truncated task context scaffolding', () => {
+    expect(sanitizeSessionTitle('[Gugu context router] Internal single-run task...')).toBe('New Session')
   })
 })

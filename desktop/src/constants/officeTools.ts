@@ -46,6 +46,8 @@ export const OFFICE_TOOL_OPTIONS: OfficeToolOption[] = [
       'Load and follow the bundled $document-master skill. Do not mention the skill name to the user.',
       'When working with uploaded or selected local office files, also load $local-office-files. For PDF sources load $pdf-master; for Word or DOCX sources load $word-master.',
       'Turn the user-provided topic, pasted content, notes, or current chat context into a structured summary document.',
+      'When the user explicitly asks to generate or save a Word/DOCX file from text, notes, Markdown, or current chat context, prefer the built-in OfficeFile create_docx operation. It creates a new basic DOCX file and never overwrites the original.',
+      'When the user explicitly asks to replace exact text in a DOCX file, prefer the built-in OfficeFile replace_text operation. It creates a new file and never overwrites the original.',
       'Output a practical document-style summary with core points, action items, risks, and open questions.',
       'When source material is incomplete, separate known facts from assumptions and provide a usable draft skeleton instead of inventing details.',
     ],
@@ -61,6 +63,7 @@ export const OFFICE_TOOL_OPTIONS: OfficeToolOption[] = [
     instructions: [
       'Load and follow the bundled $spreadsheet-master skill. Do not mention the skill name to the user.',
       'For Excel, XLSX, CSV, or spreadsheet-like sources, also load $excel-master. When those sources are uploaded or selected local files, also load $local-office-files.',
+      'When the user asks to add/update calculated columns, sort, filter, dedupe, or generate basic statistics for CSV, TSV, or XLSX files with clear column names, prefer the built-in OfficeFile tool. It creates a new file and never overwrites the original.',
       'Turn user-provided data, pasted rows, metrics, or current chat context into spreadsheet-style analysis.',
       'When data is present, identify fields, approximate row and column scale, missing values, duplicates, outliers, and data-quality risks. Do not fabricate unseen rows or formulas.',
       'When the user asks for formulas, calculations, or tables, explain assumptions and keep outputs spreadsheet-friendly.',
@@ -77,6 +80,8 @@ export const OFFICE_TOOL_OPTIONS: OfficeToolOption[] = [
     instructions: [
       'Turn the user-provided topic, notes, pasted content, or current chat context into a presentation plan.',
       'Create a presentation outline first: audience, storyline, slide structure, key bullets, and speaker notes.',
+      'When the user explicitly asks to generate or save a basic PPT/PPTX file from text, notes, Markdown, or current chat context, prefer the built-in OfficeFile create_pptx operation. It creates a new title-and-bullets deck and never overwrites the original.',
+      'When the user explicitly asks to replace exact text in a PPTX file, prefer the built-in OfficeFile replace_text operation. It creates a new file and never overwrites the original.',
       'If the user asks to create, edit, export, or redesign an actual slide artifact, load and follow the bundled $ppt-master skill. Do not mention the skill name to the user.',
       'For real slide artifacts, define a visual system before writing files: canvas, safe margins, grid, font scale, color palette, layout pattern, and asset plan.',
       'Never ship rough slide mockups. Reject and revise any slide with overlapping elements, clipped text, low contrast, decorative outline text, random fonts, crowded dark panels, or off-canvas content.',
@@ -111,6 +116,10 @@ export const OFFICE_TOOL_OPTIONS: OfficeToolOption[] = [
     instructions: [
       'Load and follow the bundled $file-master skill. Do not mention the skill name to the user.',
       'Load and follow $local-office-files for uploaded or selected local files. Route PDFs through $pdf-master, Excel/XLSX/CSV through $excel-master, Word/DOCX through $word-master, and PPT/PPTX/slide artifacts through $ppt-master.',
+      'For deterministic CSV, TSV, or XLSX edits such as creating a calculated column, sorting, filtering, deduping, or basic statistics, prefer the built-in OfficeFile tool before trying Bash, Python, WPS, Excel, or browser automation.',
+      'For generating a basic Word/DOCX file from provided text, Markdown, notes, or current chat context, prefer the built-in OfficeFile create_docx operation before trying Bash, Python, WPS, Word, or browser automation.',
+      'For generating a basic PPT/PPTX file from provided text, Markdown, notes, or current chat context, prefer the built-in OfficeFile create_pptx operation before trying Bash, Python, WPS, PowerPoint, or browser automation.',
+      'For exact text replacement in DOCX or PPTX files, prefer the built-in OfficeFile replace_text operation before trying Bash, Python, WPS, Word, PowerPoint, or browser automation.',
       'First identify file type, visible structure, and the user goal. Then recommend the safest next step.',
       'Do not overwrite original files unless the user explicitly confirms the exact output path. Prefer a new file.',
       'If parsing is unavailable or incomplete, explain the limitation and suggest a safer next step instead of pretending the file was fully read.',

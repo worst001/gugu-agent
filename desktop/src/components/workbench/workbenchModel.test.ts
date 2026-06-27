@@ -162,6 +162,59 @@ describe('buildWorkbenchModel', () => {
     expect(findSelectedPreview(model, 'write-a', null)?.content).toBe('a')
   })
 
+  it('tracks OfficeFile generated output as the changed file', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'tool-office',
+        type: 'tool_use',
+        toolName: 'OfficeFile',
+        toolUseId: 'office-1',
+        input: {
+          operation: 'calculate_column',
+          file_path: 'C:\\work\\orders.xlsx',
+          target_column: 'amount',
+          left_column: 'price',
+          right_column: 'quantity',
+        },
+        timestamp: 1,
+      },
+      {
+        id: 'result-office',
+        type: 'tool_result',
+        toolUseId: 'office-1',
+        content: [
+          'Generated new XLSX file and filled 3 rows.',
+          'Output path: C:\\work\\orders.gugu.xlsx',
+          'Source path: C:\\work\\orders.xlsx',
+          'Original modified: no',
+        ].join('\n'),
+        isError: false,
+        timestamp: 2,
+      },
+    ]
+
+    const model = buildWorkbenchModel(messages)
+
+    expect(model.activities[0]).toMatchObject({
+      toolName: 'OfficeFile',
+      filePath: 'C:\\work\\orders.gugu.xlsx',
+      summary: 'Generated orders.gugu.xlsx',
+      status: 'done',
+    })
+    expect(model.fileChanges).toHaveLength(1)
+    expect(model.fileChanges[0]).toMatchObject({
+      kind: 'created',
+      filePath: 'C:\\work\\orders.gugu.xlsx',
+      oldText: '',
+    })
+    expect(model.fileChanges[0]?.newText).toContain('Original modified: no')
+    expect(model.previews[0]).toMatchObject({
+      title: 'orders.gugu.xlsx',
+      filePath: 'C:\\work\\orders.gugu.xlsx',
+      language: 'plaintext',
+    })
+  })
+
   it('hides unavailable WebSearch tool failures from workbench activity', () => {
     const messages: UIMessage[] = [
       {

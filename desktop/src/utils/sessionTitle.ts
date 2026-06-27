@@ -1,5 +1,6 @@
 import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
 import { isOfficeToolInternalFallbackRequest } from '../constants/officeTools'
+import { extractTaskContextDisplayText } from '../constants/taskContextGraph'
 
 export const FALLBACK_SESSION_TITLE = 'New Session'
 const TITLE_MAX_LEN = 80
@@ -31,10 +32,12 @@ function looksLikeHiddenScaffoldTitle(title: string): boolean {
   return title.startsWith('[Workflow:') ||
     title.startsWith('[Agent mode:') ||
     title.startsWith('[Office toolbox:') ||
+    title.startsWith('[Gugu context router]') ||
     title.includes('CE automation (binding)') ||
     title.includes('Default mode remains natural') ||
     title.includes('product-facing planning mode') ||
     title.includes('Gugu Agent Office Toolbox') ||
+    title.includes('Internal single-run task context') ||
     title.includes('<attachment_parse_results>') ||
     title.includes('<闄勦欢瑙ｆ瀽缁撴灉>')
 }
@@ -42,7 +45,8 @@ function looksLikeHiddenScaffoldTitle(title: string): boolean {
 export function sanitizeSessionTitle(title: string): string {
   let stripped = title
   for (let i = 0; i < 3; i += 1) {
-    const next = extractAgentRunModeDisplayText(stripped)
+    const next = extractTaskContextDisplayText(stripped)
+      ?? extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
       ?? extractOfficeToolboxDisplayText(stripped)
     if (next === null || next === stripped) break

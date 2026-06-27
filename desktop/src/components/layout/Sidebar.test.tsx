@@ -17,7 +17,7 @@ vi.mock('../../api/filesystem', () => ({
 }))
 
 vi.mock('../../i18n', () => ({
-  useTranslation: () => (key: string) => {
+  useTranslation: () => (key: string, params?: Record<string, string | number>) => {
     const translations: Record<string, string> = {
       'sidebar.newSession': 'New Session',
       'sidebar.scheduled': 'Scheduled',
@@ -44,6 +44,8 @@ vi.mock('../../i18n', () => ({
       'sidebar.projectGroup.ungrouped': 'Uncategorized sessions',
       'sidebar.projectGroup.openInFolder': 'Open in folder',
       'sidebar.projectGroup.openFailed': 'Could not open this project folder.',
+      'sidebar.projectGroup.confirmRemoveTitle': 'Remove {name}?',
+      'sidebar.projectGroup.confirmRemoveBody': 'This removes the project from the Gugu sidebar. Files on disk will not be deleted.',
       'sidebar.projectGroup.removed': 'Project removed from the sidebar. Session history was not deleted.',
       'sidebar.sessionMeta.oneMessage': '1 msg',
       'sidebar.sessionMeta.messages': '2 msgs',
@@ -51,7 +53,7 @@ vi.mock('../../i18n', () => ({
       'sidebar.sessionMeta.waitingPermission': 'waiting',
     }
 
-    return translations[key] ?? key
+    return (translations[key] ?? key).replace(/\{(\w+)\}/g, (_, name) => String(params?.[name] ?? ''))
   },
 }))
 
@@ -389,6 +391,13 @@ describe('Sidebar', () => {
     fireEvent.contextMenu(getProjectGroupButton(/project-a/))
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
+    const dialog = screen.getByRole('dialog', { name: 'Remove project-a?' })
+    expect(within(dialog).getByText('This removes the project from the Gugu sidebar. Files on disk will not be deleted.')).toBeInTheDocument()
+    expect(getProjectGroupButton(/project-a/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Build feature/ })).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }))
+
     expect(queryProjectGroupButton(/project-a/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
     expect(getProjectGroupButton(/project-b/)).toBeInTheDocument()
@@ -400,6 +409,41 @@ describe('Sidebar', () => {
       type: 'info',
       message: 'Project removed from the sidebar. Session history was not deleted.',
     })
+  })
+
+  it('keeps a removed project hidden when the session path format changes', () => {
+    useSessionStore.setState({
+      removedProjects: ['d:/workspace/project-a'],
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: 'D:\\Workspace\\Project-A',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate bug',
+          createdAt: '2026-06-19T07:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 1,
+          projectPath: 'project-b-key',
+          workDir: 'D:\\Workspace\\Project-B',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(queryProjectGroupButton(/Project-A/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
+    expect(getProjectGroupButton(/Project-B/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Investigate bug/ })).toBeInTheDocument()
   })
 
   it('opens a project group directory from the context menu', async () => {

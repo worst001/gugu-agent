@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import type { ChatState, UIMessage } from '../../types/chat'
+import type { CLITask } from '../../types/cliTask'
+import { useCLITaskStore } from '../../stores/cliTaskStore'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
@@ -22,6 +24,7 @@ type PendingPermissionRequest = {
 }
 
 type AgentActivityPanelProps = {
+  sessionId?: string | null
   chatState: ChatState
   elapsedSeconds: number
   statusElapsedSeconds?: number
@@ -40,6 +43,7 @@ type AgentActivityPanelProps = {
 }
 
 const MAX_TOOL_ITEMS = 6
+const EMPTY_TASKS: CLITask[] = []
 const LONG_RUNNING_HINT_SECONDS = 20
 const BASH_LONG_SECONDS = 120
 const TOOL_VERY_LONG_SECONDS = 600
@@ -51,6 +55,7 @@ const NETWORK_LONG_SECONDS = 90
 const ATTACHMENT_PARSE_LONG_SECONDS = 30
 
 export function AgentActivityPanel({
+  sessionId = null,
   chatState,
   elapsedSeconds,
   statusElapsedSeconds = elapsedSeconds,
@@ -69,6 +74,9 @@ export function AgentActivityPanel({
 }: AgentActivityPanelProps) {
   const t = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
+  const tasks = useCLITaskStore((s) =>
+    sessionId && s.sessionId !== sessionId ? EMPTY_TASKS : s.tasks
+  )
   const toolCalls = useMemo(
     () => messages.filter((message): message is ToolCall => message.type === 'tool_use'),
     [messages],
@@ -78,8 +86,8 @@ export function AgentActivityPanel({
     [activeToolUseId, resultMap, toolCalls],
   )
   const recentToolItems = useMemo(
-    () => buildToolActivityItems(toolCalls, resultMap, chatState, activeToolUseId, pendingPermission, t),
-    [activeToolUseId, chatState, pendingPermission, resultMap, t, toolCalls],
+    () => buildToolActivityItems(toolCalls, resultMap, messages, chatState, activeToolUseId, pendingPermission, t),
+    [activeToolUseId, chatState, messages, pendingPermission, resultMap, t, toolCalls],
   )
   const longRunningToolItem = useMemo(
     () => pendingToolCall && chatState !== 'permission_pending'
@@ -100,6 +108,10 @@ export function AgentActivityPanel({
       t,
     }),
     [activeThinkingId, activeToolName, chatState, messages, pendingPermission, pendingToolCall, statusElapsedSeconds, statusVerb, streamingText, t],
+  )
+  const taskProgressItem = useMemo(
+    () => buildTaskProgressItem(tasks, chatState, messages, t),
+    [chatState, messages, tasks, t],
   )
   const totalTools = toolCalls.length
   const completedTools = toolCalls.filter((toolCall) => resultMap.has(toolCall.toolUseId)).length
@@ -142,7 +154,7 @@ export function AgentActivityPanel({
             )}
           </div>
           <div className="mt-0.5 truncate text-[11px] text-[var(--color-text-secondary)]">
-            {phaseItem.label}
+            {taskProgressItem?.label ?? phaseItem.label}
           </div>
         </div>
         <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--color-brand)] animate-pulse-dot" />
@@ -151,6 +163,7 @@ export function AgentActivityPanel({
       {!collapsed && (
         <div className="mt-2 space-y-2 border-t border-[var(--color-border)]/50 pt-2">
           <ActivityRow item={phaseItem} emphasized />
+          {taskProgressItem && <ActivityRow item={taskProgressItem} emphasized />}
           {longRunningToolItem && <ActivityRow item={longRunningToolItem} emphasized />}
           <div className="space-y-1.5">
             {displayItems.map((item) => (
@@ -238,6 +251,7 @@ function buildPhaseItem({
   t: ReturnType<typeof useTranslation>
 }): ActivityItem {
   const lastThinking = findLastThinking(messages, activeThinkingId)
+  const taskContextNotice = findLatestTaskContextNotice(messages)
 
   if (chatState === 'permission_pending') {
     return {
@@ -258,6 +272,14 @@ function buildPhaseItem({
         label: statusElapsedSeconds >= ATTACHMENT_PARSE_LONG_SECONDS
           ? t('chat.activity.attachmentParsingLong', { elapsed: formatElapsed(statusElapsedSeconds) })
           : t('chat.activity.attachmentParsing'),
+        detail: lastThinking,
+      }
+    }
+    if (chatState === 'thinking' && taskContextNotice) {
+      return {
+        id: 'phase-task-context',
+        status: 'active',
+        label: taskContextNotice,
         detail: lastThinking,
       }
     }
@@ -283,6 +305,14 @@ function buildPhaseItem({
   }
 
   if (chatState === 'thinking') {
+    if (taskContextNotice) {
+      return {
+        id: 'phase-task-context',
+        status: 'active',
+        label: taskContextNotice,
+        detail: lastThinking,
+      }
+    }
     return {
       id: 'phase-thinking',
       status: 'active',
@@ -297,12 +327,14 @@ function buildPhaseItem({
 function buildToolActivityItems(
   toolCalls: ToolCall[],
   resultMap: Map<string, ToolResult>,
+  messages: UIMessage[],
   chatState: ChatState,
   activeToolUseId: string | null,
   pendingPermission: PendingPermissionRequest | null,
   t: ReturnType<typeof useTranslation>,
 ): ActivityItem[] {
-  return toolCalls.slice(-MAX_TOOL_ITEMS).reverse().map((toolCall) => {
+  const recoveredFailures: string[] = []
+  const items: ActivityItem[] = toolCalls.slice(-MAX_TOOL_ITEMS).reverse().flatMap((toolCall) => {
     const result = resultMap.get(toolCall.toolUseId)
     const isWaitingForPermission =
       chatState === 'permission_pending' &&
@@ -311,7 +343,17 @@ function buildToolActivityItems(
       !result &&
       !isWaitingForPermission &&
       (activeToolUseId === toolCall.toolUseId || chatState !== 'idle')
-    const status: ActivityStatus = result?.isError ? 'error' : result ? 'done' : isWaitingForPermission ? 'pending' : isRunning ? 'active' : 'pending'
+    const isRecoveredFailure = Boolean(result?.isError && hasLaterProgress(messages, result.timestamp))
+    if (isRecoveredFailure) {
+      recoveredFailures.push(toolCall.toolName)
+      return []
+    }
+    const status: ActivityStatus = result?.isError
+      ? 'error'
+      : result ? 'done'
+        : isWaitingForPermission ? 'pending'
+          : isRunning ? 'active'
+            : 'pending'
     const label = status === 'error'
       ? t('chat.activity.failedTool', { toolName: toolCall.toolName })
       : status === 'done'
@@ -326,6 +368,75 @@ function buildToolActivityItems(
       detail: describeToolInput(toolCall.toolName, toolCall.input),
     }
   })
+  if (recoveredFailures.length > 0) {
+    items.push({
+      id: 'recovered-failed-tools',
+      status: 'warning',
+      label: t('chat.activity.recoveredFailedTools', { count: recoveredFailures.length }),
+      detail: formatRecoveredFailedTools(recoveredFailures, t),
+    })
+  }
+  return items
+}
+
+function buildTaskProgressItem(
+  tasks: CLITask[],
+  chatState: ChatState,
+  messages: UIMessage[],
+  t: ReturnType<typeof useTranslation>,
+): ActivityItem | null {
+  if (tasks.length === 0) return null
+
+  const completed = tasks.filter((task) => task.status === 'completed').length
+  const total = tasks.length
+  const remaining = total - completed
+  const activeTask = tasks.find((task) => task.status === 'in_progress') ?? tasks.find((task) => task.status === 'pending')
+  const activeText = truncateText(activeTask?.activeForm || activeTask?.subject, 80)
+
+  if (remaining === 0) {
+    return {
+      id: 'task-progress',
+      status: 'done',
+      label: t('chat.activity.taskProgressDone', { completed, total }),
+    }
+  }
+
+  if (chatState === 'idle' && hasVisibleResult(messages)) {
+    return {
+      id: 'task-progress',
+      status: 'warning',
+      label: t('chat.activity.taskProgressPartial', { remaining }),
+      detail: t('chat.activity.taskProgressPartialDetail'),
+    }
+  }
+
+  return {
+    id: 'task-progress',
+    status: 'active',
+    label: t('chat.activity.taskProgressRunning', { completed, total }),
+    detail: activeText ? t('chat.activity.taskProgressCurrent', { task: activeText }) : undefined,
+  }
+}
+
+function hasLaterProgress(messages: UIMessage[], afterTimestamp: number): boolean {
+  return messages.some((message) => {
+    if (message.timestamp <= afterTimestamp) return false
+    if (message.type === 'assistant_text' && message.content.trim()) return true
+    if (message.type === 'tool_result' && !message.isError) return true
+    return false
+  })
+}
+
+function hasVisibleResult(messages: UIMessage[]): boolean {
+  return messages.some((message) =>
+    (message.type === 'assistant_text' && message.content.trim().length > 0) ||
+    (message.type === 'tool_result' && !message.isError)
+  )
+}
+
+function formatRecoveredFailedTools(toolNames: string[], t: ReturnType<typeof useTranslation>): string {
+  const names = Array.from(new Set(toolNames)).slice(0, 3).join(', ')
+  return t('chat.activity.recoveredFailedToolsDetail', { toolNames: names })
 }
 
 function findPendingToolCall(
@@ -482,6 +593,29 @@ function displayToolName(toolName: string): string {
   if (isCodegraphTool(toolName)) return 'Codegraph'
   if (toolName.startsWith('mcp__')) return 'MCP'
   return toolName
+}
+
+function findLatestTaskContextNotice(messages: UIMessage[]): string {
+  let latestUserIndex = -1
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.type === 'user_text') {
+      latestUserIndex = index
+      break
+    }
+  }
+
+  const currentTurnMessages = latestUserIndex >= 0
+    ? messages.slice(latestUserIndex + 1)
+    : messages
+
+  const message = [...currentTurnMessages]
+    .reverse()
+    .find((item): item is Extract<UIMessage, { type: 'system' }> =>
+      item.type === 'system' &&
+      item.variant === 'task_context' &&
+      item.content.trim().length > 0
+    )
+  return message?.content.trim() ?? ''
 }
 
 function buildNoToolActivityItem(

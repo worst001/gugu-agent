@@ -51,6 +51,20 @@ async function revealWithNativeCommand(path: string): Promise<RevealResult | nul
   }
 }
 
+async function openWithNativeCommand(path: string): Promise<RevealResult | null> {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const result = await invoke<NativeRevealResult>('open_path', { path })
+    return {
+      ok: true,
+      path: result.path,
+      isDirectory: Boolean(result.isDirectory ?? result.is_directory),
+    }
+  } catch {
+    return null
+  }
+}
+
 export const filesystemApi = {
   browse(path?: string, options?: { includeFiles?: boolean }) {
     const q = new URLSearchParams()
@@ -75,6 +89,16 @@ export const filesystemApi = {
       return await api.post<RevealResult>('/api/filesystem/reveal', { path })
     } catch (error) {
       const nativeResult = await revealWithNativeCommand(path)
+      if (nativeResult) return nativeResult
+      throw error
+    }
+  },
+
+  async open(path: string): Promise<RevealResult> {
+    try {
+      return await api.post<RevealResult>('/api/filesystem/open', { path })
+    } catch (error) {
+      const nativeResult = await openWithNativeCommand(path)
       if (nativeResult) return nativeResult
       throw error
     }

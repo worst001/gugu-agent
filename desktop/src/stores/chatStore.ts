@@ -13,6 +13,7 @@ import { notifyChatTaskComplete } from '../utils/taskCompletionNotification'
 import { type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
 import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
 import { isOfficeToolInternalFallbackRequest, type OfficeToolId } from '../constants/officeTools'
+import { extractTaskContextDisplayText } from '../constants/taskContextGraph'
 import type { MessageEntry } from '../types/session'
 import type { EffortLevel, PermissionMode } from '../types/settings'
 import type {
@@ -417,6 +418,7 @@ type ChatStore = {
       displayAttachments?: AttachmentRef[]
       officeTool?: OfficeToolId
       ceModelPreference?: CeWorkflowModelPreference
+      taskContextNotice?: string
     },
   ) => void
   respondToPermission: (
@@ -800,7 +802,8 @@ function trimTrailingHiddenScaffoldClosers(content: string): string {
 function stripHiddenUserPromptScaffolding(content: string): string {
   let stripped = content
   for (let i = 0; i < 8; i += 1) {
-    const next = extractAgentRunModeDisplayText(stripped)
+    const next = extractTaskContextDisplayText(stripped)
+      ?? extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
       ?? extractOfficeToolboxDisplayText(stripped)
     if (next === null || next === stripped) return stripped
@@ -1045,6 +1048,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     const isMemberSession = !!useTeamStore.getState().getMemberBySessionId(sessionId)
     const isLocalCompactCommand = !isMemberSession && isCompactCommand
     const attachmentsForDisplay = options?.displayAttachments ?? attachments
+    const taskContextNotice = !isMemberSession ? options?.taskContextNotice?.trim() : undefined
     const uiAttachments: UIAttachment[] | undefined =
       attachmentsForDisplay && attachmentsForDisplay.length > 0
         ? attachmentsForDisplay.map((a) => ({
@@ -1100,6 +1104,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           content: t('chat.contextIndicator.autoCompactInProgress'),
           timestamp: Date.now(),
           variant: 'compact_pending',
+        })
+      }
+      if (taskContextNotice) {
+        newMessages.push({
+          id: nextId(),
+          type: 'system',
+          content: taskContextNotice,
+          timestamp: Date.now(),
+          variant: 'task_context',
         })
       }
 

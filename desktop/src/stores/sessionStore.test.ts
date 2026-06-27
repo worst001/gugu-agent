@@ -20,6 +20,7 @@ import { useTabStore } from './tabStore'
 
 const initialState = useSessionStore.getState()
 const initialTabState = useTabStore.getState()
+const REMOVED_PROJECTS_STORAGE_KEY = 'gugu-agent-removed-projects-v1'
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -27,6 +28,7 @@ function delay(ms: number) {
 
 describe('sessionStore', () => {
   beforeEach(() => {
+    localStorage.removeItem(REMOVED_PROJECTS_STORAGE_KEY)
     createMock.mockReset()
     listMock.mockReset()
     renameMock.mockReset()
@@ -49,6 +51,7 @@ describe('sessionStore', () => {
   })
 
   afterEach(() => {
+    localStorage.removeItem(REMOVED_PROJECTS_STORAGE_KEY)
     useSessionStore.setState(initialState)
     useTabStore.setState(initialTabState)
   })
@@ -134,6 +137,29 @@ describe('sessionStore', () => {
     await useSessionStore.getState().createSession('/workspace/project-a')
 
     expect(useSessionStore.getState().removedProjects).toEqual([])
+  })
+
+  it('persists removed projects and matches slash or case changes', () => {
+    useSessionStore.setState({
+      selectedProjects: ['D:/Workspace/App', 'D:/Workspace/Other'],
+      removedProjects: [],
+      newSessionWorkDir: 'D:/Workspace/App',
+    })
+
+    useSessionStore.getState().removeProjects(['D:\\Workspace\\App'])
+
+    const removedProjects = useSessionStore.getState().removedProjects
+    expect(removedProjects).toEqual(['D:\\Workspace\\App', 'd:/workspace/app'])
+    expect(useSessionStore.getState().selectedProjects).toEqual(['D:/Workspace/Other'])
+    expect(useSessionStore.getState().newSessionWorkDir).toBeNull()
+    expect(JSON.parse(localStorage.getItem(REMOVED_PROJECTS_STORAGE_KEY) ?? '[]')).toEqual(removedProjects)
+
+    useSessionStore.getState().setSelectedProjects(['D:/WORKSPACE/APP/', 'D:/Workspace/Other'])
+    expect(useSessionStore.getState().selectedProjects).toEqual(['D:/Workspace/Other'])
+
+    useSessionStore.getState().restoreProject('D:/workspace/app/')
+    expect(useSessionStore.getState().removedProjects).toEqual([])
+    expect(JSON.parse(localStorage.getItem(REMOVED_PROJECTS_STORAGE_KEY) ?? '[]')).toEqual([])
   })
 
   it('keeps a pending sidebar new-session directory after creating a session', async () => {

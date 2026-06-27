@@ -138,6 +138,7 @@ CodeGraph 原则：
 - 默认 MCP 列表没有依赖缺失后必红的条目。
 - Windows updater 入口、macOS updater 入口、OSS endpoint 没有漂移。
 - 没有把内部 scaffold 写入用户消息标题或聊天记录。
+- 场景能力图谱 / Context Router 只作为内部路由存在；不能暴露“项目资料 / Profile / 知识图谱”入口，普通对话不能被强行包装成复杂任务。
 - 相关前端、store、server、sidecar 测试已跑。
 
 推荐命令：
@@ -341,6 +342,15 @@ macOS 的辅助功能和屏幕录制权限由系统 TCC 管理，权限绑定 Ap
   - 写邮件：wire prompt 包含 `$mail-master`，涉及附件时包含 `$local-office-files` 与格式专用 skill，不自动发送邮件。
   - 处理文件：wire prompt 包含 `$file-master`、`$local-office-files`、`$pdf-master`、`$excel-master`、`$word-master`、`$ppt-master`，无附件时给友好提示，不覆盖原文件。
   - 路由优先级：用户明确要求的最终产物类型优先于工具箱意图和输入格式，例如“把 PDF 做成 PPT”必须用 PDF workflow 读取来源、PPT workflow 产出结果。
+- 场景能力图谱 / Context Router：
+  - 它不是用户可见的知识图谱功能，也不是设置页里的“项目资料”；发布包不能出现新的 `Project Profile`、`资料` 或 `知识图谱`入口。
+  - 普通聊天：输入“hello”“你是谁”等轻量问题时，不应出现 task context 提示，也不能注入内部 scaffold。
+  - 编码场景：输入“看下这个报错怎么修”时，可以显示任务理解状态；CodeGraph 只能作为可选增强，未连接时仍应走普通代码理解流程。
+  - PDF 转 PPT：上传或引用 PDF 后要求“做成 PPT”，最终产物必须走 PPT 路由，同时带上 PDF / Office 读取辅助 skill。
+  - 选品分析：输入“分析这份商品 Top 表，找选品机会”时，应进入表格/选品分析路由，并优先使用表格相关 skill。
+  - 公众号文案：输入“写一篇公众号文章”时，应进入内容创作路由；除非用户要求联网或给出链接，不应强制 WebFetch。
+  - 腾讯会议 / 操作电脑：输入“打开腾讯会议，设置一个会议”时，应进入 Computer Use 路由，但不能承诺已经深度对接腾讯会议 API。
+  - 发布阻断：用户气泡、会话标题、聊天记录、Fork/Rewind 可见内容中出现 `[Gugu context router]`、`[Office toolbox:`、`<attachment_parse_results>` 或内部 skill 路由文本时，必须停止发布。
 - 用户消息、会话标题、聊天记录不出现内部 scaffold。
 - 默认 MCP 不出现小白用户无法处理的红色 unavailable 项。
 - claude-mem 默认应显示为 disabled；手动启用后必须 connected，且不能创建可见的 memory observer 聊天会话。
@@ -599,3 +609,17 @@ D:/Claude Code/claude-code-gugu/docs/plans/desktop-release-packaging-runbook.md
 
 请按规范输出发布报告，并明确每一项是否完成、跳过原因和剩余风险。
 ```
+
+## 17. OfficeFile V1 release smoke addendum
+
+OfficeFile V1 must be treated as a release-blocking smoke area because it is the default path for common office work.
+
+[ ] `OfficeFile` tool is registered in the bundled CLI/server tool list.
+[ ] `gugu-agent-pack` contains office routing skills: `office-suite`, `document-master`, `spreadsheet-master`, `ppt-master`, `mail-master`, `file-master`, `local-office-files`, `pdf-master`, `excel-master`, `word-master`.
+[ ] `create_docx` smoke: text/Markdown input creates a new `.docx`; original files are not overwritten.
+[ ] `create_pptx` smoke: text/Markdown input creates a new `.pptx`; original files are not overwritten.
+[ ] `replace_text` smoke: `.docx` and `.pptx` replacements create new files and keep the source unchanged unless explicitly requested otherwise.
+[ ] Spreadsheet smoke: CSV/XLSX calculate column, sort, filter, dedupe, split, merge, and basic stats produce a new output file.
+[ ] Result card smoke: generated Office files show an output path, can be opened directly, and can be revealed in the file manager.
+[ ] No default OfficeFile smoke path requires Python, qmd, sh, WPS, Excel, PowerPoint, or other host commands.
+[ ] If the user asks to open/preview a generated file and a matching desktop app exists, the app opens through the OS default file association.

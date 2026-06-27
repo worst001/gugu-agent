@@ -11,6 +11,7 @@ import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore, type WorkbenchTab } from '../../stores/workbenchStore'
 import type { AgentTaskNotification } from '../../types/chat'
 import { extractToolResultText, formatToolErrorText } from './toolResultDisplay'
+import { parseOfficeFileResult, type OfficeFileResultInfo } from '../../utils/officeFileResult'
 
 type Props = {
   toolUseId?: string
@@ -33,6 +34,7 @@ const TOOL_ICONS: Record<string, string> = {
   WebFetch: 'cloud_download',
   NotebookEdit: 'note',
   Skill: 'auto_awesome',
+  OfficeFile: 'table_chart',
 }
 
 export function ToolCallBlock({ toolUseId, toolName, input, result, compact = false }: Props) {
@@ -43,7 +45,10 @@ export function ToolCallBlock({ toolUseId, toolName, input, result, compact = fa
   const openWorkbench = useWorkbenchStore((s) => s.openWorkbench)
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
   const icon = TOOL_ICONS[toolName] || 'build'
-  const filePath = getToolFilePath(obj)
+  const officeFileResult = toolName === 'OfficeFile' && result && !result.isError
+    ? parseOfficeFileResult(result.content)
+    : null
+  const filePath = officeFileResult?.outputPath || getToolFilePath(obj)
   const canRevealFilePath = Boolean(filePath && isRevealableLocalPath(filePath))
   const summary = getToolSummary(toolName, obj, t)
   const displayName = getToolDisplayName(toolName, Boolean(result), t)
@@ -194,6 +199,13 @@ function renderPreview(
     return null
   }
 
+  if (toolName === 'OfficeFile' && result && !result.isError) {
+    const officeFileResult = parseOfficeFileResult(result.content)
+    if (officeFileResult) {
+      return <OfficeFileResultCard info={officeFileResult} />
+    }
+  }
+
   if (result) {
     const text = getDisplayResultText(result)
     if (text) {
@@ -220,6 +232,98 @@ function renderPreview(
   }
 
   return null
+}
+
+function OfficeFileResultCard({ info }: { info: OfficeFileResultInfo }) {
+  const [openFailed, setOpenFailed] = useState(false)
+  const [revealFailed, setRevealFailed] = useState(false)
+  const t = useTranslation()
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[var(--color-success)]/30 bg-[var(--color-success)]/6">
+      <div className="flex items-start gap-2 border-b border-[var(--color-border)]/60 px-3 py-2.5">
+        <span className="material-symbols-outlined mt-0.5 text-[16px] text-[var(--color-success)]">check_circle</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] font-semibold text-[var(--color-text-primary)]">
+            {t('tool.officeGenerated')}
+          </div>
+          <div className="mt-1 text-[11px] leading-relaxed text-[var(--color-text-secondary)]">
+            {info.summary}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              setOpenFailed(false)
+              await filesystemApi.open(info.outputPath)
+            } catch {
+              setOpenFailed(true)
+              window.setTimeout(() => setOpenFailed(false), 1500)
+            }
+          }}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-surface-container-high)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
+            openFailed ? 'text-[var(--color-error)]' : 'text-[var(--color-text-tertiary)]'
+          }`}
+          aria-label={t('tool.officeOpenFile')}
+          title={`${t('tool.officeOpenFile')}: ${info.outputPath}`}
+        >
+          <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              setRevealFailed(false)
+              await filesystemApi.reveal(info.outputPath)
+            } catch {
+              setRevealFailed(true)
+              window.setTimeout(() => setRevealFailed(false), 1500)
+            }
+          }}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-surface-container-high)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
+            revealFailed ? 'text-[var(--color-error)]' : 'text-[var(--color-text-tertiary)]'
+          }`}
+          aria-label={t('filesystem.reveal')}
+          title={`${t('filesystem.reveal')}: ${info.outputPath}`}
+        >
+          <span className="material-symbols-outlined text-[14px]">folder_open</span>
+        </button>
+      </div>
+      <div className="space-y-2 px-3 py-2.5 text-[11px]">
+        <OfficeFilePathRow label={t('tool.officeOutputFile')} path={info.outputPath} />
+        {info.sourcePath && <OfficeFilePathRow label={t('tool.officeSourceFile')} path={info.sourcePath} />}
+        {typeof info.originalModified === 'boolean' && (
+          <div className="flex gap-2 text-[var(--color-text-secondary)]">
+            <span className="shrink-0 text-[var(--color-outline)]">{t('tool.officeOriginalFile')}</span>
+            <span>{info.originalModified ? t('tool.officeModified') : t('tool.officeUnmodified')}</span>
+          </div>
+        )}
+        {info.warnings.length > 0 && (
+          <div className="rounded-md border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 px-2 py-1.5 text-[var(--color-text-secondary)]">
+            {info.warnings.map((warning, index) => (
+              <div key={`${warning}-${index}`}>{warning}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OfficeFilePathRow({ label, path }: { label: string; path: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="shrink-0 text-[var(--color-outline)]">{label}</span>
+      <span className="min-w-0 flex-1 truncate rounded-md bg-[var(--color-surface-container)] px-2 py-1 font-[var(--font-mono)] text-[var(--color-text-secondary)]" title={path}>
+        {path}
+      </span>
+      <CopyButton
+        text={path}
+        className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
+      />
+    </div>
+  )
 }
 
 function getDisplayResultText(result: { content: unknown; isError: boolean }): string {
@@ -263,6 +367,10 @@ function getToolResultSummary(
 
   if (toolName === 'Bash') return ''
   if (toolName === 'WebSearch') return ''
+  if (toolName === 'OfficeFile') {
+    const info = parseOfficeFileResult(content)
+    return info ? t?.('tool.officeGeneratedFile', { fileName: leafName(info.outputPath) }) ?? `Generated ${leafName(info.outputPath)}` : ''
+  }
 
   const lineCount = text.split('\n').length
   if (lineCount > 1) {
@@ -313,6 +421,11 @@ function getToolSummary(toolName: string, obj: Record<string, unknown>, t?: (key
       return typeof obj.description === 'string' ? obj.description : ''
     case 'WebSearch':
       return typeof obj.query === 'string' ? obj.query : ''
+    case 'OfficeFile':
+      if (typeof obj.operation === 'string') return obj.operation
+      return typeof obj.target_column === 'string'
+        ? t?.('tool.officeCalculateColumn', { column: obj.target_column }) ?? `Calculate ${obj.target_column}`
+        : t?.('tool.officeProcessFile') ?? 'Process Office file'
     default:
       return ''
   }
@@ -327,6 +440,9 @@ function getToolDisplayName(
     return hasResult
       ? t?.('tool.webSearch') ?? 'Web search'
       : t?.('tool.webSearching') ?? 'Searching the web'
+  }
+  if (toolName === 'OfficeFile') {
+    return t?.('tool.officeFile') ?? 'Office file'
   }
   return toolName
 }

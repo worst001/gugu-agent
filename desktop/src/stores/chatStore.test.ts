@@ -106,6 +106,7 @@ import { mapHistoryMessagesToUiMessages, useChatStore, type PerSessionState } fr
 import { buildCeWorkflowMessage } from '../constants/ceWorkflowRoles'
 import { buildPlanModeMessage } from '../constants/agentRunModes'
 import { buildOfficeToolMessage } from '../constants/officeTools'
+import { buildTaskContextMessage } from '../constants/taskContextGraph'
 import { sessionsApi } from '../api/sessions'
 import { wsManager } from '../api/websocket'
 
@@ -416,6 +417,28 @@ describe('chatStore history mapping', () => {
       type: 'user_message',
       content: wire,
       attachments: [],
+    })
+  })
+
+  it('shows task context notices locally without sending them to the server', () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'wire prompt', [], {
+      displayContent: 'user prompt',
+      taskContextNotice: '已识别为：编码。会优先使用强模型处理复杂内容。',
+      ceModelPreference: 'strong',
+    })
+
+    const session = useChatStore.getState().getSession(TEST_SESSION_ID)
+    expect(session.messages).toMatchObject([
+      { type: 'user_text', content: 'user prompt' },
+      { type: 'system', content: '已识别为：编码。会优先使用强模型处理复杂内容。', variant: 'task_context' },
+    ])
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+      type: 'user_message',
+      content: 'wire prompt',
+      attachments: [],
+      ceModelPreference: 'strong',
     })
   })
 
@@ -1790,6 +1813,32 @@ describe('chatStore history mapping', () => {
         id: 'user-office-tool-1',
         type: 'user_text',
         content: '写个俄罗斯方块',
+      },
+    ])
+  })
+
+  it('strips hidden task context router preamble when restoring user transcript history', () => {
+    const message = buildTaskContextMessage('Please debug this crash', {
+      text: 'Please debug this crash',
+      workDir: 'D:/project/app',
+    })
+    expect(message).not.toBeNull()
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-task-context-1',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: message!.wire,
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-task-context-1',
+        type: 'user_text',
+        content: 'Please debug this crash',
       },
     ])
   })

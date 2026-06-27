@@ -52,7 +52,11 @@ export function Settings() {
 
   useEffect(() => {
     if (!pendingSettingsTab) return
-    setActiveTab(pendingSettingsTab)
+    setActiveTab(
+      pendingSettingsTab === 'projectProfile'
+        ? 'general'
+        : pendingSettingsTab,
+    )
     useUIStore.getState().setPendingSettingsTab(null)
   }, [pendingSettingsTab])
 

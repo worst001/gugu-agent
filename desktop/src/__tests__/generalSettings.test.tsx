@@ -4,6 +4,8 @@ import '@testing-library/jest-dom'
 
 import { Settings } from '../pages/Settings'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useSessionStore } from '../stores/sessionStore'
+import { useTabStore } from '../stores/tabStore'
 import { useUIStore } from '../stores/uiStore'
 import { useUpdateStore } from '../stores/updateStore'
 import { useCapabilityStore, type CapabilitySummary } from '../stores/capabilityStore'
@@ -182,6 +184,7 @@ const DEFAULT_ATTACHMENT_CONFIG = {
 
 describe('Settings > General tab', () => {
   beforeEach(() => {
+    localStorage.clear()
     refreshCapabilities.mockReset()
     MOCK_DELETE_PROVIDER.mockReset()
     MOCK_GET_SETTINGS.mockResolvedValue({})
@@ -210,6 +213,13 @@ describe('Settings > General tab', () => {
     })
 
     useUIStore.setState({ pendingSettingsTab: null })
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({
+      sessions: [],
+      activeSessionId: null,
+      isLoading: false,
+      error: null,
+    })
     useCapabilityStore.setState({
       summary: capabilitySummary,
       isLoading: false,
@@ -298,6 +308,25 @@ describe('Settings > General tab', () => {
     expect(screen.getByText('Terminal')).toBeInTheDocument()
     expect(screen.getByText('MCP')).toBeInTheDocument()
     expect(screen.getByText('Plugins')).toBeInTheDocument()
+  })
+
+  it('does not expose the experimental project profile settings by default', () => {
+    render(<Settings />)
+
+    expect(screen.queryByRole('button', { name: 'Profile' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Project Profile')).not.toBeInTheDocument()
+  })
+
+  it('redirects hidden project profile deep links to General settings', async () => {
+    useUIStore.setState({ pendingSettingsTab: 'projectProfile' })
+
+    render(<Settings />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Keyboard Shortcuts')).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: 'Profile' })).not.toBeInTheDocument()
+    expect(useUIStore.getState().pendingSettingsTab).toBeNull()
   })
 })
 

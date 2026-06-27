@@ -20,6 +20,7 @@ import {
   officeToolRequiresAttachment,
   type OfficeToolId,
 } from '../constants/officeTools'
+import { buildTaskContextMessage, buildTaskContextNotice } from '../constants/taskContextGraph'
 import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../stores/agentRunModeStore'
 import { DRAFT_CE_WORKFLOW_KEY, useCeWorkflowRoleStore } from '../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
@@ -378,6 +379,16 @@ export function EmptySession() {
         officeMessage?.wire ?? text,
         availableSkillNames,
       )
+      const taskContextMessage = buildTaskContextMessage(wire, {
+        text,
+        officeTool,
+        workDir: workDir || undefined,
+        attachments: attachmentPayload.map((attachment) => ({
+          name: attachment.name,
+          type: attachment.mimeType ?? attachment.type,
+        })),
+        hasProjectContext: Boolean(workDir),
+      })
       const officeDisplayContent = officeMessage && officeTool
         ? officeMessage.display.trim() || (
           attachmentPayload.length > 0
@@ -385,11 +396,16 @@ export function EmptySession() {
             : officeMessage.display
         )
         : display
-      sendMessage(sessionId, wire, attachmentPayload, {
+      const nextModelPreference = modelPreference ?? taskContextMessage?.modelPreference
+      const taskContextNotice = taskContextMessage
+        ? buildTaskContextNotice(taskContextMessage.classification, nextModelPreference)
+        : undefined
+      sendMessage(sessionId, taskContextMessage?.wire ?? wire, attachmentPayload, {
         displayContent: officeDisplayContent,
         displayAttachments: attachmentPayload,
         ...(officeTool ? { officeTool } : {}),
-        ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
+        ...(nextModelPreference ? { ceModelPreference: nextModelPreference } : {}),
+        ...(taskContextNotice ? { taskContextNotice } : {}),
       })
       if (draftMode === 'plan') {
         useAgentRunModeStore.getState().setMode(sessionId, AGENT_RUN_MODE_DEFAULT)

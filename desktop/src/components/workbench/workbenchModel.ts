@@ -1,4 +1,5 @@
 import type { UIMessage } from '../../types/chat'
+import { formatOfficeFileResultPreview, parseOfficeFileResult } from '../../utils/officeFileResult'
 import { isHiddenToolErrorContent } from '../chat/toolResultDisplay'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
@@ -99,7 +100,7 @@ export function buildWorkbenchModel(messages: UIMessage[]): WorkbenchModel {
 
     const result = resultMap.get(message.toolUseId)
     const input = asRecord(message.input)
-    const filePath = getToolFilePath(input)
+    const filePath = getToolActivityFilePath(message.toolName, input, result)
 
     activities.push({
       id: message.id,
@@ -196,6 +197,18 @@ export function getToolFilePath(input: Record<string, unknown>): string {
     stringValue(input.path) ||
     stringValue(input.notebook_path)
   )
+}
+
+function getToolActivityFilePath(
+  toolName: string,
+  input: Record<string, unknown>,
+  result?: ToolResult,
+): string {
+  if (toolName === 'OfficeFile' && result && !result.isError) {
+    const info = parseOfficeFileResult(result.content)
+    if (info?.outputPath) return info.outputPath
+  }
+  return getToolFilePath(input)
 }
 
 export function extractTextContent(content: unknown): string {
@@ -298,6 +311,22 @@ function getFileChange(
   const filePath = getToolFilePath(input)
   if (!filePath) return null
 
+  if (toolCall.toolName === 'OfficeFile' && result && !result.isError) {
+    const info = parseOfficeFileResult(result.content)
+    if (!info) return null
+    return {
+      id: `${toolCall.toolUseId}:office-file`,
+      filePath: info.outputPath,
+      toolUseId: toolCall.toolUseId,
+      toolName: toolCall.toolName,
+      kind: 'created',
+      summary: info.summary,
+      oldText: '',
+      newText: formatOfficeFileResultPreview(info),
+      timestamp: toolCall.timestamp,
+    }
+  }
+
   if (toolCall.toolName === 'Write' && typeof input.content === 'string') {
     return {
       id: `${toolCall.toolUseId}:write`,
@@ -382,6 +411,20 @@ function getFilePreview(
 ): FilePreview | null {
   const filePath = getToolFilePath(input)
 
+  if (toolCall.toolName === 'OfficeFile' && result && !result.isError) {
+    const info = parseOfficeFileResult(result.content)
+    if (!info) return null
+    return {
+      id: `${toolCall.toolUseId}:office-file-preview`,
+      title: leafName(info.outputPath) || 'Office file',
+      filePath: info.outputPath,
+      toolUseId: toolCall.toolUseId,
+      language: inferLanguage(info.outputPath),
+      content: formatOfficeFileResultPreview(info),
+      timestamp: toolCall.timestamp,
+    }
+  }
+
   if (toolCall.toolName === 'Write' && typeof input.content === 'string') {
     return {
       id: `${toolCall.toolUseId}:write-preview`,
@@ -442,6 +485,13 @@ function getToolSummary(
       return `MultiEdit ${leafName(getToolFilePath(input)) || 'file'}`
     case 'NotebookEdit':
       return `NotebookEdit ${leafName(getToolFilePath(input)) || 'notebook'}`
+    case 'OfficeFile': {
+      const info = result && !result.isError ? parseOfficeFileResult(result.content) : null
+      if (info) return `Generated ${leafName(info.outputPath) || 'Office file'}`
+      return stringValue(input.target_column)
+        ? `Calculate ${stringValue(input.target_column)}`
+        : 'Process Office file'
+    }
     case 'Task':
     case 'Agent':
       return stringValue(input.description) || stringValue(input.prompt) || 'Agent task'

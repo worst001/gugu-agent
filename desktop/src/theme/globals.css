@@ -686,6 +686,9 @@ button, input, textarea, select, a, [role="button"] {
 /* Visual polish for the existing light Gugu shell. These rules only skin
    current regions; they do not create new layout or controls. */
 [data-theme="light"] .sidebar-panel {
+  --color-text-primary: #1F1712;
+  --color-text-secondary: #4A3B31;
+  --color-text-tertiary: #6A594D;
   box-shadow: inset -1px 0 0 rgba(224, 212, 200, 0.54);
 }
 
@@ -747,6 +750,9 @@ button, input, textarea, select, a, [role="button"] {
 /* Visual polish for the existing dark Gugu shell. Keeps the same regions and
    controls as the light skin, with a graphite workspace and restrained orange. */
 [data-theme="dark"] .sidebar-panel {
+  --color-text-primary: #FFF8F2;
+  --color-text-secondary: #E8DCD1;
+  --color-text-tertiary: #BDAEA2;
   box-shadow: inset -1px 0 0 rgba(80, 67, 58, 0.48);
 }
 

@@ -156,9 +156,11 @@ describe('ChatInput submit', () => {
     expect(screen.queryByText('Start a fresh coding session. Gugu is ready to help you build, debug, and architect your project.')).not.toBeInTheDocument()
 
     const payload = getLastUserMessagePayload()
-    expect(payload?.content).toBe('what is this')
+    expect(payload?.content).toContain('[Gugu context router]')
+    expect(payload?.content).toContain('Detected task: File assistant')
+    expect(payload?.content).toContain('Matched signals: attachment:image')
+    expect(payload?.content).toContain('User message:\nwhat is this')
     expect(payload?.content).not.toContain('CE automation')
-    expect(payload?.ceModelPreference).toBeUndefined()
   })
 
   it('keeps the default composer toolbar opaque and long input constrained', () => {

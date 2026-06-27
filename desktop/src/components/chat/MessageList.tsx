@@ -1145,6 +1145,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
 
         {shouldShowActivityPanel && (
           <AgentActivityPanel
+            sessionId={resolvedSessionId}
             chatState={chatState}
             elapsedSeconds={elapsedSeconds}
             statusElapsedSeconds={statusElapsedSeconds}

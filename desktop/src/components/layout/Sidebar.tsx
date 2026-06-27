@@ -10,6 +10,7 @@ import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tab
 import { useChatStore } from '../../stores/chatStore'
 import { resolveNewSessionWorkDir } from '../../utils/newSessionWorkDir'
 import { filesystemApi } from '../../api/filesystem'
+import { expandProjectKeys, isProjectInSet } from '../../utils/projectKeys'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 const isWindows = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
@@ -28,6 +29,11 @@ type SessionProjectGroup = {
 type SidebarContextMenu =
   | { type: 'session'; id: string; path?: string; x: number; y: number }
   | { type: 'project'; title: string; path: string; projectKeys: string[]; x: number; y: number }
+
+type PendingRemoveProject = {
+  title: string
+  projectKeys: string[]
+}
 
 export function Sidebar() {
   const sessions = useSessionStore((s) => s.sessions)
@@ -51,6 +57,7 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [contextMenu, setContextMenu] = useState<SidebarContextMenu | null>(null)
   const [pendingDeleteSessionId, setPendingDeleteSessionId] = useState<string | null>(null)
+  const [pendingRemoveProject, setPendingRemoveProject] = useState<PendingRemoveProject | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
@@ -120,16 +127,23 @@ export function Sidebar() {
     setPendingDeleteSessionId(id)
   }, [])
 
-  const handleRemoveProject = useCallback((projectKeys: string[]) => {
+  const handleRemoveProject = useCallback((title: string, projectKeys: string[]) => {
     setContextMenu(null)
+    setPendingRemoveProject({ title, projectKeys })
+  }, [])
+
+  const confirmRemoveProject = useCallback(() => {
+    if (!pendingRemoveProject) return
+    const projectKeys = pendingRemoveProject.projectKeys
     removeProjects(projectKeys)
     setCollapsedProjects((current) => {
       const next = new Set(current)
       projectKeys.forEach((project) => next.delete(project))
       return next
     })
+    setPendingRemoveProject(null)
     addToast({ type: 'info', message: t('sidebar.projectGroup.removed') })
-  }, [addToast, removeProjects, t])
+  }, [addToast, pendingRemoveProject, removeProjects, t])
 
   const handleOpenProjectFolder = useCallback(async (path: string) => {
     setContextMenu(null)
@@ -473,7 +487,7 @@ export function Sidebar() {
                 {t('sidebar.projectGroup.openInFolder')}
               </button>
               <button
-                onClick={() => handleRemoveProject(contextMenu.projectKeys)}
+                onClick={() => handleRemoveProject(contextMenu.title, contextMenu.projectKeys)}
                 title={contextMenu.title}
                 className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
               >
@@ -491,6 +505,16 @@ export function Sidebar() {
         title={t('common.delete')}
         body={pendingDeleteSessionId ? t('sidebar.confirmDelete') : ''}
         confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        confirmVariant="danger"
+      />
+      <ConfirmDialog
+        open={pendingRemoveProject !== null}
+        onClose={() => setPendingRemoveProject(null)}
+        onConfirm={confirmRemoveProject}
+        title={t('sidebar.projectGroup.confirmRemoveTitle', { name: pendingRemoveProject?.title ?? '' })}
+        body={t('sidebar.projectGroup.confirmRemoveBody')}
+        confirmLabel={t('common.remove')}
         cancelLabel={t('common.cancel')}
         confirmVariant="danger"
       />
@@ -538,14 +562,14 @@ function groupByProject(sessions: SessionListItem[]): SessionProjectGroup[] {
 }
 
 function getSessionProjectKeys(session: SessionListItem): string[] {
-  return [...new Set([
+  return expandProjectKeys([
     session.workDir || session.projectPath || '',
     session.projectPath || '',
-  ].filter(Boolean))]
+  ])
 }
 
 function isSessionInRemovedProject(session: SessionListItem, removedProjectSet: Set<string>): boolean {
-  return getSessionProjectKeys(session).some((project) => removedProjectSet.has(project))
+  return getSessionProjectKeys(session).some((project) => isProjectInSet(removedProjectSet, project))
 }
 
 function NavItem({

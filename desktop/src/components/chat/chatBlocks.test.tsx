@@ -15,6 +15,7 @@ import type { UIMessage } from '../../types/chat'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useCLITaskStore } from '../../stores/cliTaskStore'
 
 function makeSessionState(overrides: Partial<PerSessionState> = {}): PerSessionState {
   return {
@@ -47,6 +48,7 @@ describe('chat blocks', () => {
     useTabStore.setState({ activeTabId: 'active-tab', tabs: [{ sessionId: 'active-tab', title: 'Test', type: 'session' as const, status: 'idle' }] })
     useChatStore.setState({ sessions: {} })
     useWorkbenchStore.setState({ sessions: {} })
+    useCLITaskStore.getState().clearTasks()
   })
 
   it('shows active thinking as a compact one-line status', () => {
@@ -192,6 +194,198 @@ describe('chat blocks', () => {
     expect(screen.getAllByText('Waiting for the model response').length).toBeGreaterThan(0)
     expect(screen.queryByText('Thinking through the next step')).toBeNull()
     expect(screen.getByText('No model output yet after 25s')).toBeTruthy()
+  })
+
+  it('surfaces task context routing in the live activity panel before tools start', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="thinking"
+        elapsedSeconds={8}
+        statusVerb="Understanding request"
+        messages={[
+          {
+            id: 'task-context-1',
+            type: 'system',
+            variant: 'task_context',
+            content: 'Detected: PPT production. Will prepare the slide structure first.',
+            timestamp: 1,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getAllByText('Detected: PPT production. Will prepare the slide structure first.').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Understanding request')).toBeNull()
+  })
+
+  it('does not reuse a previous task context notice for a new ordinary turn', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="thinking"
+        elapsedSeconds={8}
+        statusVerb="Understanding request"
+        messages={[
+          {
+            id: 'user-1',
+            type: 'user_text',
+            content: 'Build a launch deck',
+            timestamp: 1,
+          },
+          {
+            id: 'task-context-1',
+            type: 'system',
+            variant: 'task_context',
+            content: 'Detected: PPT production. Will prepare the slide structure first.',
+            timestamp: 2,
+          },
+          {
+            id: 'assistant-1',
+            type: 'assistant_text',
+            content: 'Here is a draft outline.',
+            timestamp: 3,
+          },
+          {
+            id: 'user-2',
+            type: 'user_text',
+            content: 'Thanks',
+            timestamp: 4,
+          },
+        ]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.queryByText('Detected: PPT production. Will prepare the slide structure first.')).toBeNull()
+    expect(screen.getAllByText('Understanding request').length).toBeGreaterThan(0)
+  })
+
+  it('collapses recovered tool failures in the live activity panel', () => {
+    useSettingsStore.setState({ locale: 'en' })
+
+    render(
+      <AgentActivityPanel
+        chatState="idle"
+        elapsedSeconds={12}
+        messages={[
+          {
+            id: 'tool-1',
+            type: 'tool_use',
+            toolName: 'Bash',
+            toolUseId: 'bash-1',
+            input: { command: 'grep Modify demo.pptx' },
+            timestamp: 1,
+          },
+          {
+            id: 'result-1',
+            type: 'tool_result',
+            toolUseId: 'bash-1',
+            content: 'grep not found',
+            isError: true,
+            timestamp: 2,
+          },
+          {
+            id: 'assistant-1',
+            type: 'assistant_text',
+            content: 'Generated the updated PPT.',
+            timestamp: 3,
+          },
+        ]}
+        resultMap={new Map([
+          ['bash-1', {
+            id: 'result-1',
+            type: 'tool_result',
+            toolUseId: 'bash-1',
+            content: 'grep not found',
+            isError: true,
+            timestamp: 2,
+          }],
+        ])}
+      />,
+    )
+
+    expect(screen.getByText('Tried 1 fallback step(s)')).toBeTruthy()
+    expect(screen.getByText('Bash did not work; continued.')).toBeTruthy()
+    expect(screen.queryByText('Bash failed')).toBeNull()
+  })
+
+  it('shows current task progress in the live activity panel', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    useCLITaskStore.setState({
+      sessionId: 'active-tab',
+      tasks: [
+        { id: '1', subject: 'Read the file', description: '', status: 'completed', blocks: [], blockedBy: [], taskListId: 'active-tab' },
+        { id: '2', subject: 'Update the deck', activeForm: 'Replacing year text', description: '', status: 'in_progress', blocks: [], blockedBy: [], taskListId: 'active-tab' },
+        { id: '3', subject: 'Verify output', description: '', status: 'pending', blocks: [], blockedBy: [], taskListId: 'active-tab' },
+      ],
+    })
+
+    render(
+      <AgentActivityPanel
+        chatState="tool_executing"
+        elapsedSeconds={30}
+        messages={[]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getAllByText('Task progress 1/3').length).toBeGreaterThan(0)
+    expect(screen.getByText('Current: Replacing year text')).toBeTruthy()
+  })
+
+  it('does not show task progress from another session', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    useCLITaskStore.setState({
+      sessionId: 'other-session',
+      tasks: [
+        { id: '1', subject: 'Wrong session task', description: '', status: 'in_progress', blocks: [], blockedBy: [], taskListId: 'other-session' },
+      ],
+    })
+
+    render(
+      <AgentActivityPanel
+        sessionId="active-tab"
+        chatState="tool_executing"
+        elapsedSeconds={30}
+        messages={[]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.queryByText(/Task progress/)).toBeNull()
+    expect(screen.queryByText(/Wrong session task/)).toBeNull()
+  })
+
+  it('explains when a result returned before the task list was fully closed', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    useCLITaskStore.setState({
+      sessionId: 'active-tab',
+      tasks: [
+        { id: '1', subject: 'Read the file', description: '', status: 'completed', blocks: [], blockedBy: [], taskListId: 'active-tab' },
+        { id: '2', subject: 'Update the deck', description: '', status: 'pending', blocks: [], blockedBy: [], taskListId: 'active-tab' },
+      ],
+    })
+
+    render(
+      <AgentActivityPanel
+        chatState="idle"
+        elapsedSeconds={12}
+        messages={[{
+          id: 'assistant-1',
+          type: 'assistant_text',
+          content: 'Generated the updated file.',
+          timestamp: 1,
+        }]}
+        resultMap={new Map()}
+      />,
+    )
+
+    expect(screen.getAllByText('Main result returned; 1 item(s) left open').length).toBeGreaterThan(0)
+    expect(screen.getByText('You can continue the remaining steps without repeating completed work.')).toBeTruthy()
   })
 
   it('communicates when Bash runs for a very long time', () => {
@@ -464,6 +658,43 @@ describe('chat blocks', () => {
     expect(container.textContent).toContain('fatal: unrecognized argument: --no-stat')
     expect(container.textContent).toContain('warning_amber')
     expect(container.textContent).not.toContain('error_outline')
+  })
+
+  it('renders OfficeFile results as generated-file feedback', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    const { container } = render(
+      <ToolCallBlock
+        toolUseId="office-1"
+        toolName="OfficeFile"
+        input={{
+          operation: 'calculate_column',
+          file_path: 'C:\\Users\\test\\orders.xlsx',
+          target_column: 'amount',
+          left_column: 'price',
+          right_column: 'quantity',
+        }}
+        result={{
+          content: [
+            'Generated new XLSX file and filled 3 rows.',
+            'Output path: C:\\Users\\test\\orders.gugu.xlsx',
+            'Source path: C:\\Users\\test\\orders.xlsx',
+            'Original modified: no',
+          ].join('\n'),
+          isError: false,
+        }}
+      />,
+    )
+
+    expect(container.textContent).toContain('Office')
+    expect(container.textContent).toContain('orders.gugu.xlsx')
+    expect(container.textContent).not.toContain('orders.xlsxorders.gugu.xlsx')
+
+    fireEvent.click(screen.getByRole('button', { name: /Office/i }))
+
+    expect(container.textContent).toContain('Generated new XLSX file')
+    expect(container.textContent).toContain('C:\\Users\\test\\orders.gugu.xlsx')
+    expect(screen.getByRole('button', { name: 'Open file' })).toBeTruthy()
+    expect(screen.getAllByTitle(/orders\.gugu\.xlsx/).length).toBeGreaterThan(0)
   })
 
   it('hides standalone unavailable WebSearch tool errors', () => {

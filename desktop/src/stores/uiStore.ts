@@ -57,6 +57,7 @@ export type SettingsTab =
   | 'providers'
   | 'attachmentParser'
   | 'configBackup'
+  | 'projectProfile'
   | 'permissions'
   | 'general'
   | 'adapters'

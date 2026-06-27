@@ -5,6 +5,9 @@ import { useTabStore } from './tabStore'
 import type { SessionListItem } from '../types/session'
 import { resolveDefaultSessionWorkDir } from '../utils/defaultSessionWorkDir'
 import { sanitizeSessionTitle } from '../utils/sessionTitle'
+import { expandProjectKeys, isProjectInSet, projectMatchesKey } from '../utils/projectKeys'
+
+const REMOVED_PROJECTS_STORAGE_KEY = 'gugu-agent-removed-projects-v1'
 
 type SessionStore = {
   sessions: SessionListItem[]
@@ -34,6 +37,28 @@ type SessionStore = {
   setNewSessionWorkDir: (workDir: string | null) => void
   removeProjects: (projects: string[]) => void
   restoreProject: (project: string) => void
+}
+
+function loadRemovedProjects(): string[] {
+  if (typeof localStorage === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(REMOVED_PROJECTS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return expandProjectKeys(parsed.filter((item): item is string => typeof item === 'string'))
+  } catch {
+    return []
+  }
+}
+
+function saveRemovedProjects(projects: string[]): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(REMOVED_PROJECTS_STORAGE_KEY, JSON.stringify(expandProjectKeys(projects)))
+  } catch {
+    // localStorage can be unavailable or full; losing this preference should not block chat.
+  }
 }
 
 function mergeFetchedSessionsWithOptimisticState(
@@ -71,7 +96,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   error: null,
   selectedProjects: [],
   availableProjects: [],
-  removedProjects: [],
+  removedProjects: loadRemovedProjects(),
   newSessionWorkDir: null,
 
   fetchSessions: async (project?: string) => {
@@ -196,24 +221,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   setActiveSession: (id) => set({ activeSessionId: id }),
   setNewSessionWorkDir: (workDir) => set({ newSessionWorkDir: workDir && workDir.trim() ? workDir : null }),
-  setSelectedProjects: (projects) => set((state) => ({
-    selectedProjects: projects.filter((project) => !state.removedProjects.includes(project)),
-  })),
+  setSelectedProjects: (projects) => set((state) => {
+    const removedProjectSet = new Set(state.removedProjects)
+    return {
+      selectedProjects: projects.filter((project) => !isProjectInSet(removedProjectSet, project)),
+    }
+  }),
   removeProjects: (projects) => set((state) => {
-    const nextRemoved = [...new Set([
-      ...state.removedProjects,
-      ...projects.map((project) => project.trim()).filter(Boolean),
-    ])]
+    const nextRemoved = expandProjectKeys([...state.removedProjects, ...projects])
+    const removedProjectSet = new Set(nextRemoved)
     const shouldClearNewSessionWorkDir = Boolean(
-      state.newSessionWorkDir && nextRemoved.includes(state.newSessionWorkDir),
+      state.newSessionWorkDir && isProjectInSet(removedProjectSet, state.newSessionWorkDir),
     )
+    saveRemovedProjects(nextRemoved)
     return {
       removedProjects: nextRemoved,
-      selectedProjects: state.selectedProjects.filter((project) => !nextRemoved.includes(project)),
+      selectedProjects: state.selectedProjects.filter((project) => !isProjectInSet(removedProjectSet, project)),
       newSessionWorkDir: shouldClearNewSessionWorkDir ? null : state.newSessionWorkDir,
     }
   }),
-  restoreProject: (project) => set((state) => ({
-    removedProjects: state.removedProjects.filter((item) => item !== project),
-  })),
+  restoreProject: (project) => set((state) => {
+    const nextRemoved = state.removedProjects.filter((item) => !projectMatchesKey(project, item))
+    saveRemovedProjects(nextRemoved)
+    return { removedProjects: nextRemoved }
+  }),
 }))

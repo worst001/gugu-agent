@@ -22,6 +22,7 @@ import {
   officeToolRequiresAttachment,
   type OfficeToolId,
 } from '../../constants/officeTools'
+import { buildTaskContextMessage, buildTaskContextNotice } from '../../constants/taskContextGraph'
 import { useAgentRunModeStore } from '../../stores/agentRunModeStore'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from './AttachmentGallery'
@@ -610,6 +611,16 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
         officeMessage?.wire ?? text,
         availableSkillNames,
       )
+      const taskContextMessage = buildTaskContextMessage(wire, {
+        text,
+        officeTool,
+        workDir: resolvedWorkDir,
+        attachments: attachmentPayload.map((attachment) => ({
+          name: attachment.name,
+          type: attachment.mimeType ?? attachment.type,
+        })),
+        hasProjectContext: Boolean(resolvedWorkDir),
+      })
       const officeDisplayContent = officeMessage && officeTool
         ? officeMessage.display.trim() || (
           attachmentPayload.length > 0
@@ -617,11 +628,17 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             : officeMessage.display
         )
         : display
-      sendMessage(activeTabId, wire, attachmentPayload, {
+      const taskModelPreference = runtimeSelection ? undefined : taskContextMessage?.modelPreference
+      const nextModelPreference = modelPreference ?? taskModelPreference
+      const taskContextNotice = taskContextMessage
+        ? buildTaskContextNotice(taskContextMessage.classification, nextModelPreference)
+        : undefined
+      sendMessage(activeTabId, taskContextMessage?.wire ?? wire, attachmentPayload, {
         displayContent: officeDisplayContent,
         displayAttachments: attachmentPayload,
         ...(officeTool ? { officeTool } : {}),
-        ...(modelPreference ? { ceModelPreference: modelPreference } : {}),
+        ...(nextModelPreference ? { ceModelPreference: nextModelPreference } : {}),
+        ...(taskContextNotice ? { taskContextNotice } : {}),
       })
       if (agentMode === 'plan') {
         useAgentRunModeStore.getState().setMode(activeTabId, AGENT_RUN_MODE_DEFAULT)

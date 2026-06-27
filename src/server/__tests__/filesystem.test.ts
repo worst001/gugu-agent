@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as fsp from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
-import { buildRevealPathCommand, handleFilesystemRoute } from '../api/filesystem.js'
+import { buildOpenPathCommand, buildRevealPathCommand, handleFilesystemRoute } from '../api/filesystem.js'
 
 const cleanupDirs = new Set<string>()
 
@@ -93,6 +93,21 @@ describe('filesystem API', () => {
     expect(buildRevealPathCommand('/home/me/project/file.ts', false, 'linux')).toEqual({
       command: 'xdg-open',
       args: [path.dirname(path.resolve('/home/me/project/file.ts'))],
+    })
+  })
+
+  it('builds native open commands for generated files', () => {
+    expect(buildOpenPathCommand('C:\\work with spaces\\note.docx', 'win32')).toEqual({
+      command: 'cmd.exe',
+      args: ['/C', 'start', '', 'C:\\work with spaces\\note.docx'],
+    })
+    expect(buildOpenPathCommand('/Users/me/My Project/slides.pptx', 'darwin')).toEqual({
+      command: 'open',
+      args: [path.resolve('/Users/me/My Project/slides.pptx')],
+    })
+    expect(buildOpenPathCommand('/home/me/report.xlsx', 'linux')).toEqual({
+      command: 'xdg-open',
+      args: [path.resolve('/home/me/report.xlsx')],
     })
   })
 

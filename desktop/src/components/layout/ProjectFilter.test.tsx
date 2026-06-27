@@ -97,7 +97,7 @@ describe('ProjectFilter', () => {
 
   it('hides projects removed from the sidebar', async () => {
     useSessionStore.setState({
-      removedProjects: ['Users-nanmi-workspace-myself_code-OpenCutSkill'],
+      removedProjects: ['users-nanmi-workspace-myself_code-opencutskill'],
     })
     getRecentProjectsMock.mockResolvedValue({
       projects: [
