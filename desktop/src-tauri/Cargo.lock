@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "gugu-agent"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "anyhow",
  "portable-pty",
