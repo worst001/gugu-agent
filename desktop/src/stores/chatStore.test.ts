@@ -413,11 +413,11 @@ describe('chatStore history mapping', () => {
       type: 'user_text',
       content: 'How many paragraphs are there?',
     })
-    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, expect.objectContaining({
       type: 'user_message',
       content: wire,
       attachments: [],
-    })
+    }))
   })
 
   it('shows task context notices locally without sending them to the server', () => {
@@ -434,12 +434,50 @@ describe('chatStore history mapping', () => {
       { type: 'user_text', content: 'user prompt' },
       { type: 'system', content: '已识别为：编码。会优先使用强模型处理复杂内容。', variant: 'task_context' },
     ])
-    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, expect.objectContaining({
       type: 'user_message',
       content: 'wire prompt',
       attachments: [],
       ceModelPreference: 'strong',
+    }))
+  })
+
+  it('does not send a new local message while the session is active', () => {
+    seedSession({ chatState: 'thinking' })
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'second message')
+
+    expect(sendMock).not.toHaveBeenCalled()
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toEqual([])
+  })
+
+  it('removes the optimistic local message when a stale client receives a busy rejection', () => {
+    seedSession()
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'second message')
+    const sent = sendMock.mock.calls.find(([, payload]) => {
+      return typeof payload === 'object' && payload !== null && (payload as { type?: string }).type === 'user_message'
+    })?.[1] as { clientMessageId?: string } | undefined
+    expect(sent?.clientMessageId).toEqual(expect.any(String))
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'user_message_rejected',
+      data: {
+        reason: 'session_busy',
+        clientMessageId: sent!.clientMessageId,
+      },
     })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.messages.some((message) => message.id === sent!.clientMessageId)).toBe(false)
+    expect(session?.messages).toEqual([
+      expect.objectContaining({
+        type: 'system',
+        content: expect.stringContaining('not sent'),
+      }),
+    ])
   })
 
   it('does not resurrect raw attachment parser local echoes from older versions', async () => {
@@ -1236,6 +1274,36 @@ describe('chatStore history mapping', () => {
         toolUseId: 'tool-bash-1',
       },
     ])
+  })
+
+  it('does not advance the visible permission when a queued request is answered out of order', () => {
+    seedSession({
+      pendingPermission: {
+        requestId: 'perm-ask-1',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'tool-ask-1',
+        input: { questions: [{ question: '继续吗？' }] },
+      },
+      pendingPermissionQueue: [
+        {
+          requestId: 'perm-bash-1',
+          toolName: 'Bash',
+          toolUseId: 'tool-bash-1',
+          input: { command: 'ls' },
+        },
+      ],
+      chatState: 'permission_pending',
+    })
+
+    useChatStore.getState().respondToPermission(TEST_SESSION_ID, 'perm-bash-1', true)
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.pendingPermission).toMatchObject({
+      requestId: 'perm-ask-1',
+      toolName: 'AskUserQuestion',
+    })
+    expect(session?.pendingPermissionQueue).toEqual([])
+    expect(session?.chatState).toBe('permission_pending')
   })
 
   it('sends permission denial feedback messages to the server', () => {
@@ -2052,6 +2120,22 @@ describe('chatStore history mapping', () => {
     expect(content).toContain('Please configure GLM API Key before parsing attachments.')
   })
 
+  it('explains managed attachment parser quota failures clearly', () => {
+    seedSession({ chatState: 'thinking' })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'attachment_parser',
+      message: 'Gugu 托管附件解析失败：额度已用完，请购买套餐或输入激活码继续使用。',
+    })
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    const content = session?.messages[0]?.type === 'system' ? session.messages[0].content : ''
+    expect(content).toContain('Gugu managed attachment parsing credits have been used up.')
+    expect(content).toContain('Normal chat still works, but this attachment was not parsed')
+    expect(content).toContain('Purchase a plan, enter an activation code')
+  })
+
   it('attaches successful parser previews to the visible user message without adding a chat bubble', () => {
     seedSession({
       chatState: 'thinking',
@@ -2415,11 +2499,11 @@ describe('chatStore history mapping', () => {
       },
     )
 
-    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, {
+    expect(sendMock).toHaveBeenCalledWith(TEST_SESSION_ID, expect.objectContaining({
       type: 'user_message',
       content: 'image as base64 text',
       attachments: undefined,
-    })
+    }))
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
       {
         type: 'user_text',

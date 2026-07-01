@@ -628,7 +628,11 @@ function buildAttachmentParserFailureMessage(rawMessage?: string): string {
   let impact = t('chat.errorCard.impact.generic')
   let nextStep = t('chat.errorCard.next.generic')
 
-  if (/attachment parsing timed out|parsing timed out|timed out before responding|附件.*超时/i.test(source)) {
+  if (/额度已用完|用量已用完|购买套餐|输入激活码|activation code|quota.*(exhausted|used up)|credits?.*(exhausted|used up)|usage limit reached/i.test(source)) {
+    reason = t('chat.errorCard.reason.attachmentQuota')
+    impact = t('chat.errorCard.impact.attachmentQuota')
+    nextStep = t('chat.errorCard.next.attachmentQuota')
+  } else if (/attachment parsing timed out|parsing timed out|timed out before responding|附件.*超时/i.test(source)) {
     reason = t('chat.errorCard.reason.attachmentTimeout')
     impact = t('chat.errorCard.impact.attachmentTimeout')
     nextStep = t('chat.errorCard.next.attachmentTimeout')
@@ -910,6 +914,13 @@ function shouldRenderPermissionRequestMessage(request: PendingPermissionRequest)
   return request.toolName !== 'AskUserQuestion'
 }
 
+function hasPermissionRequestMessage(messages: UIMessage[], requestId: string): boolean {
+  return messages.some((message) => (
+    message.type === 'permission_request' &&
+    message.requestId === requestId
+  ))
+}
+
 async function fetchAndMapSessionHistory(sessionId: string) {
   const { messages } = await sessionsApi.getMessages(sessionId)
   return {
@@ -1032,7 +1043,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   sendMessage: (sessionId, content, attachments, options) => {
     const existingSession = get().sessions[sessionId]
     const isCompactCommand = content.trim() === '/compact'
-    if (existingSession?.isCompacting && !isCompactCommand) {
+    if (
+      existingSession &&
+      !isCompactCommand &&
+      (existingSession.isCompacting ||
+        existingSession.chatState === 'thinking' ||
+        existingSession.chatState === 'tool_executing' ||
+        existingSession.chatState === 'permission_pending')
+    ) {
       return
     }
     if (isCompactCommand) {
@@ -1069,10 +1087,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       void taskStore.resetCompletedTasks()
     }
 
+    const clientMessageId = nextId()
     const localUserMessage: LocalUserEcho | null = isLocalCompactCommand
       ? null
       : {
-          id: nextId(),
+          id: clientMessageId,
           type: 'user_text',
           content: userFacingContent,
           attachments: isMemberSession ? undefined : uiAttachments,
@@ -1184,6 +1203,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       type: 'user_message',
       content,
       attachments,
+      ...(localUserMessage ? { clientMessageId: localUserMessage.id } : {}),
       ...(options?.ceModelPreference ? { ceModelPreference: options.ceModelPreference } : {}),
     })
   },
@@ -1202,9 +1222,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       if (!session) return state
 
       const queue = session.pendingPermissionQueue ?? []
-      const nextPermission = allowed ? queue[0] ?? null : null
-      const nextQueue = allowed ? queue.slice(1) : []
-      const messages = nextPermission && shouldRenderPermissionRequestMessage(nextPermission)
+      const currentMatches = session.pendingPermission?.requestId === requestId
+      const remainingQueue = queue.filter((request) => request.requestId !== requestId)
+      const nextPermission = currentMatches && allowed
+        ? remainingQueue[0] ?? null
+        : currentMatches
+          ? null
+          : session.pendingPermission ?? remainingQueue[0] ?? null
+      const nextQueue = currentMatches && allowed
+        ? remainingQueue.slice(1)
+        : currentMatches
+          ? []
+          : session.pendingPermission ? remainingQueue : remainingQueue.slice(1)
+      const messages = nextPermission &&
+        currentMatches &&
+        shouldRenderPermissionRequestMessage(nextPermission) &&
+        !hasPermissionRequestMessage(session.messages, nextPermission.requestId)
         ? [...session.messages, createPermissionRequestMessage(nextPermission)]
         : session.messages
 
@@ -1937,6 +1970,27 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           useCLITaskStore.getState().clearTasks()
           useSessionStore.getState().updateSessionTitle(sessionId, 'New Session')
           useTabStore.getState().updateTabStatus(sessionId, 'idle')
+        }
+        if (msg.subtype === 'user_message_rejected') {
+          const data = msg.data && typeof msg.data === 'object'
+            ? msg.data as Record<string, unknown>
+            : {}
+          const clientMessageId = typeof data.clientMessageId === 'string' ? data.clientMessageId : null
+          if (clientMessageId) {
+            forgetRememberedLocalUserEcho(sessionId, {
+              id: clientMessageId,
+              content: '',
+            })
+          }
+          update((session) => ({
+            messages: appendSystemMessage(
+              clientMessageId
+                ? session.messages.filter((message) => message.id !== clientMessageId)
+                : session.messages,
+              t('chat.systemMessage.sessionBusy'),
+              Date.now(),
+            ),
+          }))
         }
         if (msg.subtype === 'compact_boundary') {
           clearCompactBoundaryFallbackTimer(sessionId)

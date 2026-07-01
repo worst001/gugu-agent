@@ -59,6 +59,30 @@ describe('anthropicToOpenaiChat', () => {
     expect(result.stop).toEqual(['END', 'STOP'])
   })
 
+  test('provider extra params are merged into OpenAI Chat request', () => {
+    const req: AnthropicRequest = {
+      model: 'glm-4.5',
+      max_tokens: 100,
+      temperature: 1,
+      messages: [{ role: 'user', content: 'Hi' }],
+    }
+    const result = anthropicToOpenaiChat(req, {
+      extraParams: {
+        temperature: 0.7,
+        top_p: 0.9,
+        frequency_penalty: 0.8,
+        presence_penalty: 0.6,
+        repetition_penalty: 1.05,
+      },
+    })
+
+    expect(result.temperature).toBe(0.7)
+    expect(result.top_p).toBe(0.9)
+    expect(result.frequency_penalty).toBe(0.8)
+    expect(result.presence_penalty).toBe(0.6)
+    expect(result.repetition_penalty).toBe(1.05)
+  })
+
   test('tools conversion', () => {
     const req: AnthropicRequest = {
       model: 'gpt-4',

@@ -30,6 +30,14 @@ export const ModelMappingSchema = z.object({
   opus: z.string(),
 })
 
+export const ProviderExtraParamsSchema = z.object({
+  temperature: z.number().min(0).max(2).optional(),
+  top_p: z.number().min(0).max(1).optional(),
+  frequency_penalty: z.number().min(-2).max(2).optional(),
+  presence_penalty: z.number().min(-2).max(2).optional(),
+  repetition_penalty: z.number().min(0).max(2).optional(),
+})
+
 export const SavedProviderSchema = z.object({
   id: z.string(),
   presetId: z.string(),
@@ -40,6 +48,7 @@ export const SavedProviderSchema = z.object({
   authKind: ProviderAuthKindSchema.default('api_key'),
   models: ModelMappingSchema,
   notes: z.string().optional(),
+  extraParams: ProviderExtraParamsSchema.optional(),
 })
 
 export const ProvidersIndexSchema = z.object({
@@ -56,6 +65,7 @@ export const CreateProviderSchema = z.object({
   authKind: ProviderAuthKindSchema.default('api_key'),
   models: ModelMappingSchema,
   notes: z.string().optional(),
+  extraParams: ProviderExtraParamsSchema.optional(),
 })
 
 export const UpdateProviderSchema = z.object({
@@ -66,6 +76,7 @@ export const UpdateProviderSchema = z.object({
   authKind: ProviderAuthKindSchema.optional(),
   models: ModelMappingSchema.optional(),
   notes: z.string().optional(),
+  extraParams: ProviderExtraParamsSchema.optional(),
 })
 
 export const TestProviderSchema = z.object({
@@ -77,6 +88,7 @@ export const TestProviderSchema = z.object({
 
 // TypeScript types
 export type ModelMapping = z.infer<typeof ModelMappingSchema>
+export type ProviderExtraParams = z.infer<typeof ProviderExtraParamsSchema>
 export type SavedProvider = z.infer<typeof SavedProviderSchema>
 export type ProvidersIndex = z.infer<typeof ProvidersIndexSchema>
 export type CreateProviderInput = z.infer<typeof CreateProviderSchema>

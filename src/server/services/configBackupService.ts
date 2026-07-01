@@ -645,6 +645,7 @@ function normalizeProviderForImport(
     authKind: incoming.authKind ?? 'api_key',
     models: incoming.models,
     ...(incoming.notes !== undefined ? { notes: incoming.notes } : {}),
+    ...(incoming.extraParams !== undefined ? { extraParams: incoming.extraParams } : {}),
   }
 }
 

@@ -268,6 +268,32 @@ describe('ProviderService', () => {
 
       expect(provider.notes).toBe('dev environment')
     })
+
+    test('should preserve OpenAI-compatible extra params', async () => {
+      const svc = new ProviderService()
+      const provider = await svc.addProvider(sampleInput({
+        apiFormat: 'openai_chat',
+        extraParams: {
+          frequency_penalty: 0.8,
+          presence_penalty: 0.6,
+          top_p: 0.9,
+        },
+      }))
+
+      expect(provider.extraParams).toEqual({
+        frequency_penalty: 0.8,
+        presence_penalty: 0.6,
+        top_p: 0.9,
+      })
+      await svc.activateProvider(provider.id)
+      await expect(svc.getActiveProviderForProxy()).resolves.toMatchObject({
+        extraParams: {
+          frequency_penalty: 0.8,
+          presence_penalty: 0.6,
+          top_p: 0.9,
+        },
+      })
+    })
   })
 
   // ─── getProvider ─────────────────────────────────────────────────────────

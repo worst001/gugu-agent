@@ -10,6 +10,14 @@ export type ModelMapping = {
   opus: string
 }
 
+export type ProviderExtraParams = {
+  temperature?: number
+  top_p?: number
+  frequency_penalty?: number
+  presence_penalty?: number
+  repetition_penalty?: number
+}
+
 export type SavedProvider = {
   id: string
   presetId: string
@@ -20,6 +28,7 @@ export type SavedProvider = {
   authKind?: ProviderAuthKind
   models: ModelMapping
   notes?: string
+  extraParams?: ProviderExtraParams
 }
 
 export type CreateProviderInput = {
@@ -31,6 +40,7 @@ export type CreateProviderInput = {
   authKind?: ProviderAuthKind
   models: ModelMapping
   notes?: string
+  extraParams?: ProviderExtraParams
 }
 
 export type UpdateProviderInput = {
@@ -41,6 +51,7 @@ export type UpdateProviderInput = {
   authKind?: ProviderAuthKind
   models?: ModelMapping
   notes?: string
+  extraParams?: ProviderExtraParams
 }
 
 export type TestProviderConfigInput = {

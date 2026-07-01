@@ -32,6 +32,7 @@ import type {
   ProviderTestStepResult,
   ApiFormat,
   ProviderAuthKind,
+  ProviderExtraParams,
 } from '../types/provider.js'
 
 const MANAGED_ENV_KEYS = [
@@ -344,6 +345,7 @@ export class ProviderService {
       authKind: input.authKind ?? 'api_key',
       models: input.models,
       ...(input.notes !== undefined && { notes: input.notes }),
+      ...(input.extraParams !== undefined && { extraParams: input.extraParams }),
     }
 
     index.providers.push(provider)
@@ -366,6 +368,7 @@ export class ProviderService {
       ...(input.authKind !== undefined && { authKind: input.authKind }),
       ...(input.models !== undefined && { models: input.models }),
       ...(input.notes !== undefined && { notes: input.notes }),
+      ...(input.extraParams !== undefined && { extraParams: input.extraParams }),
     }
 
     index.providers[idx] = updated
@@ -592,6 +595,7 @@ export class ProviderService {
     apiKey: string
     apiFormat: ApiFormat
     authKind: ProviderAuthKind
+    extraParams?: ProviderExtraParams
   } | null> {
     if (providerId) {
       const provider = await this.getProvider(providerId)
@@ -600,6 +604,7 @@ export class ProviderService {
         apiKey: provider.apiKey,
         apiFormat: provider.apiFormat ?? 'anthropic',
         authKind: provider.authKind ?? 'api_key',
+        ...(provider.extraParams !== undefined && { extraParams: provider.extraParams }),
       }
     }
 
@@ -612,6 +617,7 @@ export class ProviderService {
       apiKey: provider.apiKey,
       apiFormat: provider.apiFormat ?? 'anthropic',
       authKind: provider.authKind ?? 'api_key',
+      ...(provider.extraParams !== undefined && { extraParams: provider.extraParams }),
     }
   }
 
@@ -620,6 +626,7 @@ export class ProviderService {
     apiKey: string
     apiFormat: ApiFormat
     authKind: ProviderAuthKind
+    extraParams?: ProviderExtraParams
   } | null> {
     return this.getProviderForProxy()
   }

@@ -16,6 +16,7 @@ export type ClientMessage =
       attachments?: AttachmentRef[]
       permissionMode?: string
       ceModelPreference?: 'fast' | 'strong'
+      clientMessageId?: string
     }
   | {
       type: 'permission_response'

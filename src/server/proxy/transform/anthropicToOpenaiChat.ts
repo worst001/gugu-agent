@@ -14,6 +14,7 @@ import type {
   OpenAIToolCall,
   OpenAITool,
 } from './types.js'
+import type { ProviderExtraParams } from '../../types/provider.js'
 import {
   GENERIC_OPENAI_CHAT_CAPABILITIES,
   type OpenAIChatProviderCapabilities,
@@ -21,6 +22,7 @@ import {
 
 type AnthropicToOpenAIChatOptions = {
   capabilities?: OpenAIChatProviderCapabilities
+  extraParams?: ProviderExtraParams
 }
 
 /**
@@ -63,6 +65,7 @@ export function anthropicToOpenaiChat(
   // temperature & top_p
   if (body.temperature !== undefined) result.temperature = body.temperature
   if (body.top_p !== undefined) result.top_p = body.top_p
+  if (options.extraParams) Object.assign(result, options.extraParams)
 
   // stop_sequences → stop
   if (body.stop_sequences && body.stop_sequences.length > 0) {

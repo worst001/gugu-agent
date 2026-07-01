@@ -1530,6 +1530,65 @@ describe('WebSocket Chat Integration', () => {
     })
   })
 
+  it('should ignore a second user message while the same session is still running', async () => {
+    await withMockStreamDelay(150, async () => {
+      const sessionId = `chat-duplicate-${crypto.randomUUID()}`
+      const messages: any[] = []
+      const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.close()
+          reject(new Error(`Timed out waiting for duplicate guard for ${sessionId}`))
+        }, 10_000)
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data as string)
+          messages.push(msg)
+          if (msg.type === 'connected') {
+            ws.send(JSON.stringify({ type: 'user_message', content: 'first duplicate guard' }))
+            ws.send(JSON.stringify({
+              type: 'user_message',
+              content: 'second duplicate guard',
+              clientMessageId: 'local-second-message',
+            }))
+          }
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            ws.close()
+            reject(new Error(msg.message))
+          }
+          if (msg.type === 'message_complete') {
+            clearTimeout(timeout)
+            ws.close()
+            resolve()
+          }
+        }
+        ws.onerror = () => {
+          clearTimeout(timeout)
+          reject(new Error(`WebSocket error for duplicate guard ${sessionId}`))
+        }
+      })
+
+      const streamedText = messages
+        .filter((msg) => msg.type === 'content_delta' && typeof msg.text === 'string')
+        .map((msg) => msg.text)
+        .join('')
+
+      expect(streamedText).toContain('Echo: first duplicate guard')
+      expect(streamedText).not.toContain('second duplicate guard')
+      expect(messages).toContainEqual(expect.objectContaining({
+        type: 'system_notification',
+        subtype: 'user_message_rejected',
+        data: expect.objectContaining({
+          reason: 'session_busy',
+          clientMessageId: 'local-second-message',
+        }),
+      }))
+      conversationService.stopSession(sessionId)
+    })
+  })
+
   it('should keep using the selected runtime config across the whole session until changed', async () => {
     const providerService = new ProviderService()
     const providerA = await providerService.addProvider({

@@ -30,6 +30,7 @@ import {
   chatgptAuthService,
 } from '../services/chatgptAuthService.js'
 import { billingService } from '../services/billingService.js'
+import type { ProviderExtraParams } from '../types/provider.js'
 
 const providerService = new ProviderService()
 const DEFAULT_PROXY_STREAM_CONNECT_TIMEOUT_MS = 0
@@ -434,7 +435,15 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
       return await handleGuguManaged(req, body)
     }
     if (config.apiFormat === 'openai_chat') {
-      return await handleOpenaiChat(body, baseUrl, config.apiKey, isStream, capabilities.openAIChat, requestTimeoutMs)
+      return await handleOpenaiChat(
+        body,
+        baseUrl,
+        config.apiKey,
+        isStream,
+        capabilities.openAIChat,
+        requestTimeoutMs,
+        config.extraParams,
+      )
     } else {
       return await handleOpenaiResponses(body, baseUrl, config.apiKey, isStream, requestTimeoutMs)
     }
@@ -825,8 +834,9 @@ async function handleOpenaiChat(
   isStream: boolean,
   capabilities: OpenAIChatProviderCapabilities,
   requestTimeoutMs?: RequestTimeoutOverride,
+  extraParams?: ProviderExtraParams,
 ): Promise<Response> {
-  const transformed = anthropicToOpenaiChat(body, { capabilities })
+  const transformed = anthropicToOpenaiChat(body, { capabilities, extraParams })
   const url = buildOpenAIEndpoint(baseUrl, 'chat/completions')
 
   const { response: upstream, abort: abortUpstream } = await fetchUpstream(url, {

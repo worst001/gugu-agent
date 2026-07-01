@@ -113,6 +113,7 @@ const sessionStartupPromises = new Map<string, Promise<void>>()
 const prewarmPendingSessions = new Set<string>()
 const prewarmedSessions = new Set<string>()
 const prewarmIdleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const activeUserTurnSessions = new Set<string>()
 const DEFAULT_PREWARM_IDLE_TIMEOUT_MS = 5 * 60_000
 const DEFAULT_IDLE_SESSION_RECONNECT_GRACE_MS = 30_000
 const DEFAULT_ACTIVE_SESSION_RECONNECT_GRACE_MS = 30 * 60_000
@@ -358,6 +359,7 @@ function stopTurnMonitor(sessionId: string): void {
 
 function completeTurnMonitor(sessionId: string): void {
   stopTurnMonitor(sessionId)
+  activeUserTurnSessions.delete(sessionId)
   if (!hasActiveClient(sessionId) && conversationService.hasSession(sessionId)) {
     scheduleSessionCleanup(sessionId, DEFAULT_IDLE_SESSION_RECONNECT_GRACE_MS)
   }
@@ -625,6 +627,7 @@ function noteSdkDisconnected(sessionId: string): void {
 
 function recoverStalledTurn(sessionId: string, message: string): void {
   stopTurnMonitor(sessionId)
+  activeUserTurnSessions.delete(sessionId)
   markSessionStopRequested(sessionId)
   conversationService.stopSession(sessionId)
   broadcastToSession(sessionId, {
@@ -709,6 +712,7 @@ export const handleWebSocket = {
       switch (message.type) {
         case 'user_message':
           handleUserMessage(ws, message).catch((err) => {
+            activeUserTurnSessions.delete(ws.data.sessionId)
             console.error(`[WS] Unhandled error in handleUserMessage:`, err)
           })
           break
@@ -810,6 +814,17 @@ async function handleUserMessage(
     return
   }
 
+  if (activeUserTurnSessions.has(sessionId) || sessionTurnMonitors.has(sessionId)) {
+    syncTurnMonitorStatus(ws, sessionId)
+    sendMessage(ws, {
+      type: 'system_notification',
+      subtype: 'user_message_rejected',
+      data: { reason: 'session_busy', clientMessageId: message.clientMessageId },
+    })
+    return
+  }
+  activeUserTurnSessions.add(sessionId)
+
   // Send thinking status
   sendMessage(ws, { type: 'status', state: 'thinking', verb: 'Thinking' })
 
@@ -826,6 +841,7 @@ async function handleUserMessage(
         code: 'CLI_RESTART_FAILED',
       })
       sendMessage(ws, { type: 'status', state: 'idle' })
+      activeUserTurnSessions.delete(sessionId)
       return
     }
   }
@@ -869,6 +885,7 @@ async function handleUserMessage(
         message: messageText,
       })
       sendMessage(ws, { type: 'status', state: 'idle' })
+      activeUserTurnSessions.delete(sessionId)
       return
     } finally {
       stopAttachmentProgress()
@@ -891,6 +908,7 @@ async function handleUserMessage(
         err instanceof ConversationStartupError ? err.retryable : false,
     })
     sendMessage(ws, { type: 'status', state: 'idle' })
+    activeUserTurnSessions.delete(sessionId)
     return
   }
 
@@ -936,6 +954,7 @@ async function handleUserMessage(
       code: 'CLI_NOT_RUNNING',
     })
     sendMessage(ws, { type: 'status', state: 'idle' })
+    activeUserTurnSessions.delete(sessionId)
     return
   }
 }
@@ -947,6 +966,7 @@ async function handleDesktopClearCommand(
 
   const workDir = conversationService.getSessionWorkDir(sessionId)
   stopTurnMonitor(sessionId)
+  activeUserTurnSessions.delete(sessionId)
   conversationService.stopSession(sessionId)
   conversationService.clearOutputCallbacks(sessionId)
   sessionSlashCommands.delete(sessionId)
@@ -1257,6 +1277,7 @@ function handleStopGeneration(ws: ServerWebSocket<WebSocketData>) {
 
   markSessionStopRequested(sessionId)
   stopTurnMonitor(sessionId)
+  activeUserTurnSessions.delete(sessionId)
 
   if (conversationService.hasSession(sessionId)) {
     // First try graceful interrupt via SDK control message
@@ -1452,6 +1473,7 @@ function cleanupStreamStatesForSession(sessionId: string) {
 
 function cleanupSessionRuntimeState(sessionId: string) {
   stopTurnMonitor(sessionId)
+  activeUserTurnSessions.delete(sessionId)
   clearSessionStopRequested(sessionId)
   const prewarmCallback = prewarmMetadataCallbacks.get(sessionId)
   if (prewarmCallback) {
