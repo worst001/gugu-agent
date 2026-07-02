@@ -34,6 +34,7 @@ type UpdateStore = {
 }
 
 let pendingUpdate: Update | null = null
+let installingUpdate: Update | null = null
 let startupCheckPromise: Promise<void> | null = null
 
 function readDismissedUpdateVersion(): string | null {
@@ -64,7 +65,7 @@ async function setPendingUpdate(next: Update | null) {
   const previous = pendingUpdate
   pendingUpdate = next
 
-  if (previous && previous !== next) {
+  if (previous && previous !== next && previous !== installingUpdate) {
     try {
       await previous.close()
     } catch {
@@ -119,6 +120,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
 
   checkForUpdates: async ({ silent = false } = {}) => {
     if (!isTauriRuntime()) return null
+    if (installingUpdate) return installingUpdate
 
     set((state) => ({
       ...state,
@@ -222,6 +224,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
       totalBytes: null,
     }))
 
+    installingUpdate = update
+
     try {
       writeDismissedUpdateVersion(null)
       const { invoke } = await import('@tauri-apps/api/core')
@@ -282,6 +286,10 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         error: getErrorMessage(error),
         shouldPrompt: true,
       }))
+    } finally {
+      if (installingUpdate === update) {
+        installingUpdate = null
+      }
     }
   },
 

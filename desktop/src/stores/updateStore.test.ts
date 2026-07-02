@@ -159,6 +159,39 @@ describe('updateStore', () => {
     expect(exit).not.toHaveBeenCalled()
   })
 
+  it('keeps the active update resource alive when a background check runs during install', async () => {
+    let runBackgroundCheck: (() => Promise<unknown>) | null = null
+    const close = vi.fn().mockResolvedValue(undefined)
+    const download = vi.fn(async (onEvent?: (event: unknown) => void) => {
+      onEvent?.({ event: 'Started', data: { contentLength: 100 } })
+      await runBackgroundCheck?.()
+      onEvent?.({ event: 'Finished' })
+    })
+    const install = vi.fn().mockResolvedValue(undefined)
+
+    check.mockResolvedValue({
+      version: '0.2.0',
+      body: 'Notes',
+      download,
+      install,
+      close,
+    })
+    invoke.mockResolvedValue(undefined)
+    relaunch.mockResolvedValue(undefined)
+
+    vi.resetModules()
+    const { useUpdateStore } = await import('./updateStore')
+    runBackgroundCheck = () => useUpdateStore.getState().checkForUpdates({ silent: true })
+
+    await useUpdateStore.getState().checkForUpdates()
+    await useUpdateStore.getState().installUpdate()
+
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(close).not.toHaveBeenCalled()
+    expect(install).toHaveBeenCalledTimes(1)
+    expect(useUpdateStore.getState().status).toBe('restarting')
+  })
+
   it('exits instead of relaunching immediately after installing on Windows', async () => {
     Object.defineProperty(window.navigator, 'platform', {
       configurable: true,
