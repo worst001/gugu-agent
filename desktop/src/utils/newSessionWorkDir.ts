@@ -1,16 +1,20 @@
 import { useSessionStore } from '../stores/sessionStore'
 import { useTabStore } from '../stores/tabStore'
+import { isProjectInSet } from './projectKeys'
 
 export function resolveNewSessionWorkDir(): string | undefined {
-  const { newSessionWorkDir, sessions } = useSessionStore.getState()
+  const { newSessionWorkDir, removedProjects, sessions } = useSessionStore.getState()
+  const removedProjectSet = new Set(removedProjects)
   const fromSidebar = normalizeWorkDir(newSessionWorkDir)
-  if (fromSidebar) return fromSidebar
+  if (fromSidebar && !isProjectInSet(removedProjectSet, fromSidebar)) return fromSidebar
 
   const activeTabId = useTabStore.getState().activeTabId
   const activeSession = activeTabId
     ? sessions.find((session) => session.id === activeTabId)
     : null
-  return normalizeWorkDir(activeSession?.workDir)
+  const fromActiveSession = normalizeWorkDir(activeSession?.workDir)
+  if (fromActiveSession && !isProjectInSet(removedProjectSet, fromActiveSession)) return fromActiveSession
+  return undefined
 }
 
 function normalizeWorkDir(workDir: string | null | undefined): string | undefined {

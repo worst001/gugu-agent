@@ -11,6 +11,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { resolveNewSessionWorkDir } from '../../utils/newSessionWorkDir'
 import { filesystemApi } from '../../api/filesystem'
 import { expandProjectKeys, isProjectInSet } from '../../utils/projectKeys'
+import { copyTextToClipboard } from '../chat/clipboard'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 const isWindows = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
@@ -24,11 +25,13 @@ type SessionProjectGroup = {
   projectKeys: string[]
   missingCount: number
   ungrouped: boolean
+  pinned?: boolean
+  projectPinned?: boolean
 }
 
 type SidebarContextMenu =
   | { type: 'session'; id: string; path?: string; x: number; y: number }
-  | { type: 'project'; title: string; path: string; projectKeys: string[]; x: number; y: number }
+  | { type: 'project'; title: string; path: string; projectKeys: string[]; projectPinned: boolean; x: number; y: number }
 
 type PendingRemoveProject = {
   title: string
@@ -39,11 +42,14 @@ export function Sidebar() {
   const sessions = useSessionStore((s) => s.sessions)
   const selectedProjects = useSessionStore((s) => s.selectedProjects)
   const removedProjects = useSessionStore((s) => s.removedProjects)
+  const pinnedProjects = useSessionStore((s) => s.pinnedProjects)
   const error = useSessionStore((s) => s.error)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
   const deleteSession = useSessionStore((s) => s.deleteSession)
   const renameSession = useSessionStore((s) => s.renameSession)
+  const updateSessionMeta = useSessionStore((s) => s.updateSessionMeta)
   const removeProjects = useSessionStore((s) => s.removeProjects)
+  const setProjectPinned = useSessionStore((s) => s.setProjectPinned)
   const setNewSessionWorkDir = useSessionStore((s) => s.setNewSessionWorkDir)
   const addToast = useUIStore((s) => s.addToast)
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
@@ -61,6 +67,7 @@ export function Sidebar() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
+  const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => {
     fetchSessions()
@@ -79,6 +86,7 @@ export function Sidebar() {
   }, [contextMenu])
 
   const removedProjectSet = useMemo(() => new Set(removedProjects), [removedProjects])
+  const pinnedProjectSet = useMemo(() => new Set(pinnedProjects), [pinnedProjects])
 
   const filteredSessions = useMemo(() => {
     let result = sessions
@@ -87,6 +95,11 @@ export function Sidebar() {
     }
     if (selectedProjects.length > 0) {
       result = result.filter((s) => selectedProjects.includes(s.projectPath))
+    }
+    if (showArchived) {
+      result = result.filter((s) => s.archived)
+    } else if (!searchQuery) {
+      result = result.filter((s) => !s.archived)
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -97,9 +110,45 @@ export function Sidebar() {
       ].some((value) => value.toLowerCase().includes(q)))
     }
     return result
-  }, [removedProjectSet, sessions, selectedProjects, searchQuery])
+  }, [removedProjectSet, sessions, selectedProjects, searchQuery, showArchived])
 
-  const projectGroups = useMemo(() => groupByProject(filteredSessions), [filteredSessions])
+  const pinnedSessions = useMemo(() => (
+    searchQuery ? [] : filteredSessions.filter((session) => session.pinned).sort(compareSessionsForSidebar)
+  ), [filteredSessions, searchQuery])
+
+  const projectGroups = useMemo(() => {
+    const sessionsForProjects = searchQuery
+      ? filteredSessions
+      : filteredSessions.filter((session) => !session.pinned)
+    return groupByProject(sessionsForProjects)
+      .map((group) => ({
+        ...group,
+        projectPinned: group.projectKeys.some((project) => isProjectInSet(pinnedProjectSet, project)),
+      }))
+      .sort(compareProjectGroups)
+  }, [filteredSessions, pinnedProjectSet, searchQuery])
+
+  const sidebarSections = useMemo(() => {
+    const pinnedGroups = [
+      ...(pinnedSessions.length > 0 ? [{
+        id: '__pinned__',
+        title: t('sidebar.pinnedConversations'),
+        pathLabel: '',
+        latestModifiedAt: pinnedSessions[0]?.modifiedAt ?? new Date().toISOString(),
+        sessions: pinnedSessions,
+        projectKeys: [],
+        missingCount: pinnedSessions.filter((session) => !session.workDirExists).length,
+        ungrouped: false,
+        pinned: true,
+      }] : []),
+      ...projectGroups.filter((group) => group.projectPinned),
+    ]
+    const regularGroups = projectGroups.filter((group) => !group.projectPinned)
+    return [
+      ...(pinnedGroups.length > 0 ? [{ id: 'pinned', title: t('sidebar.pinned'), groups: pinnedGroups }] : []),
+      ...(regularGroups.length > 0 ? [{ id: 'projects', title: t('sidebar.projects'), groups: regularGroups }] : []),
+    ]
+  }, [pinnedSessions, projectGroups, t])
 
   const handleSessionContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.preventDefault()
@@ -109,7 +158,7 @@ export function Sidebar() {
   }, [sessions])
 
   const handleProjectContextMenu = useCallback((e: React.MouseEvent, group: SessionProjectGroup) => {
-    if (group.ungrouped || group.projectKeys.length === 0) return
+    if (group.pinned || group.ungrouped || group.projectKeys.length === 0) return
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({
@@ -117,6 +166,7 @@ export function Sidebar() {
       title: group.title,
       path: group.pathLabel,
       projectKeys: group.projectKeys,
+      projectPinned: Boolean(group.projectPinned),
       x: e.clientX,
       y: e.clientY,
     })
@@ -153,6 +203,52 @@ export function Sidebar() {
       addToast({ type: 'error', message: t('sidebar.projectGroup.openFailed') })
     }
   }, [addToast, t])
+
+  const handleCopySessionId = useCallback(async (sessionId: string) => {
+    setContextMenu(null)
+    const copied = await copyTextToClipboard(sessionId)
+    addToast({
+      type: copied ? 'success' : 'error',
+      message: copied ? t('sidebar.session.copyIdSuccess') : t('sidebar.session.copyIdFailed'),
+    })
+  }, [addToast, t])
+
+  const handleUpdateSessionMeta = useCallback(async (
+    sessionId: string,
+    patch: Parameters<typeof updateSessionMeta>[1],
+  ) => {
+    setContextMenu(null)
+    try {
+      await updateSessionMeta(sessionId, patch)
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : t('sidebar.session.updateFailed'),
+      })
+    }
+  }, [addToast, t, updateSessionMeta])
+
+  const handleUpdateProjectSessions = useCallback(async (
+    projectKeys: string[],
+    patch: Parameters<typeof updateSessionMeta>[1],
+  ) => {
+    setContextMenu(null)
+    const projectSessions = getSessionsForProjectKeys(sessions, projectKeys)
+    if (projectSessions.length === 0) return
+    try {
+      await Promise.all(projectSessions.map((session) => updateSessionMeta(session.id, patch)))
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : t('sidebar.session.updateFailed'),
+      })
+    }
+  }, [addToast, sessions, t, updateSessionMeta])
+
+  const handleSetProjectPinned = useCallback((projectKeys: string[], pinned: boolean) => {
+    setContextMenu(null)
+    setProjectPinned(projectKeys, pinned)
+  }, [setProjectPinned])
 
   const createSessionForWorkDir = useCallback(async (workDir?: string) => {
     try {
@@ -244,7 +340,10 @@ export function Sidebar() {
           active={false}
           collapsed={!sidebarOpen}
           label={t('sidebar.newSession')}
-          onClick={() => void createSessionForWorkDir(resolveNewSessionWorkDir())}
+          onClick={() => {
+            setShowArchived(false)
+            void createSessionForWorkDir(resolveNewSessionWorkDir())
+          }}
           icon={<PlusIcon />}
         >
           {t('sidebar.newSession')}
@@ -253,7 +352,10 @@ export function Sidebar() {
           active={activeTabId === SCHEDULED_TAB_ID}
           collapsed={!sidebarOpen}
           label={t('sidebar.scheduled')}
-          onClick={() => useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')}
+          onClick={() => {
+            setShowArchived(false)
+            useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')
+          }}
           icon={<ClockIcon />}
         >
           {t('sidebar.scheduled')}
@@ -262,10 +364,22 @@ export function Sidebar() {
           active={activeTabType === 'terminal'}
           collapsed={!sidebarOpen}
           label={t('sidebar.terminal')}
-          onClick={() => useTabStore.getState().openTerminalTab()}
+          onClick={() => {
+            setShowArchived(false)
+            useTabStore.getState().openTerminalTab()
+          }}
           icon={<span className="material-symbols-outlined text-[18px]">terminal</span>}
         >
           {t('sidebar.terminal')}
+        </NavItem>
+        <NavItem
+          active={showArchived}
+          collapsed={!sidebarOpen}
+          label={t('sidebar.archivedSessions')}
+          onClick={() => setShowArchived((value) => !value)}
+          icon={<span className="material-symbols-outlined text-[18px]">archive</span>}
+        >
+          {t('sidebar.archivedSessions')}
         </NavItem>
       </div>
 
@@ -312,11 +426,16 @@ export function Sidebar() {
               )}
               {filteredSessions.length === 0 && (
                 <div className="px-3 py-4 text-center text-xs text-[var(--color-text-tertiary)]">
-                  {searchQuery ? t('sidebar.noMatching') : t('sidebar.noSessions')}
+                  {showArchived && !searchQuery ? t('sidebar.noArchivedSessions') : searchQuery ? t('sidebar.noMatching') : t('sidebar.noSessions')}
                 </div>
               )}
-              {projectGroups.map((group) => {
-                const collapsed = !searchQuery && collapsedProjects.has(group.id)
+              {sidebarSections.map((section) => (
+                <div key={section.id} className="mb-2">
+                  <div className="px-2 pb-0.5 pt-2 text-[11px] font-semibold text-[var(--color-text-tertiary)]">
+                    {section.title}
+                  </div>
+                  {section.groups.map((group) => {
+                    const collapsed = !searchQuery && collapsedProjects.has(group.id)
                 return (
                   <div key={group.id} className="mb-1.5">
                     <div
@@ -341,7 +460,7 @@ export function Sidebar() {
                           {collapsed ? 'chevron_right' : 'expand_more'}
                         </span>
                         <span className="material-symbols-outlined text-[15px]">
-                          {group.ungrouped ? 'inventory_2' : 'folder'}
+                          {group.pinned ? 'push_pin' : group.ungrouped ? 'inventory_2' : 'folder'}
                         </span>
                         <span className="min-w-0 flex-1 truncate">
                           {group.ungrouped ? t('sidebar.projectGroup.ungrouped') : group.title}
@@ -399,11 +518,22 @@ export function Sidebar() {
                               <span
                                 className="h-1.5 w-1.5 flex-shrink-0 rounded-full"
                                 style={{
-                                  backgroundColor: session.id === activeTabId ? 'var(--color-brand)' : 'var(--color-text-tertiary)',
-                                  opacity: session.id === activeTabId ? 1 : 0.5,
+                                  backgroundColor: session.id === activeTabId || session.unread ? 'var(--color-brand)' : 'var(--color-text-tertiary)',
+                                  opacity: session.id === activeTabId || session.unread ? 1 : 0.5,
                                 }}
                               />
-                              <span className="flex-1 truncate font-medium tracking-[-0.01em]">{session.title || 'Untitled'}</span>
+                              {session.pinned && (
+                                <span
+                                  className="material-symbols-outlined flex-shrink-0 text-[13px] text-[var(--color-brand)]"
+                                  title={t('sidebar.session.pinned')}
+                                  aria-hidden="true"
+                                >
+                                  push_pin
+                                </span>
+                              )}
+                              <span className={`flex-1 truncate tracking-[-0.01em] ${session.unread ? 'font-semibold text-[var(--color-text-primary)]' : 'font-medium'}`}>
+                                {session.title || 'Untitled'}
+                              </span>
                               {!session.workDirExists && (
                                 <span
                                   className="flex-shrink-0 text-[10px] text-[var(--color-warning)]"
@@ -423,7 +553,9 @@ export function Sidebar() {
                     })}
                   </div>
                 )
-              })}
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         </>
@@ -438,7 +570,10 @@ export function Sidebar() {
           active={activeTabId === SETTINGS_TAB_ID}
           collapsed={!sidebarOpen}
           label={t('sidebar.settings')}
-          onClick={() => useTabStore.getState().openTab(SETTINGS_TAB_ID, t('sidebar.settings'), 'settings')}
+          onClick={() => {
+            setShowArchived(false)
+            useTabStore.getState().openTab(SETTINGS_TAB_ID, t('sidebar.settings'), 'settings')
+          }}
           icon={<span className="material-symbols-outlined text-[18px]">settings</span>}
         >
           {t('sidebar.settings')}
@@ -447,53 +582,29 @@ export function Sidebar() {
 
       {contextMenu && sidebarOpen && (
         <div
-          className="fixed z-50 min-w-[140px] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] py-1"
+          className="fixed z-50 w-max min-w-[132px] max-w-[260px] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] py-1"
           style={{ left: contextMenu.x, top: contextMenu.y, boxShadow: 'var(--shadow-dropdown)' }}
         >
           {contextMenu.type === 'session' ? (
-            <>
-              {contextMenu.path && (
-                <button
-                  onClick={() => void handleOpenProjectFolder(contextMenu.path!)}
-                  title={contextMenu.path}
-                  className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
-                >
-                  {t('sidebar.projectGroup.openInFolder')}
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  const session = sessions.find((s) => s.id === contextMenu.id)
-                  handleStartRename(contextMenu.id, session?.title || '')
-                }}
-                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
-              >
-                {t('common.rename')}
-              </button>
-              <button
-                onClick={() => handleDelete(contextMenu.id)}
-                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-error)] transition-colors hover:bg-[var(--color-surface-hover)]"
-              >
-                {t('common.delete')}
-              </button>
-            </>
+            <SessionContextMenuItems
+              contextMenu={contextMenu}
+              session={sessions.find((s) => s.id === contextMenu.id)}
+              onOpenProjectFolder={handleOpenProjectFolder}
+              onStartRename={handleStartRename}
+              onCopySessionId={handleCopySessionId}
+              onUpdateSessionMeta={handleUpdateSessionMeta}
+              onDelete={handleDelete}
+              t={t}
+            />
           ) : (
-            <>
-              <button
-                onClick={() => void handleOpenProjectFolder(contextMenu.path)}
-                title={contextMenu.path}
-                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
-              >
-                {t('sidebar.projectGroup.openInFolder')}
-              </button>
-              <button
-                onClick={() => handleRemoveProject(contextMenu.title, contextMenu.projectKeys)}
-                title={contextMenu.title}
-                className="w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
-              >
-                {t('common.remove')}
-              </button>
-            </>
+            <ProjectContextMenuItems
+              contextMenu={contextMenu}
+              onOpenProjectFolder={handleOpenProjectFolder}
+              onSetProjectPinned={handleSetProjectPinned}
+              onUpdateProjectSessions={handleUpdateProjectSessions}
+              onRemoveProject={handleRemoveProject}
+              t={t}
+            />
           )}
         </div>
       )}
@@ -519,6 +630,116 @@ export function Sidebar() {
         confirmVariant="danger"
       />
     </aside>
+  )
+}
+
+function SessionContextMenuItems({
+  contextMenu,
+  session,
+  onOpenProjectFolder,
+  onStartRename,
+  onCopySessionId,
+  onUpdateSessionMeta,
+  onDelete,
+  t,
+}: {
+  contextMenu: Extract<SidebarContextMenu, { type: 'session' }>
+  session?: SessionListItem
+  onOpenProjectFolder: (path: string) => Promise<void>
+  onStartRename: (id: string, currentTitle: string) => void
+  onCopySessionId: (id: string) => Promise<void>
+  onUpdateSessionMeta: (id: string, patch: { pinned?: boolean; archived?: boolean; unread?: boolean }) => Promise<void>
+  onDelete: (id: string) => void
+  t: ReturnType<typeof useTranslation>
+}) {
+  return (
+    <>
+      {contextMenu.path && (
+        <MenuButton icon="folder_open" onClick={() => void onOpenProjectFolder(contextMenu.path!)} title={contextMenu.path}>
+          {t('sidebar.projectGroup.openInFolder')}
+        </MenuButton>
+      )}
+      <MenuButton icon="push_pin" onClick={() => void onUpdateSessionMeta(contextMenu.id, { pinned: !session?.pinned })}>
+        {session?.pinned ? t('sidebar.session.unpin') : t('sidebar.session.pin')}
+      </MenuButton>
+      <MenuButton icon="archive" onClick={() => void onUpdateSessionMeta(contextMenu.id, { archived: !session?.archived })}>
+        {session?.archived ? t('sidebar.session.unarchive') : t('sidebar.session.archive')}
+      </MenuButton>
+      <MenuButton icon={session?.unread ? 'drafts' : 'mark_email_unread'} onClick={() => void onUpdateSessionMeta(contextMenu.id, { unread: !session?.unread })}>
+        {session?.unread ? t('sidebar.session.markRead') : t('sidebar.session.markUnread')}
+      </MenuButton>
+      <MenuButton icon="edit" onClick={() => onStartRename(contextMenu.id, session?.title || '')}>
+        {t('common.rename')}
+      </MenuButton>
+      <MenuButton icon="content_copy" onClick={() => void onCopySessionId(contextMenu.id)}>
+        {t('sidebar.session.copyId')}
+      </MenuButton>
+      <MenuButton danger icon="delete" onClick={() => onDelete(contextMenu.id)}>
+        {t('common.delete')}
+      </MenuButton>
+    </>
+  )
+}
+
+function ProjectContextMenuItems({
+  contextMenu,
+  onOpenProjectFolder,
+  onSetProjectPinned,
+  onUpdateProjectSessions,
+  onRemoveProject,
+  t,
+}: {
+  contextMenu: Extract<SidebarContextMenu, { type: 'project' }>
+  onOpenProjectFolder: (path: string) => Promise<void>
+  onSetProjectPinned: (projectKeys: string[], pinned: boolean) => void
+  onUpdateProjectSessions: (projectKeys: string[], patch: { pinned?: boolean; archived?: boolean; unread?: boolean }) => Promise<void>
+  onRemoveProject: (title: string, projectKeys: string[]) => void
+  t: ReturnType<typeof useTranslation>
+}) {
+  return (
+    <>
+      <MenuButton icon="folder_open" onClick={() => void onOpenProjectFolder(contextMenu.path)} title={contextMenu.path}>
+        {t('sidebar.projectGroup.openInFolder')}
+      </MenuButton>
+      <MenuButton icon="push_pin" onClick={() => onSetProjectPinned(contextMenu.projectKeys, !contextMenu.projectPinned)}>
+        {contextMenu.projectPinned ? t('sidebar.projectGroup.unpin') : t('sidebar.projectGroup.pin')}
+      </MenuButton>
+      <MenuButton icon="archive" onClick={() => void onUpdateProjectSessions(contextMenu.projectKeys, { archived: true })}>
+        {t('sidebar.projectGroup.archiveSessions')}
+      </MenuButton>
+      <MenuButton icon="close" onClick={() => onRemoveProject(contextMenu.title, contextMenu.projectKeys)} title={contextMenu.title}>
+        {t('common.remove')}
+      </MenuButton>
+    </>
+  )
+}
+
+function MenuButton({
+  children,
+  danger = false,
+  icon,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode
+  danger?: boolean
+  icon: string
+  onClick: () => void
+  title?: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--color-surface-hover)] ${
+        danger ? 'text-[var(--color-error)]' : 'text-[var(--color-text-primary)]'
+      }`}
+    >
+      <span className="material-symbols-outlined text-[15px] opacity-75" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="truncate">{children}</span>
+    </button>
   )
 }
 
@@ -556,9 +777,21 @@ function groupByProject(sessions: SessionListItem[]): SessionProjectGroup[] {
   return [...groups.values()]
     .map((group) => ({
       ...group,
-      sessions: group.sessions.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime()),
+      sessions: group.sessions.sort(compareSessionsForSidebar),
     }))
-    .sort((a, b) => new Date(b.latestModifiedAt).getTime() - new Date(a.latestModifiedAt).getTime())
+    .sort((a, b) => {
+      return new Date(b.latestModifiedAt).getTime() - new Date(a.latestModifiedAt).getTime()
+    })
+}
+
+function compareProjectGroups(a: SessionProjectGroup, b: SessionProjectGroup): number {
+  if (Boolean(a.projectPinned) !== Boolean(b.projectPinned)) return a.projectPinned ? -1 : 1
+  return new Date(b.latestModifiedAt).getTime() - new Date(a.latestModifiedAt).getTime()
+}
+
+function compareSessionsForSidebar(a: SessionListItem, b: SessionListItem): number {
+  if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1
+  return new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime()
 }
 
 function getSessionProjectKeys(session: SessionListItem): string[] {
@@ -570,6 +803,13 @@ function getSessionProjectKeys(session: SessionListItem): string[] {
 
 function isSessionInRemovedProject(session: SessionListItem, removedProjectSet: Set<string>): boolean {
   return getSessionProjectKeys(session).some((project) => isProjectInSet(removedProjectSet, project))
+}
+
+function getSessionsForProjectKeys(sessions: SessionListItem[], projectKeys: string[]): SessionListItem[] {
+  const projectSet = new Set(projectKeys)
+  return sessions.filter((session) =>
+    getSessionProjectKeys(session).some((project) => isProjectInSet(projectSet, project)),
+  )
 }
 
 function NavItem({

@@ -9,7 +9,7 @@
  *   GET    /api/sessions/:id/messages — 获取会话消息
  *   POST   /api/sessions            — 创建新会话
  *   DELETE /api/sessions/:id        — 删除会话
- *   PATCH  /api/sessions/:id        — 重命名会话
+ *   PATCH  /api/sessions/:id        — 重命名会话或更新侧栏状态
  */
 
 import { sessionService } from '../services/sessionService.js'
@@ -516,19 +516,60 @@ async function forkSession(req: Request, sessionId: string): Promise<Response> {
 }
 
 async function patchSession(req: Request, sessionId: string): Promise<Response> {
-  let body: { title?: string }
+  let body: {
+    title?: string
+    pinned?: boolean
+    archived?: boolean
+    unread?: boolean
+  }
   try {
-    body = (await req.json()) as { title?: string }
+    body = (await req.json()) as {
+      title?: string
+      pinned?: boolean
+      archived?: boolean
+      unread?: boolean
+    }
   } catch {
     throw ApiError.badRequest('Invalid JSON body')
   }
 
-  if (!body.title || typeof body.title !== 'string') {
-    throw ApiError.badRequest('title (string) is required in request body')
+  const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title')
+  const metaKeys = ['pinned', 'archived', 'unread'] as const
+  const hasMetaPatch = metaKeys.some((key) => Object.prototype.hasOwnProperty.call(body, key))
+
+  if (!hasTitle && !hasMetaPatch) {
+    throw ApiError.badRequest('title or session UI metadata is required in request body')
   }
 
-  await sessionService.renameSession(sessionId, body.title)
-  return Response.json({ ok: true })
+  if (hasTitle) {
+    if (!body.title || typeof body.title !== 'string') {
+      throw ApiError.badRequest('title must be a non-empty string')
+    }
+  }
+
+  for (const key of metaKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key) && typeof body[key] !== 'boolean') {
+      throw ApiError.badRequest(`${key} must be a boolean`)
+    }
+  }
+
+  if (hasTitle) {
+    await sessionService.renameSession(sessionId, body.title!)
+  }
+
+  const meta = hasMetaPatch
+    ? await sessionService.updateSessionUiMeta(sessionId, {
+        pinned: body.pinned,
+        archived: body.archived,
+        unread: body.unread,
+      })
+    : undefined
+
+  if (hasMetaPatch) {
+    recentProjectsCache = null
+  }
+
+  return Response.json({ ok: true, ...(meta ? { meta } : {}) })
 }
 
 type RecentProjectEntry = {
@@ -555,7 +596,7 @@ async function getRecentProjects(url: URL): Promise<Response> {
   }
 
   const { sessions } = await sessionService.listSessions({ limit: 200 })
-  const validSessions = sessions.filter((session) => session.workDirExists && session.workDir)
+  const validSessions = sessions.filter((session) => !session.archived && session.workDirExists && session.workDir)
 
   // First pass: resolve realPath for each session and group by realPath to dedup
   const realPathMap = new Map<string, { projectPath: string; modifiedAt: string; sessionCount: number; sessionId: string }>()

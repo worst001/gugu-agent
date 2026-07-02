@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { sessionsApi } from '../api/sessions'
+import { sessionsApi, type SessionUiMetaPatch } from '../api/sessions'
 import { useSessionRuntimeStore } from './sessionRuntimeStore'
 import { useTabStore } from './tabStore'
 import type { SessionListItem } from '../types/session'
@@ -8,6 +8,7 @@ import { sanitizeSessionTitle } from '../utils/sessionTitle'
 import { expandProjectKeys, isProjectInSet, projectMatchesKey } from '../utils/projectKeys'
 
 const REMOVED_PROJECTS_STORAGE_KEY = 'gugu-agent-removed-projects-v1'
+const PINNED_PROJECTS_STORAGE_KEY = 'gugu-agent-pinned-projects-v1'
 
 type SessionStore = {
   sessions: SessionListItem[]
@@ -17,6 +18,7 @@ type SessionStore = {
   selectedProjects: string[]
   availableProjects: string[]
   removedProjects: string[]
+  pinnedProjects: string[]
   newSessionWorkDir: string | null
 
   fetchSessions: (project?: string) => Promise<void>
@@ -31,18 +33,20 @@ type SessionStore = {
   ) => Promise<{ sessionId: string; title: string }>
   deleteSession: (id: string) => Promise<void>
   renameSession: (id: string, title: string) => Promise<void>
+  updateSessionMeta: (id: string, patch: SessionUiMetaPatch) => Promise<void>
   updateSessionTitle: (id: string, title: string) => void
   setActiveSession: (id: string | null) => void
   setSelectedProjects: (projects: string[]) => void
   setNewSessionWorkDir: (workDir: string | null) => void
   removeProjects: (projects: string[]) => void
   restoreProject: (project: string) => void
+  setProjectPinned: (projects: string[], pinned: boolean) => void
 }
 
-function loadRemovedProjects(): string[] {
+function loadProjectList(key: string): string[] {
   if (typeof localStorage === 'undefined') return []
   try {
-    const raw = localStorage.getItem(REMOVED_PROJECTS_STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
@@ -52,10 +56,10 @@ function loadRemovedProjects(): string[] {
   }
 }
 
-function saveRemovedProjects(projects: string[]): void {
+function saveProjectList(key: string, projects: string[]): void {
   if (typeof localStorage === 'undefined') return
   try {
-    localStorage.setItem(REMOVED_PROJECTS_STORAGE_KEY, JSON.stringify(expandProjectKeys(projects)))
+    localStorage.setItem(key, JSON.stringify(expandProjectKeys(projects)))
   } catch {
     // localStorage can be unavailable or full; losing this preference should not block chat.
   }
@@ -76,6 +80,9 @@ function mergeFetchedSessionsWithOptimisticState(
       projectPath: session.projectPath || current.projectPath,
       workDir,
       workDirExists: session.workDir ? session.workDirExists : current.workDirExists,
+      pinned: session.pinned === true ? true : undefined,
+      archived: session.archived === true ? true : undefined,
+      unread: session.unread === true ? true : undefined,
     }
   })
 
@@ -96,7 +103,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   error: null,
   selectedProjects: [],
   availableProjects: [],
-  removedProjects: loadRemovedProjects(),
+  removedProjects: loadProjectList(REMOVED_PROJECTS_STORAGE_KEY),
+  pinnedProjects: loadProjectList(PINNED_PROJECTS_STORAGE_KEY),
   newSessionWorkDir: null,
 
   fetchSessions: async (project?: string) => {
@@ -130,12 +138,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   createSession: async (workDir?: string) => {
-    let resolved = workDir
-    if (resolved === undefined || resolved === null || resolved === '') {
+    const explicitWorkDir = typeof workDir === 'string' && workDir.trim() ? workDir.trim() : undefined
+    let resolved = explicitWorkDir
+    if (!resolved) {
       resolved = await resolveDefaultSessionWorkDir()
     }
-    if (resolved) {
-      get().restoreProject(resolved)
+    if (!explicitWorkDir && resolved && isProjectInSet(new Set(get().removedProjects), resolved)) {
+      resolved = undefined
+    }
+    if (explicitWorkDir) {
+      get().restoreProject(explicitWorkDir)
     }
     const { sessionId: id } = await sessionsApi.create(resolved || undefined)
     const now = new Date().toISOString()
@@ -209,6 +221,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
   },
 
+  updateSessionMeta: async (id, patch) => {
+    await sessionsApi.updateMeta(id, patch)
+    set((s) => ({
+      sessions: s.sessions.map((session) =>
+        session.id === id ? { ...session, ...patch } : session,
+      ),
+    }))
+  },
+
   updateSessionTitle: (id, title) => {
     const displayTitle = sanitizeSessionTitle(title)
     useTabStore.getState().updateTabTitle(id, displayTitle)
@@ -233,16 +254,26 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const shouldClearNewSessionWorkDir = Boolean(
       state.newSessionWorkDir && isProjectInSet(removedProjectSet, state.newSessionWorkDir),
     )
-    saveRemovedProjects(nextRemoved)
+    const nextPinned = state.pinnedProjects.filter((project) => !isProjectInSet(removedProjectSet, project))
+    saveProjectList(REMOVED_PROJECTS_STORAGE_KEY, nextRemoved)
+    saveProjectList(PINNED_PROJECTS_STORAGE_KEY, nextPinned)
     return {
       removedProjects: nextRemoved,
+      pinnedProjects: nextPinned,
       selectedProjects: state.selectedProjects.filter((project) => !isProjectInSet(removedProjectSet, project)),
       newSessionWorkDir: shouldClearNewSessionWorkDir ? null : state.newSessionWorkDir,
     }
   }),
   restoreProject: (project) => set((state) => {
     const nextRemoved = state.removedProjects.filter((item) => !projectMatchesKey(project, item))
-    saveRemovedProjects(nextRemoved)
+    saveProjectList(REMOVED_PROJECTS_STORAGE_KEY, nextRemoved)
     return { removedProjects: nextRemoved }
+  }),
+  setProjectPinned: (projects, pinned) => set((state) => {
+    const nextPinned = pinned
+      ? expandProjectKeys([...state.pinnedProjects, ...projects])
+      : state.pinnedProjects.filter((item) => !projects.some((project) => projectMatchesKey(project, item)))
+    saveProjectList(PINNED_PROJECTS_STORAGE_KEY, nextPinned)
+    return { pinnedProjects: nextPinned }
   }),
 }))

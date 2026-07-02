@@ -732,6 +732,51 @@ describe('SessionService', () => {
     ).rejects.toThrow('Session not found')
   })
 
+  it('should persist UI metadata outside the transcript file', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const filePath = await writeSessionFile('-tmp-project', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry('Original message'),
+    ])
+    const before = await fs.stat(filePath)
+
+    const meta = await service.updateSessionUiMeta(sessionId, {
+      pinned: true,
+      archived: true,
+      unread: true,
+    })
+
+    expect(meta).toEqual({ pinned: true, archived: true, unread: true })
+    const after = await fs.stat(filePath)
+    expect(after.mtimeMs).toBe(before.mtimeMs)
+    expect(await fs.readFile(filePath, 'utf-8')).not.toContain('pinned')
+
+    const detail = await service.getSession(sessionId)
+    expect(detail).toMatchObject({
+      pinned: true,
+      archived: true,
+      unread: true,
+    })
+
+    const listed = await service.listSessions()
+    expect(listed.sessions[0]).toMatchObject({
+      id: sessionId,
+      pinned: true,
+      archived: true,
+      unread: true,
+    })
+
+    await service.updateSessionUiMeta(sessionId, {
+      pinned: false,
+      archived: false,
+      unread: false,
+    })
+    const cleared = await service.getSession(sessionId)
+    expect(cleared!.pinned).toBeUndefined()
+    expect(cleared!.archived).toBeUndefined()
+    expect(cleared!.unread).toBeUndefined()
+  })
+
   // --------------------------------------------------------------------------
   // Title extraction
   // --------------------------------------------------------------------------
@@ -768,6 +813,21 @@ describe('SessionService', () => {
 
     const listed = await service.listSessions()
     expect(listed.sessions[0]!.title).toBe('写个俄罗斯方块')
+  })
+
+  it('does not count hidden teammate-only messages as visible history', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    await writeSessionFile('-tmp-project', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry('<teammate-message teammate_id="reviewer">internal status hidden from main chat</teammate-message>'),
+    ])
+
+    const detail = await service.getSession(sessionId)
+    expect(detail!.messages).toHaveLength(1)
+    expect(detail!.messageCount).toBe(0)
+
+    const listed = await service.listSessions()
+    expect(listed.sessions[0]!.messageCount).toBe(0)
   })
 
   it('should not use internal office toolbox fallback text as an attachment-only title', async () => {
@@ -1033,6 +1093,103 @@ describe('Sessions API', () => {
     const detailRes = await fetch(`${baseUrl}/api/sessions/${sessionId}`)
     const detail = (await detailRes.json()) as { title: string }
     expect(detail.title).toBe('New Custom Title')
+  })
+
+  it('PATCH /api/sessions/:id should preserve concurrent UI metadata patches', async () => {
+    const ids = [
+      'aaaaaaaa-bbbb-cccc-dddd-000000000001',
+      'aaaaaaaa-bbbb-cccc-dddd-000000000002',
+      'aaaaaaaa-bbbb-cccc-dddd-000000000003',
+    ]
+    const firstId = ids[0]!
+    const secondId = ids[1]!
+    const thirdId = ids[2]!
+
+    for (const id of ids) {
+      await writeSessionFile('-tmp-api-concurrent-meta', id, [
+        makeSnapshotEntry(),
+        makeUserEntry('Session ' + id),
+      ])
+    }
+
+    const responses = await Promise.all([
+      fetch(baseUrl + '/api/sessions/' + firstId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: true, pinned: true }),
+      }),
+      fetch(baseUrl + '/api/sessions/' + secondId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: true, unread: true }),
+      }),
+      fetch(baseUrl + '/api/sessions/' + thirdId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: true }),
+      }),
+    ])
+
+    expect(responses.map((response) => response.status)).toEqual([200, 200, 200])
+
+    const listRes = await fetch(baseUrl + '/api/sessions')
+    const list = await listRes.json() as {
+      sessions: Array<{
+        id: string
+        pinned?: boolean
+        archived?: boolean
+        unread?: boolean
+      }>
+    }
+    const byId = new Map(list.sessions.map((session) => [session.id, session]))
+
+    expect(byId.get(firstId)).toMatchObject({ archived: true, pinned: true })
+    expect(byId.get(secondId)).toMatchObject({ archived: true, unread: true })
+    expect(byId.get(thirdId)).toMatchObject({ archived: true })
+
+    const persisted = JSON.parse(await fs.readFile(path.join(tmpDir, 'gugu-session-ui-meta.json'), 'utf-8')) as Record<string, unknown>
+    expect(persisted[firstId]).toEqual({ pinned: true, archived: true })
+    expect(persisted[secondId]).toEqual({ archived: true, unread: true })
+    expect(persisted[thirdId]).toEqual({ archived: true })
+  })
+
+  it('PATCH /api/sessions/:id should invalidate recent projects after archiving a session', async () => {
+    const archivedId = 'aaaaaaaa-bbbb-cccc-dddd-000000000010'
+    const visibleId = 'aaaaaaaa-bbbb-cccc-dddd-000000000011'
+    const archivedWorkDir = path.join(tmpDir, 'workspace', 'archive-me')
+    const visibleWorkDir = path.join(tmpDir, 'workspace', 'keep-me')
+
+    await fs.mkdir(archivedWorkDir, { recursive: true })
+    await fs.mkdir(visibleWorkDir, { recursive: true })
+    await writeSessionFile(sanitizePath(archivedWorkDir), archivedId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry(archivedWorkDir),
+      makeUserEntry('Archive me'),
+    ])
+    await writeSessionFile(sanitizePath(visibleWorkDir), visibleId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry(visibleWorkDir),
+      makeUserEntry('Keep me'),
+    ])
+
+    const firstRes = await fetch(`${baseUrl}/api/sessions/recent-projects?limit=10`)
+    expect(firstRes.status).toBe(200)
+    const first = await firstRes.json() as { projects: Array<{ realPath: string }> }
+    expect(first.projects.map((project) => project.realPath)).toContain(archivedWorkDir)
+
+    const patchRes = await fetch(`${baseUrl}/api/sessions/${archivedId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived: true }),
+    })
+    expect(patchRes.status).toBe(200)
+
+    const secondRes = await fetch(`${baseUrl}/api/sessions/recent-projects?limit=10`)
+    expect(secondRes.status).toBe(200)
+    const second = await secondRes.json() as { projects: Array<{ realPath: string }> }
+    const realPaths = second.projects.map((project) => project.realPath)
+    expect(realPaths).not.toContain(archivedWorkDir)
+    expect(realPaths).toContain(visibleWorkDir)
   })
 
   it('GET /api/sessions/:id/slash-commands should include user and project skills before CLI init', async () => {

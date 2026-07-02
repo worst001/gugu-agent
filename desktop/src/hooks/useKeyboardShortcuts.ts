@@ -35,7 +35,12 @@ export function useKeyboardShortcuts() {
 
       if (!meta) return
 
-      if (event.key === '.' && chatStateRef.current !== 'idle' && activeTabIdRef.current) {
+      if (
+        event.key === '.' &&
+        chatStateRef.current !== 'idle' &&
+        chatStateRef.current !== 'stopping' &&
+        activeTabIdRef.current
+      ) {
         event.preventDefault()
         stopGeneration(activeTabIdRef.current)
         return

@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { createMock, listMock, renameMock } = vi.hoisted(() => ({
+const { createMock, getUserMock, listMock, renameMock, updateMetaMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
+  getUserMock: vi.fn(),
   listMock: vi.fn(),
   renameMock: vi.fn(),
+  updateMetaMock: vi.fn(),
 }))
 
 vi.mock('../api/sessions', () => ({
@@ -12,6 +14,13 @@ vi.mock('../api/sessions', () => ({
     list: listMock,
     delete: vi.fn(),
     rename: renameMock,
+    updateMeta: updateMetaMock,
+  },
+}))
+
+vi.mock('../api/settings', () => ({
+  settingsApi: {
+    getUser: getUserMock,
   },
 }))
 
@@ -21,6 +30,7 @@ import { useTabStore } from './tabStore'
 const initialState = useSessionStore.getState()
 const initialTabState = useTabStore.getState()
 const REMOVED_PROJECTS_STORAGE_KEY = 'gugu-agent-removed-projects-v1'
+const PINNED_PROJECTS_STORAGE_KEY = 'gugu-agent-pinned-projects-v1'
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -29,9 +39,13 @@ function delay(ms: number) {
 describe('sessionStore', () => {
   beforeEach(() => {
     localStorage.removeItem(REMOVED_PROJECTS_STORAGE_KEY)
+    localStorage.removeItem(PINNED_PROJECTS_STORAGE_KEY)
     createMock.mockReset()
+    getUserMock.mockReset()
+    getUserMock.mockResolvedValue({ defaultSessionWorkDir: undefined })
     listMock.mockReset()
     renameMock.mockReset()
+    updateMetaMock.mockReset()
     useSessionStore.setState({
       ...initialState,
       sessions: [],
@@ -41,6 +55,7 @@ describe('sessionStore', () => {
       selectedProjects: [],
       availableProjects: [],
       removedProjects: [],
+      pinnedProjects: [],
       newSessionWorkDir: null,
     })
     useTabStore.setState({
@@ -52,6 +67,7 @@ describe('sessionStore', () => {
 
   afterEach(() => {
     localStorage.removeItem(REMOVED_PROJECTS_STORAGE_KEY)
+    localStorage.removeItem(PINNED_PROJECTS_STORAGE_KEY)
     useSessionStore.setState(initialState)
     useTabStore.setState(initialTabState)
   })
@@ -139,6 +155,24 @@ describe('sessionStore', () => {
     expect(useSessionStore.getState().removedProjects).toEqual([])
   })
 
+  it('does not restore a removed project from the default session directory', async () => {
+    getUserMock.mockResolvedValue({ defaultSessionWorkDir: 'D:\\Workspace\\App' })
+    createMock.mockResolvedValue({ sessionId: 'session-default' })
+    listMock.mockImplementation(() => new Promise(() => {}))
+    useSessionStore.setState({
+      removedProjects: ['d:/workspace/app'],
+    })
+
+    await useSessionStore.getState().createSession()
+
+    expect(createMock).toHaveBeenCalledWith(undefined)
+    expect(useSessionStore.getState().removedProjects).toEqual(['d:/workspace/app'])
+    expect(useSessionStore.getState().sessions[0]).toMatchObject({
+      id: 'session-default',
+      workDir: null,
+    })
+  })
+
   it('persists removed projects and matches slash or case changes', () => {
     useSessionStore.setState({
       selectedProjects: ['D:/Workspace/App', 'D:/Workspace/Other'],
@@ -160,6 +194,32 @@ describe('sessionStore', () => {
     useSessionStore.getState().restoreProject('D:/workspace/app/')
     expect(useSessionStore.getState().removedProjects).toEqual([])
     expect(JSON.parse(localStorage.getItem(REMOVED_PROJECTS_STORAGE_KEY) ?? '[]')).toEqual([])
+  })
+
+  it('persists pinned projects without touching session metadata', () => {
+    useSessionStore.setState({
+      pinnedProjects: [],
+      sessions: [{
+        id: 'session-a',
+        title: 'Meta target',
+        createdAt: '2026-06-22T00:00:00.000Z',
+        modifiedAt: '2026-06-22T00:00:00.000Z',
+        messageCount: 3,
+        projectPath: 'project-a-key',
+        workDir: '/workspace/project-a',
+        workDirExists: true,
+      }],
+    })
+
+    useSessionStore.getState().setProjectPinned(['/workspace/project-a', 'project-a-key'], true)
+
+    const pinnedProjects = useSessionStore.getState().pinnedProjects
+    expect(pinnedProjects).toEqual(['/workspace/project-a', 'project-a-key'])
+    expect(useSessionStore.getState().sessions[0]?.pinned).toBeUndefined()
+    expect(JSON.parse(localStorage.getItem(PINNED_PROJECTS_STORAGE_KEY) ?? '[]')).toEqual(pinnedProjects)
+
+    useSessionStore.getState().setProjectPinned(['/workspace/project-a', 'project-a-key'], false)
+    expect(useSessionStore.getState().pinnedProjects).toEqual([])
   })
 
   it('keeps a pending sidebar new-session directory after creating a session', async () => {
@@ -201,5 +261,78 @@ describe('sessionStore', () => {
     expect(renameMock).toHaveBeenCalledWith('session-rename', '你是文案策划师')
     expect(useSessionStore.getState().sessions[0]?.title).toBe('你是文案策划师')
     expect(useTabStore.getState().tabs[0]?.title).toBe('你是文案策划师')
+  })
+
+  it('updates session sidebar metadata through the sessions API', async () => {
+    updateMetaMock.mockResolvedValue({ ok: true, meta: { pinned: true, unread: true } })
+    useSessionStore.setState({
+      sessions: [{
+        id: 'session-meta',
+        title: 'Meta target',
+        createdAt: '2026-06-22T00:00:00.000Z',
+        modifiedAt: '2026-06-22T00:00:00.000Z',
+        messageCount: 3,
+        projectPath: '',
+        workDir: '/workspace/project-a',
+        workDirExists: true,
+      }],
+    })
+
+    await useSessionStore.getState().updateSessionMeta('session-meta', {
+      pinned: true,
+      unread: true,
+    })
+
+    expect(updateMetaMock).toHaveBeenCalledWith('session-meta', {
+      pinned: true,
+      unread: true,
+    })
+    expect(useSessionStore.getState().sessions[0]).toMatchObject({
+      id: 'session-meta',
+      pinned: true,
+      unread: true,
+    })
+  })
+  it('does not keep stale sidebar metadata when a refreshed session clears it', async () => {
+    useSessionStore.setState({
+      sessions: [{
+        id: 'session-meta-cleared',
+        title: 'Local stale metadata',
+        createdAt: '2026-06-22T00:00:00.000Z',
+        modifiedAt: '2026-06-22T00:00:00.000Z',
+        messageCount: 3,
+        projectPath: '',
+        workDir: '/workspace/project-a',
+        workDirExists: true,
+        pinned: true,
+        archived: true,
+        unread: true,
+      }],
+    })
+    listMock.mockResolvedValue({
+      sessions: [{
+        id: 'session-meta-cleared',
+        title: 'Server cleared metadata',
+        createdAt: '2026-06-22T00:00:00.000Z',
+        modifiedAt: '2026-06-22T00:01:00.000Z',
+        messageCount: 4,
+        projectPath: '',
+        workDir: '/workspace/project-a',
+        workDirExists: true,
+      }],
+      total: 1,
+    })
+
+    await useSessionStore.getState().fetchSessions()
+
+    const session = useSessionStore.getState().sessions[0]
+    expect(session).toMatchObject({
+      id: 'session-meta-cleared',
+      title: 'Server cleared metadata',
+      messageCount: 4,
+    })
+    expect(session?.pinned).toBeUndefined()
+    expect(session?.archived).toBeUndefined()
+    expect(session?.unread).toBeUndefined()
   })
 })

@@ -91,6 +91,46 @@ describe('openaiChatStreamToAnthropic', () => {
     expect((msgDelta.data.delta as Record<string, unknown>).stop_reason).toBe('end_turn')
   })
 
+  test('keeps identical incremental text chunks', async () => {
+    const sseChunks = [
+      'data: {"id":"c1-repeat","object":"chat.completion.chunk","created":0,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-repeat","object":"chat.completion.chunk","created":0,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"ha"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-repeat","object":"chat.completion.chunk","created":0,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"ha"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-repeat","object":"chat.completion.chunk","created":0,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-repeat","object":"chat.completion.chunk","created":0,"model":"gpt-4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]
+
+    const events = await collectSse(openaiChatStreamToAnthropic(makeStream(sseChunks), 'gpt-4'))
+    const texts = events
+      .filter((e) => e.event === 'content_block_delta')
+      .map((e) => (e.data.delta as Record<string, unknown>).text)
+      .filter((value): value is string => typeof value === 'string')
+
+    expect(texts).toEqual(['ha', 'ha', '!'])
+    expect(texts.join('')).toBe('haha!')
+  })
+
+  test('deduplicates cumulative text snapshots from OpenAI-compatible providers', async () => {
+    const sseChunks = [
+      'data: {"id":"c1-snapshot","object":"chat.completion.chunk","created":0,"model":"compatible-chat","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-snapshot","object":"chat.completion.chunk","created":0,"model":"compatible-chat","choices":[{"index":0,"delta":{"content":"alpha"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-snapshot","object":"chat.completion.chunk","created":0,"model":"compatible-chat","choices":[{"index":0,"delta":{"content":"alpha beta"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-snapshot","object":"chat.completion.chunk","created":0,"model":"compatible-chat","choices":[{"index":0,"delta":{"content":"alpha beta"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-snapshot","object":"chat.completion.chunk","created":0,"model":"compatible-chat","choices":[{"index":0,"delta":{"content":"alpha beta gamma"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1-snapshot","object":"chat.completion.chunk","created":0,"model":"compatible-chat","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]
+
+    const events = await collectSse(openaiChatStreamToAnthropic(makeStream(sseChunks), 'compatible-chat'))
+    const texts = events
+      .filter((e) => e.event === 'content_block_delta')
+      .map((e) => (e.data.delta as Record<string, unknown>).text)
+      .filter((value): value is string => typeof value === 'string')
+
+    expect(texts).toEqual(['alpha', ' beta', ' gamma'])
+    expect(texts.join('')).toBe('alpha beta gamma')
+  })
   test('tool call streaming', async () => {
     const sseChunks = [
       'data: {"id":"c2","object":"chat.completion.chunk","created":0,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}\n\n',

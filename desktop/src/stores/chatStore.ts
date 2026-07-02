@@ -474,8 +474,10 @@ function toImageDataUrl(data: string | undefined, mimeType?: string): string | u
 const pendingDeltas = new Map<string, string>()
 const flushTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const compactBoundaryFallbackTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const stopConfirmationTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH = 16
 const COMPACT_BOUNDARY_FALLBACK_MS = 3_000
+const STOP_CONFIRMATION_FALLBACK_MS = 8_000
 
 function clearPendingDeltaTimer(sessionId: string): void {
   const timer = flushTimers.get(sessionId)
@@ -506,6 +508,14 @@ function clearCompactBoundaryFallbackTimer(sessionId: string): void {
   if (timer) {
     clearTimeout(timer)
     compactBoundaryFallbackTimers.delete(sessionId)
+  }
+}
+
+function clearStopConfirmationTimer(sessionId: string): void {
+  const timer = stopConfirmationTimers.get(sessionId)
+  if (timer) {
+    clearTimeout(timer)
+    stopConfirmationTimers.delete(sessionId)
   }
 }
 
@@ -1029,6 +1039,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const session = get().sessions[sessionId]
       if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
       clearCompactBoundaryFallbackTimer(sessionId)
+      clearStopConfirmationTimer(sessionId)
       const text = consumePendingDelta(sessionId)
     if (text) {
       set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, (sess) => ({ streamingText: sess.streamingText + text })) }))
@@ -1049,7 +1060,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       (existingSession.isCompacting ||
         existingSession.chatState === 'thinking' ||
         existingSession.chatState === 'tool_executing' ||
-        existingSession.chatState === 'permission_pending')
+        existingSession.chatState === 'permission_pending' ||
+        existingSession.chatState === 'stopping')
     ) {
       return
     }
@@ -1283,8 +1295,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   stopGeneration: (sessionId) => {
+    const currentSession = get().sessions[sessionId]
+    if (currentSession?.chatState === 'stopping') return
+
     wsManager.send(sessionId, { type: 'stop_generation' })
     clearCompactBoundaryFallbackTimer(sessionId)
+    clearStopConfirmationTimer(sessionId)
     const text = consumePendingDelta(sessionId)
     if (text) {
       set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, (sess) => ({ streamingText: sess.streamingText + text })) }))
@@ -1292,13 +1308,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set((s) => {
       const session = s.sessions[sessionId]
       if (!session) return s
-      if (session.elapsedTimer) clearInterval(session.elapsedTimer)
       return {
         sessions: {
           ...s.sessions,
           [sessionId]: {
             ...session,
-            chatState: 'idle',
+            chatState: 'stopping',
             isCompacting: false,
             activeToolUseId: null,
             activeToolName: null,
@@ -1308,13 +1323,37 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             pendingPermissionQueue: [],
             pendingComputerUsePermission: null,
             currentTurnOrigin: null,
-            elapsedTimer: null,
             statusVerb: '',
             statusElapsedSeconds: 0,
           },
         },
       }
     })
+    useTabStore.getState().updateTabStatus(sessionId, 'running')
+
+    const timer = setTimeout(() => {
+      stopConfirmationTimers.delete(sessionId)
+      const session = get().sessions[sessionId]
+      if (!session || session.chatState !== 'stopping') return
+      if (session.elapsedTimer) clearInterval(session.elapsedTimer)
+      set((s) => ({
+        sessions: updateSessionIn(s.sessions, sessionId, () => ({
+          chatState: 'idle',
+          streamingToolInput: '',
+          pendingPermission: null,
+          pendingPermissionQueue: [],
+          pendingComputerUsePermission: null,
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          elapsedTimer: null,
+          statusVerb: '',
+          statusElapsedSeconds: 0,
+        })),
+      }))
+      useTabStore.getState().updateTabStatus(sessionId, 'idle')
+    }, STOP_CONFIRMATION_FALLBACK_MS)
+    stopConfirmationTimers.set(sessionId, timer)
   },
 
   loadHistory: async (sessionId) => {
@@ -1514,6 +1553,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   clearMessages: (sessionId) => {
     discardPendingDelta(sessionId)
     clearCompactBoundaryFallbackTimer(sessionId)
+    clearStopConfirmationTimer(sessionId)
     set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, () => ({ messages: [], streamingText: '', chatState: 'idle', isCompacting: false, currentTurnOrigin: null })) }))
   },
 
@@ -1556,6 +1596,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         break
 
       case 'status':
+        if (msg.state !== 'stopping') {
+          clearStopConfirmationTimer(sessionId)
+        }
         update((session) => {
           const pendingText = `${session.streamingText}${consumePendingDelta(sessionId)}`
           const incomingState =
@@ -1881,6 +1924,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case 'error':
         {
           clearCompactBoundaryFallbackTimer(sessionId)
+          clearStopConfirmationTimer(sessionId)
           const unsupportedAttachmentPrompt = getUnsupportedAttachmentPrompt(msg.message)
           const maxTurnsReachedPrompt = getMaxTurnsReachedPrompt(msg.message)
           const agentRecoveryPrompt = getAgentRecoveryPrompt(msg.message)
@@ -1945,6 +1989,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
         if (msg.subtype === 'session_cleared') {
           clearCompactBoundaryFallbackTimer(sessionId)
+          clearStopConfirmationTimer(sessionId)
           const session = get().sessions[sessionId]
           if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
           update(() => ({
@@ -2019,6 +2064,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
           const session = get().sessions[sessionId]
           clearCompactBoundaryFallbackTimer(sessionId)
+          clearStopConfirmationTimer(sessionId)
           if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
           update((session) => ({
             messages: appendSystemMessage(
@@ -2051,6 +2097,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           } else {
             const session = get().sessions[sessionId]
             clearCompactBoundaryFallbackTimer(sessionId)
+            clearStopConfirmationTimer(sessionId)
             if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
             update((session) => ({
               messages: appendSystemMessage(
@@ -2078,6 +2125,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (msg.subtype === 'max_turns_reached') {
           const session = get().sessions[sessionId]
           clearCompactBoundaryFallbackTimer(sessionId)
+          clearStopConfirmationTimer(sessionId)
           if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
           update((session) => ({
             messages: appendSystemMessage(

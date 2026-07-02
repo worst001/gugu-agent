@@ -155,6 +155,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
 
   const isMemberSession = !!memberInfo
   const isActive = chatState !== 'idle'
+  const isStopping = chatState === 'stopping'
   const isCompacting = !isMemberSession && sessionState?.isCompacting === true
   const isInputLocked = isActive || isCompacting
   const isWorkspaceMissing = activeSession?.workDirExists === false
@@ -1637,7 +1638,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
               <button
                 data-chat-submit-button={!isMemberSession && isActive ? 'false' : 'true'}
                 onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : () => handleSubmit()}
-                disabled={!isMemberSession && isActive ? false : !canSubmit}
+                disabled={isStopping || (!isMemberSession && isActive ? false : !canSubmit)}
                 title={!isMemberSession && isActive ? t('chat.stopTitle') : undefined}
                 className={`flex w-[112px] items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all hover:brightness-105 disabled:opacity-30 ${
                   !isMemberSession && isActive
@@ -1646,9 +1647,9 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                 }`}
               >
                 <span className="material-symbols-outlined text-[14px]">
-                  {!isMemberSession && isActive ? 'stop' : 'arrow_forward'}
+                  {isStopping ? 'hourglass_empty' : !isMemberSession && isActive ? 'stop' : 'arrow_forward'}
                 </span>
-                {!isMemberSession && isActive ? t('common.stop') : isMemberSession ? t('common.send') : t('common.run')}
+                {isStopping ? t('chat.stopping') : !isMemberSession && isActive ? t('common.stop') : isMemberSession ? t('common.send') : t('common.run')}
               </button>
             </div>
           </div>

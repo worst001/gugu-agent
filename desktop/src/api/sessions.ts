@@ -4,6 +4,11 @@ import type { SessionListItem, MessageEntry } from '../types/session'
 type SessionsResponse = { sessions: SessionListItem[]; total: number }
 type MessagesResponse = { messages: MessageEntry[] }
 type CreateSessionResponse = { sessionId: string }
+export type SessionUiMetaPatch = {
+  pinned?: boolean
+  archived?: boolean
+  unread?: boolean
+}
 export type SessionRewindResponse = {
   target: {
     targetUserMessageId: string
@@ -184,6 +189,10 @@ export const sessionsApi = {
 
   rename(sessionId: string, title: string) {
     return api.patch<{ ok: true }>(`/api/sessions/${sessionId}`, { title })
+  },
+
+  updateMeta(sessionId: string, patch: SessionUiMetaPatch) {
+    return api.patch<{ ok: true; meta?: SessionUiMetaPatch }>(`/api/sessions/${sessionId}`, patch)
   },
 
   getRecentProjects(limit?: number) {

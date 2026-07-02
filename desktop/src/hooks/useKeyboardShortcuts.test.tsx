@@ -135,6 +135,18 @@ describe('useKeyboardShortcuts', () => {
     expect(useUIStore.getState().sidebarOpen).toBe(false)
   })
 
+  it('opens the sidebar and focuses search with Cmd/Ctrl+K', async () => {
+    useUIStore.setState({ sidebarOpen: false })
+    render(<ShortcutHost />)
+
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
+
+    expect(useUIStore.getState().sidebarOpen).toBe(true)
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByLabelText('Search sessions'))
+    })
+  })
+
   it('stops only the active running session with Cmd/Ctrl+.', () => {
     useTabStore.setState({
       tabs: [

@@ -794,9 +794,10 @@ describe('WebSocket Chat Integration', () => {
       setTimeout(() => {
         ws.close()
         resolve()
-      }, 3000)
+      }, 5000)
     })
 
+    expect(messages.some((m) => m.type === 'status' && m.state === 'stopping')).toBe(true)
     expect(messages.some((m) => m.type === 'status' && m.state === 'idle')).toBe(true)
   })
 

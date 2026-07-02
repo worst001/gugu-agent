@@ -47,6 +47,8 @@ type StreamState = {
   nextContentIndex: number
   blockStartSent: boolean   // content_block_start emitted for current block?
   blockStopSent: boolean    // content_block_stop emitted for current block?
+  emittedTextByBlock: Map<number, string>
+  snapshotTextBlocks: Set<number>
 
   // Tool call tracking
   toolBlocks: Map<number, ToolBlockState>
@@ -76,6 +78,8 @@ function createState(model: string): StreamState {
     nextContentIndex: 0,
     blockStartSent: false,
     blockStopSent: false,
+    emittedTextByBlock: new Map(),
+    snapshotTextBlocks: new Set(),
     toolBlocks: new Map(),
     model,
     messageStartSent: false,
@@ -402,9 +406,39 @@ function handleText(delta: DeltaEx, state: StreamState): void {
     openBlock(state, 'text', { type: 'text', text: '' })
   }
 
+  const text = normalizeTextDelta(delta.content, state)
+  if (!text) return
+
   emitDelta(state, state.currentBlockIndex, {
-    type: 'text_delta', text: delta.content,
+    type: 'text_delta', text,
   })
+}
+
+function normalizeTextDelta(content: string, state: StreamState): string {
+  const blockIndex = state.currentBlockIndex
+  if (blockIndex < 0) return content
+
+  const emitted = state.emittedTextByBlock.get(blockIndex) || ''
+  if (!emitted) {
+    state.emittedTextByBlock.set(blockIndex, content)
+    return content
+  }
+
+  if (content === emitted) {
+    if (state.snapshotTextBlocks.has(blockIndex)) return ''
+    state.emittedTextByBlock.set(blockIndex, emitted + content)
+    return content
+  }
+
+  if (content.startsWith(emitted)) {
+    const suffix = content.slice(emitted.length)
+    state.emittedTextByBlock.set(blockIndex, content)
+    state.snapshotTextBlocks.add(blockIndex)
+    return suffix
+  }
+
+  state.emittedTextByBlock.set(blockIndex, emitted + content)
+  return content
 }
 
 function handleToolCalls(delta: DeltaEx, state: StreamState): void {

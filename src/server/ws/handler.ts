@@ -1275,24 +1275,31 @@ function handleStopGeneration(ws: ServerWebSocket<WebSocketData>) {
   const { sessionId } = ws.data
   console.log(`[WS] Stop generation requested for session: ${sessionId}`)
 
+  sendMessage(ws, { type: 'status', state: 'stopping', verb: '正在停止本轮' })
   markSessionStopRequested(sessionId)
   stopTurnMonitor(sessionId)
   activeUserTurnSessions.delete(sessionId)
 
-  if (conversationService.hasSession(sessionId)) {
-    // First try graceful interrupt via SDK control message
-    conversationService.sendInterrupt(sessionId)
-
-    // Force-kill if still running after 3 seconds
-    setTimeout(() => {
-      if (conversationService.hasSession(sessionId)) {
-        console.log(`[WS] Force-killing CLI subprocess for session: ${sessionId}`)
-        conversationService.stopSession(sessionId)
-      }
-    }, 3_000)
+  if (!conversationService.hasSession(sessionId)) {
+    sendMessage(ws, { type: 'status', state: 'idle' })
+    return
   }
 
-  sendMessage(ws, { type: 'status', state: 'idle' })
+  // First try graceful interrupt via SDK control message.
+  conversationService.sendInterrupt(sessionId)
+
+  // Confirm idle after the interrupt window. If a follow-up turn has already
+  // started, do not kill or overwrite that newer turn's running status.
+  const timer = setTimeout(() => {
+    if (activeUserTurnSessions.has(sessionId)) return
+    if (conversationService.hasSession(sessionId)) {
+      console.log(`[WS] Force-killing CLI subprocess for session: ${sessionId}`)
+      conversationService.stopSession(sessionId)
+    }
+    sendMessage(ws, { type: 'status', state: 'idle' })
+  }, 3_000)
+  const unref = (timer as { unref?: () => void }).unref
+  if (unref) unref.call(timer)
 }
 
 // ============================================================================

@@ -9,6 +9,9 @@ export type SessionListItem = {
   projectPath: string
   workDir: string | null
   workDirExists: boolean
+  pinned?: boolean
+  archived?: boolean
+  unread?: boolean
 }
 
 export type MessageEntry = {

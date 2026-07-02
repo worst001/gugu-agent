@@ -22,9 +22,11 @@ vi.mock('../../i18n', () => ({
       'sidebar.newSession': 'New Session',
       'sidebar.scheduled': 'Scheduled',
       'sidebar.terminal': 'Terminal',
+      'sidebar.archivedSessions': 'Archived conversations',
       'sidebar.settings': 'Settings',
       'sidebar.searchPlaceholder': 'Search sessions',
       'sidebar.noSessions': 'No sessions',
+      'sidebar.noArchivedSessions': 'No archived conversations',
       'sidebar.noMatching': 'No matching sessions',
       'sidebar.sessionListFailed': 'Session list failed',
       'common.retry': 'Retry',
@@ -41,12 +43,29 @@ vi.mock('../../i18n', () => ({
       'sidebar.confirmDelete': 'Delete this session? This cannot be undone.',
       'sidebar.collapse': 'Collapse sidebar',
       'sidebar.expand': 'Expand sidebar',
+      'sidebar.pinned': 'Pinned',
+      'sidebar.pinnedConversations': 'Pinned conversations',
+      'sidebar.projects': 'Projects',
       'sidebar.projectGroup.ungrouped': 'Uncategorized sessions',
       'sidebar.projectGroup.openInFolder': 'Open in folder',
       'sidebar.projectGroup.openFailed': 'Could not open this project folder.',
       'sidebar.projectGroup.confirmRemoveTitle': 'Remove {name}?',
       'sidebar.projectGroup.confirmRemoveBody': 'This removes the project from the Gugu sidebar. Files on disk will not be deleted.',
       'sidebar.projectGroup.removed': 'Project removed from the sidebar. Session history was not deleted.',
+      'sidebar.projectGroup.pin': 'Pin project',
+      'sidebar.projectGroup.unpin': 'Unpin project',
+      'sidebar.projectGroup.archiveSessions': 'Archive project sessions',
+      'sidebar.session.pin': 'Pin conversation',
+      'sidebar.session.unpin': 'Unpin conversation',
+      'sidebar.session.pinned': 'Pinned',
+      'sidebar.session.archive': 'Archive conversation',
+      'sidebar.session.unarchive': 'Unarchive conversation',
+      'sidebar.session.markUnread': 'Mark unread',
+      'sidebar.session.markRead': 'Mark read',
+      'sidebar.session.updateFailed': 'Could not update the session state.',
+      'sidebar.session.copyId': 'Copy session ID',
+      'sidebar.session.copyIdSuccess': 'Session ID copied.',
+      'sidebar.session.copyIdFailed': 'Could not copy session ID.',
       'sidebar.sessionMeta.oneMessage': '1 msg',
       'sidebar.sessionMeta.messages': '2 msgs',
       'sidebar.sessionMeta.running': 'running 1m 15s',
@@ -76,13 +95,21 @@ function queryProjectGroupButton(name: RegExp): HTMLElement | null {
     .find((element) => element.hasAttribute('aria-expanded')) ?? null
 }
 
+function getProjectGroupTitles(): string[] {
+  return screen.getAllByRole('button')
+    .filter((element) => element.hasAttribute('aria-expanded'))
+    .map((element) => element.textContent ?? '')
+}
+
 describe('Sidebar', () => {
   const connectToSession = vi.fn()
   const disconnectSession = vi.fn()
   const fetchSessions = vi.fn()
   const createSession = vi.fn()
   const deleteSession = vi.fn()
+  const updateSessionMeta = vi.fn()
   const addToast = vi.fn()
+  const writeClipboard = vi.fn()
 
   beforeEach(() => {
     connectToSession.mockReset()
@@ -90,7 +117,15 @@ describe('Sidebar', () => {
     fetchSessions.mockReset()
     createSession.mockReset()
     deleteSession.mockReset()
+    updateSessionMeta.mockReset()
+    updateSessionMeta.mockResolvedValue(undefined)
     addToast.mockReset()
+    writeClipboard.mockReset()
+    writeClipboard.mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeClipboard },
+      configurable: true,
+    })
     vi.mocked(filesystemApi.reveal).mockReset()
     vi.mocked(filesystemApi.reveal).mockResolvedValue({
       ok: true,
@@ -107,10 +142,12 @@ describe('Sidebar', () => {
       selectedProjects: [],
       availableProjects: [],
       removedProjects: [],
+      pinnedProjects: [],
       newSessionWorkDir: null,
       fetchSessions,
       createSession,
       deleteSession,
+      updateSessionMeta,
     })
     useChatStore.setState({
       connectToSession,
@@ -501,6 +538,241 @@ describe('Sidebar', () => {
     })
 
     expect(filesystemApi.reveal).toHaveBeenCalledWith('/workspace/project-a')
+  })
+
+  it('copies a session id from the session context menu', async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Build feature/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy session ID' }))
+    })
+
+    expect(writeClipboard).toHaveBeenCalledWith('session-a')
+    expect(addToast).toHaveBeenCalledWith({
+      type: 'success',
+      message: 'Session ID copied.',
+    })
+  })
+
+  it('updates session sidebar metadata from the session context menu', async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Build feature/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Pin conversation' }))
+    })
+
+    expect(updateSessionMeta).toHaveBeenCalledWith('session-a', { pinned: true })
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Build feature/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Archive conversation' }))
+    })
+
+    expect(updateSessionMeta).toHaveBeenCalledWith('session-a', { archived: true })
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Build feature/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Mark unread' }))
+    })
+
+    expect(updateSessionMeta).toHaveBeenCalledWith('session-a', { unread: true })
+  })
+
+  it('hides archived sessions by default but includes them while searching', () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Archived feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+          archived: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Visible feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(screen.queryByRole('button', { name: /Archived feature/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Visible feature/ })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('Search sessions'), {
+      target: { value: 'archived' },
+    })
+
+    expect(screen.getByRole('button', { name: /Archived feature/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Visible feature/ })).not.toBeInTheDocument()
+  })
+
+  it('shows archived sessions from the archived conversations entry', async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Archived feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+          archived: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Visible feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archived conversations' }))
+
+    expect(screen.getByRole('button', { name: /Archived feature/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Visible feature/ })).not.toBeInTheDocument()
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /Archived feature/ }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Unarchive conversation' }))
+    })
+
+    expect(updateSessionMeta).toHaveBeenCalledWith('session-a', { archived: false })
+  })
+
+  it('pins a project group without pinning every session in that project', async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T10:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-b-key',
+          workDir: '/workspace/project-b',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(screen.queryByText('Pinned')).not.toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(getProjectGroupTitles()[0]).toContain('project-b')
+
+    fireEvent.contextMenu(getProjectGroupButton(/project-a/))
+    fireEvent.click(screen.getByRole('button', { name: 'Pin project' }))
+
+    expect(useSessionStore.getState().pinnedProjects).toEqual(['/workspace/project-a', 'project-a-key'])
+    expect(updateSessionMeta).not.toHaveBeenCalledWith('session-a', { pinned: true })
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    expect(getProjectGroupTitles()[0]).toContain('project-a')
+
+    fireEvent.contextMenu(getProjectGroupButton(/project-a/))
+    fireEvent.click(screen.getByRole('button', { name: 'Unpin project' }))
+
+    expect(useSessionStore.getState().pinnedProjects).toEqual([])
+  })
+
+  it('archives all sessions in a project from the project context menu', async () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+        {
+          id: 'session-b',
+          title: 'Investigate feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T08:30:00.000Z',
+          messageCount: 2,
+          projectPath: 'project-a-key',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.contextMenu(getProjectGroupButton(/project-a/))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Archive project sessions' }))
+    })
+
+    expect(updateSessionMeta).toHaveBeenCalledWith('session-a', { archived: true })
+    expect(updateSessionMeta).toHaveBeenCalledWith('session-b', { archived: true })
   })
 
   it('shows a toast when opening a project group directory fails', async () => {

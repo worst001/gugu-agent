@@ -106,7 +106,7 @@ export type TokenUsage = {
   cache_creation_tokens?: number
 }
 
-export type ChatState = 'idle' | 'thinking' | 'tool_executing' | 'streaming' | 'permission_pending'
+export type ChatState = 'idle' | 'thinking' | 'tool_executing' | 'streaming' | 'permission_pending' | 'stopping'
 
 export type TurnOrigin = 'proactive_tick'
 

@@ -585,10 +585,18 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
 
   const continueFromCurrentRecoveryPoint = useCallback(() => {
     if (!resolvedSessionId || isMemberSession) return
+    const prompt = t('chat.activity.continueFromHere')
+    const sendWhenIdle = (attempt = 0) => {
+      const state = useChatStore.getState().sessions[resolvedSessionId]?.chatState
+      if (state === 'idle') {
+        sendMessage(resolvedSessionId, prompt)
+        return
+      }
+      // Wait for backend stop acknowledgement before injecting the recovery prompt.
+      if (attempt < 40) window.setTimeout(() => sendWhenIdle(attempt + 1), 250)
+    }
     stopGeneration(resolvedSessionId)
-    setTimeout(() => {
-      sendMessage(resolvedSessionId, t('chat.activity.continueFromHere'))
-    }, 0)
+    window.setTimeout(() => sendWhenIdle(), 250)
   }, [isMemberSession, resolvedSessionId, sendMessage, stopGeneration, t])
 
   const updateAutoScrollState = useCallback(() => {

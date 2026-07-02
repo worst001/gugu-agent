@@ -42,6 +42,8 @@ export function StreamingIndicator({
     verb =
       chatState === 'thinking'
         ? t('streaming.thinking')
+        : chatState === 'stopping'
+          ? t('streaming.stopping')
         : chatState === 'tool_executing'
           ? activeToolName
             ? t('streaming.runningTool', { toolName: activeToolName })

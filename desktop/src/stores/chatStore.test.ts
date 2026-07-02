@@ -450,6 +450,14 @@ describe('chatStore history mapping', () => {
     expect(sendMock).not.toHaveBeenCalled()
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toEqual([])
   })
+  it('does not send a new local message while stop confirmation is pending', () => {
+    seedSession({ chatState: 'stopping' })
+
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'continue too soon')
+
+    expect(sendMock).not.toHaveBeenCalled()
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toEqual([])
+  })
 
   it('removes the optimistic local message when a stale client receives a busy rejection', () => {
     seedSession()
@@ -1019,7 +1027,7 @@ describe('chatStore history mapping', () => {
     })
   })
 
-  it('stops only the requested session and clears its running state', () => {
+  it('stops only the requested session and waits for backend idle confirmation', () => {
     useChatStore.setState({
       sessions: {
         'session-a': makeSession({
@@ -1051,7 +1059,7 @@ describe('chatStore history mapping', () => {
     expect(sendMock).toHaveBeenCalledWith('session-a', { type: 'stop_generation' })
     expect(sendMock).not.toHaveBeenCalledWith('session-b', { type: 'stop_generation' })
     expect(useChatStore.getState().sessions['session-a']).toMatchObject({
-      chatState: 'idle',
+      chatState: 'stopping',
       activeToolUseId: null,
       activeToolName: null,
       activeThinkingId: null,
@@ -1062,6 +1070,10 @@ describe('chatStore history mapping', () => {
       statusVerb: '',
       statusElapsedSeconds: 0,
     })
+
+    useChatStore.getState().handleServerMessage('session-a', { type: 'status', state: 'idle' })
+    expect(useChatStore.getState().sessions['session-a']?.chatState).toBe('idle')
+
     expect(useChatStore.getState().sessions['session-b']).toMatchObject({
       chatState: 'streaming',
       streamingText: 'partial B',
@@ -1069,6 +1081,44 @@ describe('chatStore history mapping', () => {
       statusVerb: 'Streaming B',
       statusElapsedSeconds: 8,
     })
+  })
+
+  it('unlocks a stopping session if the backend idle confirmation is lost', () => {
+    vi.useFakeTimers()
+    try {
+      useChatStore.setState({
+        sessions: {
+          'session-a': makeSession({
+            chatState: 'streaming',
+            streamingText: 'partial response',
+            statusVerb: 'Streaming',
+            statusElapsedSeconds: 8,
+          }),
+        },
+      })
+
+      useChatStore.getState().stopGeneration('session-a')
+
+      expect(useChatStore.getState().sessions['session-a']?.chatState).toBe('stopping')
+
+      vi.advanceTimersByTime(7_999)
+      expect(useChatStore.getState().sessions['session-a']?.chatState).toBe('stopping')
+
+      vi.advanceTimersByTime(1)
+      expect(useChatStore.getState().sessions['session-a']).toMatchObject({
+        chatState: 'idle',
+        activeToolUseId: null,
+        activeToolName: null,
+        activeThinkingId: null,
+        pendingPermission: null,
+        pendingPermissionQueue: [],
+        pendingComputerUsePermission: null,
+        statusVerb: '',
+        statusElapsedSeconds: 0,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('sends effort updates to the active session', () => {
@@ -1752,7 +1802,7 @@ describe('chatStore history mapping', () => {
 
       let sessions = useChatStore.getState().sessions
       expect(sendMock).toHaveBeenCalledWith('sessionA', { type: 'stop_generation' })
-      expect(sessions.sessionA?.chatState).toBe('idle')
+      expect(sessions.sessionA?.chatState).toBe('stopping')
       expect(sessions.sessionA?.streamingText).toBe('Alpha')
       expect(sessions.sessionB?.streamingText).toBe('')
 

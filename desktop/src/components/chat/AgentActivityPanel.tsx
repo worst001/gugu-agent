@@ -253,6 +253,15 @@ function buildPhaseItem({
   const lastThinking = findLastThinking(messages, activeThinkingId)
   const taskContextNotice = findLatestTaskContextNotice(messages)
 
+  if (chatState === 'stopping') {
+    return {
+      id: 'phase-stopping',
+      status: 'active',
+      label: t('chat.activity.stopping'),
+      detail: t('chat.activity.stoppingDetail'),
+    }
+  }
+
   if (chatState === 'permission_pending') {
     return {
       id: 'phase-permission',
@@ -641,6 +650,15 @@ function buildNoToolActivityItem(
       status: 'warning',
       label: statusVerb.trim(),
       detail: t('chat.activity.recoveryDetail'),
+    }
+  }
+
+  if (chatState === 'stopping') {
+    return {
+      id: 'stopping',
+      status: 'active',
+      label: t('chat.activity.stopping'),
+      detail: t('chat.activity.stoppingDetail'),
     }
   }
 

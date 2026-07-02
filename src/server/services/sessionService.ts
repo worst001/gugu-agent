@@ -65,6 +65,9 @@ export type SessionListItem = {
   projectPath: string
   workDir: string | null
   workDirExists: boolean
+  pinned?: boolean
+  archived?: boolean
+  unread?: boolean
 }
 
 export type SessionDetail = SessionListItem & {
@@ -125,6 +128,12 @@ export type MessageEntry = {
   parentUuid?: string
   parentToolUseId?: string
   isSidechain?: boolean
+}
+
+export type SessionUiMeta = {
+  pinned?: boolean
+  archived?: boolean
+  unread?: boolean
 }
 
 export type TranscriptUsageSnapshot = {
@@ -248,6 +257,8 @@ const NO_RESPONSE_REQUESTED_TEXT = 'No response requested.'
 // ============================================================================
 
 export class SessionService {
+  private sessionUiMetaWriteQueue: Promise<void> = Promise.resolve()
+
   // --------------------------------------------------------------------------
   // Config helpers
   // --------------------------------------------------------------------------
@@ -258,6 +269,95 @@ export class SessionService {
 
   private getProjectsDir(): string {
     return path.join(this.getConfigDir(), 'projects')
+  }
+
+  private getSessionUiMetaPath(): string {
+    return path.join(this.getConfigDir(), 'gugu-session-ui-meta.json')
+  }
+
+  private async withSessionUiMetaWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.sessionUiMetaWriteQueue.then(operation, operation)
+    this.sessionUiMetaWriteQueue = run.then(() => undefined, () => undefined)
+    return run
+  }
+
+  private compactSessionUiMeta(value: SessionUiMeta): SessionUiMeta {
+    const meta: SessionUiMeta = {}
+    if (value.pinned === true) meta.pinned = true
+    if (value.archived === true) meta.archived = true
+    if (value.unread === true) meta.unread = true
+    return meta
+  }
+
+  private normalizeSessionUiMeta(value: unknown): SessionUiMeta {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+    const record = value as Record<string, unknown>
+    return this.compactSessionUiMeta({
+      pinned: typeof record.pinned === 'boolean' ? record.pinned : undefined,
+      archived: typeof record.archived === 'boolean' ? record.archived : undefined,
+      unread: typeof record.unread === 'boolean' ? record.unread : undefined,
+    })
+  }
+
+  private getSessionUiMetaFromStore(
+    store: Record<string, SessionUiMeta>,
+    sessionId: string,
+  ): SessionUiMeta {
+    return this.normalizeSessionUiMeta(store[sessionId])
+  }
+
+  private async readSessionUiMetaStore(): Promise<Record<string, SessionUiMeta>> {
+    let raw: string
+    try {
+      raw = await fs.readFile(this.getSessionUiMetaPath(), 'utf-8')
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+      throw error
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+      const store: Record<string, SessionUiMeta> = {}
+      for (const [sessionId, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (!this.isValidSessionId(sessionId)) continue
+        const meta = this.normalizeSessionUiMeta(value)
+        if (Object.keys(meta).length > 0) {
+          store[sessionId] = meta
+        }
+      }
+      return store
+    } catch {
+      console.warn('[SessionService] Ignoring invalid gugu-session-ui-meta.json')
+      return {}
+    }
+  }
+
+  private async writeSessionUiMetaStore(store: Record<string, SessionUiMeta>): Promise<void> {
+    const compacted: Record<string, SessionUiMeta> = {}
+    for (const [sessionId, value] of Object.entries(store)) {
+      if (!this.isValidSessionId(sessionId)) continue
+      const meta = this.compactSessionUiMeta(value)
+      if (Object.keys(meta).length > 0) {
+        compacted[sessionId] = meta
+      }
+    }
+
+    const filePath = this.getSessionUiMetaPath()
+    const tempPath = filePath + '.' + process.pid + '.' + Date.now() + '.tmp'
+    await fs.mkdir(this.getConfigDir(), { recursive: true })
+    await fs.writeFile(tempPath, JSON.stringify(compacted, null, 2) + '\n', 'utf-8')
+    await fs.rename(tempPath, filePath)
+  }
+
+  private async removeSessionUiMeta(sessionId: string): Promise<void> {
+    await this.withSessionUiMetaWriteLock(async () => {
+      const store = await this.readSessionUiMetaStore()
+      if (!store[sessionId]) return
+      delete store[sessionId]
+      await this.writeSessionUiMetaStore(store)
+    })
   }
 
   /**
@@ -520,6 +620,39 @@ export class SessionService {
 
   private getVisiblePromptText(content: unknown): string {
     return this.stripHiddenPromptScaffolding(this.extractTextFromContent(content))
+  }
+
+  private isTeammateMessageText(text: string): boolean {
+    return text.includes('<teammate-message') && text.includes('</teammate-message>')
+  }
+
+  private countVisibleMessages(messages: MessageEntry[]): number {
+    return messages.filter((message) => this.isVisibleMessage(message)).length
+  }
+
+  private isVisibleMessage(message: MessageEntry): boolean {
+    if (message.origin?.kind === 'proactive_tick') return false
+
+    if (message.type === 'user') {
+      const rawText = this.extractTextFromContent(message.content)
+      if (Array.isArray(message.content) && message.content.some((block) => block.type === 'image' || block.type === 'file')) {
+        return true
+      }
+      if (this.isTeammateMessageText(rawText)) return false
+      return this.getVisiblePromptText(message.content).trim().length > 0
+    }
+
+    if (message.type === 'assistant') {
+      if (typeof message.content === 'string') return message.content.trim().length > 0
+      if (!Array.isArray(message.content)) return false
+      return message.content.some((block) =>
+        (block.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0) ||
+        (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim().length > 0) ||
+        block.type === 'tool_use'
+      )
+    }
+
+    return true
   }
 
   private makeCheckpointTitle(content: unknown): string {
@@ -1242,6 +1375,7 @@ export class SessionService {
     offset?: number
   }): Promise<{ sessions: SessionListItem[]; total: number }> {
     const sessionFiles = await this.discoverSessionFiles(options?.project)
+    const uiMetaStore = await this.readSessionUiMetaStore()
 
     // Build session list items with metadata from file stats & first entries
     const items: Array<Omit<SessionListItem, 'workDirExists'>> = []
@@ -1252,11 +1386,11 @@ export class SessionService {
         const entries = await this.readJsonlFile(filePath)
         const workDir = this.resolveWorkDirFromEntries(entries, projectDir)
 
-        // Keep the sidebar/header count aligned with the messages endpoint.
-        // Raw transcript files can contain hidden command breadcrumbs,
-        // synthetic interruptions, and internal observer entries that are not
-        // renderable chat history.
-        const messageCount = this.entriesToMessages(entries).length
+        // Keep the sidebar/header count aligned with user-visible history.
+        // The messages endpoint still returns hidden entries for rewind/debug,
+        // but the UI count should not make an invisible transcript look loaded.
+        const messages = this.entriesToMessages(entries)
+        const messageCount = this.countVisibleMessages(messages)
 
         const title = this.extractTitle(entries)
         if (this.isInternalObserverSession({ projectDir, workDir, title })) {
@@ -1280,6 +1414,7 @@ export class SessionService {
           messageCount,
           projectPath: projectDir,
           workDir,
+          ...this.getSessionUiMetaFromStore(uiMetaStore, sessionId),
         })
       } catch {
         // Skip unreadable files
@@ -1324,6 +1459,7 @@ export class SessionService {
       return null
     }
     const workDirExists = await this.pathExists(workDir)
+    const uiMetaStore = await this.readSessionUiMetaStore()
 
     let createdAt = stat.birthtime.toISOString()
     for (const e of entries) {
@@ -1338,10 +1474,11 @@ export class SessionService {
       title,
       createdAt,
       modifiedAt: stat.mtime.toISOString(),
-      messageCount: messages.length,
+      messageCount: this.countVisibleMessages(messages),
       projectPath: projectDir,
       workDir,
       workDirExists,
+      ...this.getSessionUiMetaFromStore(uiMetaStore, sessionId),
       messages,
     }
   }
@@ -1598,6 +1735,7 @@ export class SessionService {
     }
 
     await fs.unlink(found.filePath)
+    await this.removeSessionUiMeta(sessionId)
   }
 
   /**
@@ -1620,6 +1758,33 @@ export class SessionService {
     }
 
     await this.appendJsonlEntry(found.filePath, entry)
+  }
+
+  async updateSessionUiMeta(sessionId: string, patch: SessionUiMeta): Promise<SessionUiMeta> {
+    const found = await this.findSessionFile(sessionId)
+    if (!found) {
+      throw ApiError.notFound('Session not found: ' + sessionId)
+    }
+
+    return this.withSessionUiMetaWriteLock(async () => {
+      const store = await this.readSessionUiMetaStore()
+      const current = this.getSessionUiMetaFromStore(store, sessionId)
+      const next = this.compactSessionUiMeta({
+        ...current,
+        ...(typeof patch.pinned === 'boolean' ? { pinned: patch.pinned } : {}),
+        ...(typeof patch.archived === 'boolean' ? { archived: patch.archived } : {}),
+        ...(typeof patch.unread === 'boolean' ? { unread: patch.unread } : {}),
+      })
+
+      if (Object.keys(next).length > 0) {
+        store[sessionId] = next
+      } else {
+        delete store[sessionId]
+      }
+
+      await this.writeSessionUiMetaStore(store)
+      return next
+    })
   }
 
   /**
