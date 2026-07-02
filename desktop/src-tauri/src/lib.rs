@@ -29,6 +29,7 @@ use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
 use std::os::windows::process::CommandExt;
 
 const SERVER_STARTUP_LOG_LIMIT: usize = 80;
+const ADAPTER_STARTUP_PROBE_TIMEOUT: Duration = Duration::from_millis(2500);
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray_show";
 const TRAY_QUIT_ID: &str = "tray_quit";
@@ -142,6 +143,13 @@ struct TerminalExitPayload {
 struct RevealPathResult {
     path: String,
     is_directory: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct AdapterRestartReport {
+    status: String,
+    message: String,
+    recent_logs: Vec<String>,
 }
 
 #[tauri::command]
@@ -275,10 +283,9 @@ fn build_open_path_command(path: &PathBuf) -> StdCommand {
 }
 
 #[tauri::command]
-fn restart_adapters_sidecar(app: AppHandle) -> Result<(), String> {
+fn restart_adapters_sidecar(app: AppHandle) -> Result<AdapterRestartReport, String> {
     stop_adapters_sidecar(&app);
-    spawn_and_track_adapters_sidecar(&app);
-    Ok(())
+    spawn_and_track_adapters_sidecar_checked(&app)
 }
 
 #[tauri::command]
@@ -1110,6 +1117,69 @@ fn format_server_startup_error(message: &str, logs: &Arc<Mutex<VecDeque<String>>
     format!("{message}\n\nRecent server logs:\n{log_text}")
 }
 
+fn collect_startup_logs(logs: &Arc<Mutex<VecDeque<String>>>) -> Vec<String> {
+    logs.lock()
+        .ok()
+        .map(|guard| guard.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn format_adapter_startup_error(message: &str, logs: &Arc<Mutex<VecDeque<String>>>) -> String {
+    let log_text = collect_startup_logs(logs).join("\n");
+    let log_text = if log_text.trim().is_empty() {
+        "No adapter stdout/stderr was captured before it exited.".to_string()
+    } else {
+        log_text
+    };
+
+    format!("{message}\n\nRecent adapter logs:\n{log_text}")
+}
+
+fn wait_for_adapter_startup(
+    child: &mut Child,
+    logs: &Arc<Mutex<VecDeque<String>>>,
+) -> Result<AdapterRestartReport, String> {
+    let deadline = Instant::now() + ADAPTER_STARTUP_PROBE_TIMEOUT;
+
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let recent_logs = collect_startup_logs(logs);
+                if status.success() {
+                    return Ok(AdapterRestartReport {
+                        status: "not_running".to_string(),
+                        message: "No adapter credentials are configured yet. Save an IM adapter credential, then start the local adapter again.".to_string(),
+                        recent_logs,
+                    });
+                }
+                let code = status
+                    .code()
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "signal".to_string());
+                return Err(format_adapter_startup_error(
+                    &format!("adapter sidecar exited immediately (code={code})"),
+                    logs,
+                ));
+            }
+            Ok(None) => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(err) => {
+                return Err(format_adapter_startup_error(
+                    &format!("probe adapter sidecar: {err}"),
+                    logs,
+                ));
+            }
+        }
+    }
+
+    Ok(AdapterRestartReport {
+        status: "started".to_string(),
+        message: "adapter sidecar is still running after startup probe".to_string(),
+        recent_logs: collect_startup_logs(logs),
+    })
+}
+
 fn resolve_app_root(_app: &AppHandle) -> Result<PathBuf, String> {
     // 历史用途：此前 sidecar launcher 用 dynamic file:// import 加载磁盘上
     // 的 src/server/index.ts 和 preload.ts，所以 Tauri 必须把整个 src/ +
@@ -1583,7 +1653,10 @@ fn stop_server_sidecar(app: &AppHandle) {
 
 /// 启动 adapter sidecar。返回 Result 主要为了把"无法 spawn"和"spawn 后立刻
 /// 退出（凭据缺失）"区分开 —— 后者不算错误，是正常 default 状态。
-fn start_adapters_sidecar(app: &AppHandle) -> Result<SidecarChild, String> {
+fn start_adapters_sidecar(
+    app: &AppHandle,
+    verify_startup: bool,
+) -> Result<(SidecarChild, AdapterRestartReport), String> {
     let app_root = resolve_app_root(app)?;
     let app_root_arg = app_root.to_string_lossy().to_string();
 
@@ -1674,16 +1747,31 @@ fn start_adapters_sidecar(app: &AppHandle) -> Result<SidecarChild, String> {
         }
     });
 
-    pipe_sidecar_output(&mut child, "gugu-adapters", None);
+    let startup_logs = if verify_startup {
+        Some(Arc::new(Mutex::new(VecDeque::new())))
+    } else {
+        None
+    };
+    pipe_sidecar_output(&mut child, "gugu-adapters", startup_logs.clone());
 
-    Ok(SidecarChild::new(child))
+    let report = if let Some(logs) = startup_logs.as_ref() {
+        wait_for_adapter_startup(&mut child, logs)?
+    } else {
+        AdapterRestartReport {
+            status: "started".to_string(),
+            message: "adapter sidecar spawn requested".to_string(),
+            recent_logs: Vec::new(),
+        }
+    };
+
+    Ok((SidecarChild::new(child), report))
 }
 
 /// spawn adapter sidecar 并把 child handle 存进 AdapterState。
 /// 在启动 + 重启路径里复用，集中处理"无法 spawn"的日志。
 fn spawn_and_track_adapters_sidecar(app: &AppHandle) {
-    match start_adapters_sidecar(app) {
-        Ok(child) => {
+    match start_adapters_sidecar(app, false) {
+        Ok((child, _report)) => {
             if let Some(state) = app.try_state::<AdapterState>() {
                 if let Ok(mut guard) = state.0.lock() {
                     *guard = Some(child);
@@ -1692,6 +1780,25 @@ fn spawn_and_track_adapters_sidecar(app: &AppHandle) {
         }
         Err(err) => {
             eprintln!("[desktop] failed to start adapter sidecar: {err}");
+        }
+    }
+}
+
+fn spawn_and_track_adapters_sidecar_checked(
+    app: &AppHandle,
+) -> Result<AdapterRestartReport, String> {
+    match start_adapters_sidecar(app, true) {
+        Ok((child, report)) => {
+            if let Some(state) = app.try_state::<AdapterState>() {
+                if let Ok(mut guard) = state.0.lock() {
+                    *guard = Some(child);
+                }
+            }
+            Ok(report)
+        }
+        Err(err) => {
+            eprintln!("[desktop] failed to start adapter sidecar: {err}");
+            Err(err)
         }
     }
 }

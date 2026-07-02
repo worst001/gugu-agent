@@ -83,3 +83,9 @@ export type AdapterDiagnostics = {
   channels: AdapterChannelStatus[]
   notes: string[]
 }
+
+export type AdapterRestartReport = {
+  status: 'started' | 'not_running'
+  message: string
+  recent_logs: string[]
+}

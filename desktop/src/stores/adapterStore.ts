@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { adaptersApi } from '../api/adapters'
-import type { AdapterFileConfig, AdapterPlatform } from '../types/adapter'
+import type { AdapterFileConfig, AdapterPlatform, AdapterRestartReport } from '../types/adapter'
 
 /**
  * Tauri command 触发器：让主进程 kill + respawn adapter sidecar，
@@ -10,10 +10,10 @@ import type { AdapterFileConfig, AdapterPlatform } from '../types/adapter'
  * 在非 Tauri 环境（纯浏览器调试 / 单元测试）这会安静失败 —— 那种场景下
  * 本来也没有 sidecar 可重启。
  */
-async function restartAdaptersSidecar(): Promise<void> {
+async function restartAdaptersSidecar(): Promise<AdapterRestartReport> {
   // 用 dynamic import 避开 SSR / non-tauri 测试环境的硬依赖
   const { invoke } = await import('@tauri-apps/api/core')
-  await invoke('restart_adapters_sidecar')
+  return invoke<AdapterRestartReport>('restart_adapters_sidecar')
 }
 
 async function notifyTauriRestartAdapters(): Promise<void> {
@@ -50,10 +50,10 @@ type AdapterStore = {
   error: string | null
 
   fetchConfig: () => Promise<void>
-  updateConfig: (patch: Partial<AdapterFileConfig>) => Promise<void>
+  updateConfig: (patch: Partial<AdapterFileConfig>, options?: { restartAdapters?: boolean }) => Promise<void>
   generatePairingCode: () => Promise<string>
   removePairedUser: (platform: AdapterPlatform, userId: string | number) => Promise<void>
-  restartAdapters: () => Promise<void>
+  restartAdapters: () => Promise<AdapterRestartReport>
 }
 
 export const useAdapterStore = create<AdapterStore>((set, get) => ({
@@ -72,26 +72,30 @@ export const useAdapterStore = create<AdapterStore>((set, get) => ({
     }
   },
 
-  updateConfig: async (patch) => {
+  updateConfig: async (patch, options) => {
     const config = await adaptersApi.updateConfig(patch)
     set({ config })
     // 配置文件已写入磁盘，让 Tauri 主进程 kill + respawn adapter sidecar，
-    // 触发飞书 / Telegram WebSocket 用新凭据重连。pairing code / paired users
-    // 这种轻量更新也会触发重启 —— 这是个有意为之的简化：保证"任何配置变更
-    // 都立刻生效"，比起精细判断哪些字段值得重启更可靠。
-    void notifyTauriRestartAdapters()
+    // 触发飞书 / Telegram WebSocket 用新凭据重连。生成配对码会在页面层
+    // 做一次带启动探测的显式重启，这里跳过静默重启，避免连续重启造成误判。
+    if (options?.restartAdapters !== false) {
+      void notifyTauriRestartAdapters()
+    }
   },
 
   generatePairingCode: async () => {
     const code = generateCode()
     const now = Date.now()
-    await get().updateConfig({
-      pairing: {
-        code,
-        expiresAt: now + CODE_TTL_MS,
-        createdAt: now,
+    await get().updateConfig(
+      {
+        pairing: {
+          code,
+          expiresAt: now + CODE_TTL_MS,
+          createdAt: now,
+        },
       },
-    })
+      { restartAdapters: false },
+    )
     return code
   },
 
@@ -110,6 +114,6 @@ export const useAdapterStore = create<AdapterStore>((set, get) => ({
   },
 
   restartAdapters: async () => {
-    await restartAdaptersSidecar()
+    return restartAdaptersSidecar()
   },
 }))

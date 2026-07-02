@@ -42,7 +42,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   useSettingsStore.setState({ locale: 'en' })
   useAdapterStore.setState({ config: {}, isLoading: false, error: null })
-  vi.mocked(invoke).mockResolvedValue(undefined)
+  vi.mocked(invoke).mockResolvedValue({
+    status: 'started',
+    message: 'adapter sidecar is still running after startup probe',
+    recent_logs: [],
+  })
   vi.mocked(adaptersApi.getConfig).mockResolvedValue(loadedConfig)
   vi.mocked(adaptersApi.getStatus).mockResolvedValue({
     configLocation: '~/.claude/adapters.json',
@@ -176,8 +180,44 @@ describe('AdapterSettings', () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('restart_adapters_sidecar')
     })
-    expect(await screen.findByText('Start request sent. Go back to the IM private chat and send the pairing code or a test message.')).toBeInTheDocument()
+    expect(await screen.findByText('adapter sidecar is still running after startup probe')).toBeInTheDocument()
     expect(adaptersApi.updateConfig).not.toHaveBeenCalled()
+  })
+
+  it('starts local adapters after generating a pairing code', async () => {
+    render(<AdapterSettings />)
+
+    await screen.findByText('Remote channel boundary')
+    fireEvent.click(screen.getByRole('button', { name: /Generate Code/ }))
+
+    await waitFor(() => {
+      expect(adaptersApi.updateConfig).toHaveBeenCalledWith({
+        pairing: expect.objectContaining({
+          code: expect.any(String),
+          expiresAt: expect.any(Number),
+          createdAt: expect.any(Number),
+        }),
+      })
+    })
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('restart_adapters_sidecar')
+    })
+    expect(await screen.findByText('adapter sidecar is still running after startup probe')).toBeInTheDocument()
+  })
+
+  it('shows the no-credentials restart report without treating it as a failure', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      status: 'not_running',
+      message: 'No adapter credentials are configured yet. Save an IM adapter credential, then start the local adapter again.',
+      recent_logs: ['[stderr] no adapter could be started'],
+    })
+    render(<AdapterSettings />)
+
+    await screen.findByText('Remote channel boundary')
+    fireEvent.click(screen.getAllByRole('button', { name: /Start\/Restart local adapters/ })[0]!)
+
+    expect(await screen.findByText('No adapter credentials are configured yet. Save an IM adapter credential, then start the local adapter again.')).toBeInTheDocument()
+    expect(screen.queryByText(/Start failed:/)).not.toBeInTheDocument()
   })
 
   it('presents WeCom as an admin callback integration instead of a webhook shortcut', async () => {

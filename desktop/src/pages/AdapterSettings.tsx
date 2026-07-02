@@ -94,6 +94,7 @@ export function AdapterSettings() {
   const [isRestartingAdapters, setIsRestartingAdapters] = useState(false)
   const [adapterRestartStatus, setAdapterRestartStatus] = useState<'idle' | 'started' | 'error'>('idle')
   const [adapterRestartError, setAdapterRestartError] = useState('')
+  const [adapterRestartMessage, setAdapterRestartMessage] = useState('')
 
   // Pairing
   const [pairingCode, setPairingCode] = useState<string | null>(null)
@@ -200,15 +201,27 @@ export function AdapterSettings() {
 
   const handleGenerateCode = useCallback(async () => {
     setIsGenerating(true)
+    setAdapterRestartStatus('idle')
+    setAdapterRestartError('')
+    setAdapterRestartMessage('')
     try {
       const code = await generatePairingCode()
       setPairingCode(code)
+      try {
+        const report = await restartAdapters()
+        setAdapterRestartMessage(report.message)
+        setAdapterRestartStatus('started')
+        setTimeout(() => setAdapterRestartStatus('idle'), 3000)
+      } catch (err) {
+        setAdapterRestartStatus('error')
+        setAdapterRestartError(err instanceof Error ? err.message : 'Restart failed')
+      }
     } catch (err) {
       console.error('Failed to generate pairing code:', err)
     } finally {
       setIsGenerating(false)
     }
-  }, [generatePairingCode])
+  }, [generatePairingCode, restartAdapters])
 
   const handleUnbind = useCallback(async (platform: AdapterPlatform, userId: string | number) => {
     setPendingUnbind({ platform, userId })
@@ -242,8 +255,10 @@ export function AdapterSettings() {
     setIsRestartingAdapters(true)
     setAdapterRestartStatus('idle')
     setAdapterRestartError('')
+    setAdapterRestartMessage('')
     try {
-      await restartAdapters()
+      const report = await restartAdapters()
+      setAdapterRestartMessage(report.message)
       setAdapterRestartStatus('started')
       setTimeout(() => setAdapterRestartStatus('idle'), 3000)
     } catch (err) {
@@ -347,7 +362,7 @@ export function AdapterSettings() {
         )}
         {adapterRestartStatus === 'started' && (
           <div className="mb-3 rounded-lg border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-3 py-2 text-xs text-[var(--color-success)]">
-            {t('settings.adapters.localRuntimeStarted')}
+            {adapterRestartMessage || t('settings.adapters.localRuntimeStarted')}
           </div>
         )}
         {adapterRestartStatus === 'error' && (

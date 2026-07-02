@@ -451,7 +451,7 @@ export const zh: Record<TranslationKey, string> = {
   'settings.adapters.startHint': '保存后运行适配器：cd adapters && bun run {platform}',
   'settings.adapters.restartLocalAdapters': '启动/重启本地接入',
   'settings.adapters.localRuntimeHint': '保存配置后会自动重启；也可以点这里，无需打开终端。',
-  'settings.adapters.localRuntimeStarted': '已发送启动请求。请回到 IM 私聊发送配对码或消息测试。',
+  'settings.adapters.localRuntimeStarted': '本地接入已启动。请回到 IM 私聊发送配对码或消息测试。',
   'settings.adapters.localRuntimeStartFailed': '启动失败：',
   'settings.adapters.optional': '可选',
   'settings.adapters.pairing': '配对管理',

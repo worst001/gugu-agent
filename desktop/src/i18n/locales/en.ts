@@ -433,7 +433,7 @@
   'settings.adapters.startHint': 'After saving, run adapter: cd adapters && bun run {platform}',
   'settings.adapters.restartLocalAdapters': 'Start/Restart local adapters',
   'settings.adapters.localRuntimeHint': 'Saving restarts adapters automatically; this button does it without a terminal.',
-  'settings.adapters.localRuntimeStarted': 'Start request sent. Go back to the IM private chat and send the pairing code or a test message.',
+  'settings.adapters.localRuntimeStarted': 'Local adapter is running. Go back to the IM private chat and send the pairing code or a test message.',
   'settings.adapters.localRuntimeStartFailed': 'Start failed:',
   'settings.adapters.optional': 'Optional',
   'settings.adapters.pairing': 'Pairing',
