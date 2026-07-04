@@ -1,17 +1,23 @@
 import { useEffect, useRef } from 'react'
-import { useSessionStore } from '../stores/sessionStore'
-import { useChatStore } from '../stores/chatStore'
 import { useTabStore } from '../stores/tabStore'
 import { useUIStore } from '../stores/uiStore'
-import { resolveNewSessionWorkDir } from '../utils/newSessionWorkDir'
+import { useChatStore } from '../stores/chatStore'
+import {
+  closeCurrentTabFromAppAction,
+  createSessionFromAppAction,
+  focusSidebarSearchFromAppAction,
+  openSettingsFromAppAction,
+  quitAppFromAppAction,
+  stopCurrentSessionFromAppAction,
+  switchActiveTabFromAppAction,
+  toggleFullscreenFromAppAction,
+} from '../utils/appActions'
 
 export function useKeyboardShortcuts() {
   const setActiveView = useUIStore((s) => s.setActiveView)
-  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const closeModal = useUIStore((s) => s.closeModal)
   const activeModal = useUIStore((s) => s.activeModal)
-  const stopGeneration = useChatStore((s) => s.stopGeneration)
   const activeTabId = useTabStore((s) => s.activeTabId)
   const chatState = useChatStore((s) => activeTabId ? s.sessions[activeTabId]?.chatState ?? 'idle' : 'idle')
 
@@ -33,6 +39,12 @@ export function useKeyboardShortcuts() {
         return
       }
 
+      if (event.key === 'F11') {
+        event.preventDefault()
+        void toggleFullscreenFromAppAction()
+        return
+      }
+
       if (!meta) return
 
       if (
@@ -42,33 +54,40 @@ export function useKeyboardShortcuts() {
         activeTabIdRef.current
       ) {
         event.preventDefault()
-        stopGeneration(activeTabIdRef.current)
+        stopCurrentSessionFromAppAction()
         return
       }
 
       if (editableTarget || activeModalRef.current) return
 
+      if (key === ',') {
+        event.preventDefault()
+        openSettingsFromAppAction('general')
+        return
+      }
+
+      if (key === 'q') {
+        event.preventDefault()
+        void quitAppFromAppAction()
+        return
+      }
+
       if (key === 'n') {
         event.preventDefault()
         setActiveView('code')
-        void createSessionFromShortcut()
+        void createSessionFromAppAction()
         return
       }
 
       if (key === 'w') {
         event.preventDefault()
-        closeCurrentSessionFromShortcut()
+        closeCurrentTabFromAppAction()
         return
       }
 
       if (key === 'k') {
         event.preventDefault()
-        setSidebarOpen(true)
-        requestAnimationFrame(() => {
-          const searchInput = document.querySelector('#sidebar-search') as HTMLInputElement | null
-          searchInput?.focus()
-          searchInput?.select()
-        })
+        focusSidebarSearchFromAppAction()
         return
       }
 
@@ -80,7 +99,7 @@ export function useKeyboardShortcuts() {
 
       if (event.shiftKey && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
         event.preventDefault()
-        switchActiveTab(event.code === 'BracketLeft' ? -1 : 1)
+        switchActiveTabFromAppAction(event.code === 'BracketLeft' ? -1 : 1)
         return
       }
 
@@ -96,49 +115,7 @@ export function useKeyboardShortcuts() {
 
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [closeModal, setActiveView, setSidebarOpen, stopGeneration, toggleSidebar])
-}
-
-async function createSessionFromShortcut() {
-  try {
-    const sessionId = await useSessionStore.getState().createSession(resolveNewSessionWorkDir())
-    useTabStore.getState().openTab(sessionId, 'New Session')
-    useChatStore.getState().connectToSession(sessionId)
-  } catch (error) {
-    useUIStore.getState().addToast({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to create session',
-    })
-  }
-}
-
-function closeCurrentSessionFromShortcut() {
-  const { activeTabId, tabs, closeTab } = useTabStore.getState()
-  if (!activeTabId) return
-
-  const activeTab = tabs.find((tab) => tab.sessionId === activeTabId)
-  if (!activeTab || activeTab.type !== 'session') return
-
-  const sessionState = useChatStore.getState().sessions[activeTabId]
-  const isRunning = sessionState && sessionState.chatState !== 'idle'
-  if (!isRunning) {
-    useChatStore.getState().disconnectSession(activeTabId)
-  }
-  closeTab(activeTabId)
-}
-
-function switchActiveTab(direction: -1 | 1) {
-  const { tabs, activeTabId, setActiveTab } = useTabStore.getState()
-  if (tabs.length <= 1) return
-  const currentIndex = Math.max(0, tabs.findIndex((tab) => tab.sessionId === activeTabId))
-  const nextIndex = (currentIndex + direction + tabs.length) % tabs.length
-  const nextTab = tabs[nextIndex]
-  if (!nextTab) return
-
-  setActiveTab(nextTab.sessionId)
-  if (nextTab.type === 'session') {
-    useChatStore.getState().connectToSession(nextTab.sessionId)
-  }
+  }, [closeModal, setActiveView, toggleSidebar])
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

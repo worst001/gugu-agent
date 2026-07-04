@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ThemeMode } from '../types/settings'
+import { getThemeOppositeTone, getThemeTone, normalizeThemeMode, type ThemeMode } from '../types/settings'
 
 const THEME_STORAGE_KEY = 'cc-haha-theme'
 const SIDEBAR_WIDTH_STORAGE_KEY = 'gugu-agent-sidebar-width-v1'
@@ -10,8 +10,7 @@ const MAX_SIDEBAR_WIDTH = 420
 
 function getStoredTheme(): ThemeMode {
   try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark') return stored
+    return normalizeThemeMode(localStorage.getItem(THEME_STORAGE_KEY))
   } catch { /* localStorage unavailable */ }
   return 'light'
 }
@@ -38,8 +37,10 @@ function getStoredCapabilityPanelCollapsed(): boolean {
 
 export function applyTheme(theme: ThemeMode) {
   if (typeof document === 'undefined') return
+  const tone = getThemeTone(theme)
   document.documentElement.setAttribute('data-theme', theme)
-  document.documentElement.style.colorScheme = theme
+  document.documentElement.setAttribute('data-theme-tone', tone)
+  document.documentElement.style.colorScheme = tone
 }
 
 export function initializeTheme() {
@@ -118,7 +119,7 @@ export const useUIStore = create<UIStore>((set) => ({
 
   toggleTheme: () => {
     set((state) => {
-      const next = state.theme === 'light' ? 'dark' : 'light'
+      const next = getThemeOppositeTone(state.theme)
       applyTheme(next)
       try { localStorage.setItem(THEME_STORAGE_KEY, next) } catch { /* noop */ }
       return { theme: next }

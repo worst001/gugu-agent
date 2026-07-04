@@ -30,11 +30,6 @@ vi.mock('../../i18n', () => ({
   },
 }))
 
-vi.mock('./WindowControls', () => ({
-  WindowControls: () => <div data-testid="window-controls" />,
-  showWindowControls: true,
-}))
-
 describe('TabBar', () => {
   beforeEach(() => {
     class ResizeObserverMock {
@@ -73,7 +68,7 @@ describe('TabBar', () => {
     delete (window as typeof window & { __TAURI__?: unknown }).__TAURI__
   })
 
-  it('keeps the overflow button flush against window controls on Windows', async () => {
+  it('keeps the overflow button inside the tab bar without window controls', async () => {
     const { TabBar } = await import('./TabBar')
     const { useTabStore } = await import('../../stores/tabStore')
     const { useChatStore } = await import('../../stores/chatStore')
@@ -121,12 +116,12 @@ describe('TabBar', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByTestId('window-controls')).toBeInTheDocument()
+      expect(screen.queryByTestId('window-controls')).not.toBeInTheDocument()
       expect(screen.getByText('chevron_right').closest('button')).toBeInTheDocument()
     })
 
     const rightButton = screen.getByText('chevron_right').closest('button')
-    expect(rightButton?.nextElementSibling).toBe(screen.getByTestId('window-controls'))
+    expect(rightButton?.nextElementSibling).toBeNull()
   })
 
   it('marks the tab bar as a native drag region', async () => {

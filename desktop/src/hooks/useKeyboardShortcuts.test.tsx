@@ -147,6 +147,15 @@ describe('useKeyboardShortcuts', () => {
     })
   })
 
+  it('opens general settings with Cmd/Ctrl+,', () => {
+    render(<ShortcutHost />)
+
+    fireEvent.keyDown(document, { key: ',', ctrlKey: true })
+
+    expect(useTabStore.getState().activeTabId).toBe('__settings__')
+    expect(useUIStore.getState().pendingSettingsTab).toBe('general')
+  })
+
   it('stops only the active running session with Cmd/Ctrl+.', () => {
     useTabStore.setState({
       tabs: [

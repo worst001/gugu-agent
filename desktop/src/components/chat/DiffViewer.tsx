@@ -149,7 +149,7 @@ export function DiffViewer({ filePath, oldString, newString }: Props) {
           renderContent={(str) => highlightSyntax(str, language)}
           hideLineNumbers={false}
           styles={diffStyles}
-          useDarkTheme={document.documentElement.getAttribute('data-theme') === 'dark'}
+          useDarkTheme={document.documentElement.dataset.themeTone === 'dark'}
         />
       </div>
     </div>

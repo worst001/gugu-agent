@@ -3,7 +3,49 @@
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'dontAsk'
 
 export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
-export type ThemeMode = 'light' | 'dark'
+export const THEME_MODES = [
+  'light',
+  'dark',
+  'blue-light',
+  'blue-dark',
+  'gray-light',
+  'gray-dark',
+  'pink-light',
+  'pink-dark',
+  'green-light',
+  'green-dark',
+] as const
+
+export type ThemeMode = typeof THEME_MODES[number]
+
+const THEME_MODE_SET = new Set<string>(THEME_MODES)
+
+export function normalizeThemeMode(value: unknown): ThemeMode {
+  return typeof value === 'string' && THEME_MODE_SET.has(value)
+    ? value as ThemeMode
+    : 'light'
+}
+
+export function getThemeTone(theme: ThemeMode): 'light' | 'dark' {
+  return theme === 'dark' || theme.endsWith('-dark') ? 'dark' : 'light'
+}
+
+const THEME_OPPOSITE_TONE: Record<ThemeMode, ThemeMode> = {
+  light: 'dark',
+  dark: 'light',
+  'blue-light': 'blue-dark',
+  'blue-dark': 'blue-light',
+  'gray-light': 'gray-dark',
+  'gray-dark': 'gray-light',
+  'pink-light': 'pink-dark',
+  'pink-dark': 'pink-light',
+  'green-light': 'green-dark',
+  'green-dark': 'green-light',
+}
+
+export function getThemeOppositeTone(theme: ThemeMode): ThemeMode {
+  return THEME_OPPOSITE_TONE[theme]
+}
 
 export type ModelInfo = {
   id: string

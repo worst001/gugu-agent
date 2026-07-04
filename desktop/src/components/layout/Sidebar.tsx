@@ -317,7 +317,7 @@ export function Sidebar() {
               className={`sidebar-copy ${sidebarOpen ? 'sidebar-copy--visible' : 'sidebar-copy--hidden'} text-[13px] font-semibold tracking-tight text-[var(--color-text-primary)]`}
               style={{ fontFamily: 'var(--font-headline)' }}
             >
-              Gugu <span className="text-[var(--color-primary-container)]">Agent</span>
+              Gugu <span className="text-[var(--color-text-accent)]">Agent</span>
             </span>
           </div>
           <div className={`flex items-center ${sidebarOpen ? 'gap-1.5' : 'flex-col gap-2'}`}>

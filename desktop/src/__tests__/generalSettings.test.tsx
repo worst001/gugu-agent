@@ -262,6 +262,16 @@ describe('Settings > General tab', () => {
     expect(useSettingsStore.getState().setSkipWebFetchPreflight).toHaveBeenCalledWith(false)
   })
 
+  it('shows the expanded theme palette selector', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+
+    expect(screen.getByText('Deep blue - Dark')).toBeInTheDocument()
+    expect(screen.getByText('Purple pink - Light')).toBeInTheDocument()
+    expect(screen.getByText('Deep green - Dark')).toBeInTheDocument()
+  })
+
   it('shows the keyboard shortcut reference', () => {
     render(<Settings />)
 

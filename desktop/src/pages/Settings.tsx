@@ -1397,9 +1397,17 @@ function GeneralSettings({ onOpenTab }: { onOpenTab: (tab: SettingsTab) => void 
     { value: 'zh', label: '中文' },
   ]
 
-  const THEMES: Array<{ value: ThemeMode; label: string }> = [
-    { value: 'light', label: t('settings.general.appearance.light') },
-    { value: 'dark', label: t('settings.general.appearance.dark') },
+  const THEMES: Array<{ value: ThemeMode; label: string; accent: string; surface: string }> = [
+    { value: 'light', label: t('settings.general.appearance.orangeLight'), accent: '#D95D2B', surface: '#FAF9F6' },
+    { value: 'dark', label: t('settings.general.appearance.orangeDark'), accent: '#E86632', surface: '#171513' },
+    { value: 'blue-light', label: t('settings.general.appearance.blueLight'), accent: '#2563EB', surface: '#F5F8FD' },
+    { value: 'blue-dark', label: t('settings.general.appearance.blueDark'), accent: '#60A5FA', surface: '#0B1020' },
+    { value: 'gray-light', label: t('settings.general.appearance.grayLight'), accent: '#374151', surface: '#F6F6F5' },
+    { value: 'gray-dark', label: t('settings.general.appearance.grayDark'), accent: '#CBD5E1', surface: '#0D0F12' },
+    { value: 'pink-light', label: t('settings.general.appearance.pinkLight'), accent: '#A21CAF', surface: '#FCF7FA' },
+    { value: 'pink-dark', label: t('settings.general.appearance.pinkDark'), accent: '#F0ABFC', surface: '#151018' },
+    { value: 'green-light', label: t('settings.general.appearance.greenLight'), accent: '#047857', surface: '#F4F9F5' },
+    { value: 'green-dark', label: t('settings.general.appearance.greenDark'), accent: '#6EE7B7', surface: '#081410' },
   ]
 
   const SHORTCUTS = [
@@ -1453,20 +1461,35 @@ function GeneralSettings({ onOpenTab }: { onOpenTab: (tab: SettingsTab) => void 
       {/* Appearance selector */}
       <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.appearanceTitle')}</h2>
       <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.appearanceDescription')}</p>
-      <div className="flex gap-2 mb-8">
-        {THEMES.map(({ value, label }) => (
-          <button
-            key={value}
-            onClick={() => void setTheme(value)}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg border transition-all ${
-              theme === value
-                ? 'bg-[image:var(--gradient-btn-primary)] text-[var(--color-btn-primary-fg)] border-transparent shadow-[var(--shadow-button-primary)]'
-                : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="grid grid-cols-1 gap-2 mb-8 sm:grid-cols-2">
+        {THEMES.map(({ value, label, accent, surface }) => {
+          const selected = theme === value
+          return (
+            <button
+              key={value}
+              onClick={() => void setTheme(value)}
+              className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-xs transition-all ${
+                selected
+                  ? 'border-[var(--color-brand)] bg-[var(--color-primary-fixed)] text-[var(--color-text-primary)] shadow-[var(--shadow-button-primary)]'
+                  : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--color-border)]"
+                style={{ backgroundColor: surface }}
+                aria-hidden="true"
+              >
+                <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: accent }} />
+              </span>
+              <span className="min-w-0 flex-1 truncate font-semibold">{label}</span>
+              {selected && (
+                <span className="material-symbols-outlined text-[16px] text-[var(--color-brand)]" aria-hidden="true">
+                  check
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       {/* Language selector */}

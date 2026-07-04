@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { settingsApi } from '../api/settings'
 import { modelsApi } from '../api/models'
-import type { PermissionMode, EffortLevel, ModelInfo, ThemeMode } from '../types/settings'
+import { normalizeThemeMode, type PermissionMode, type EffortLevel, type ModelInfo, type ThemeMode } from '../types/settings'
 import type { Locale } from '../i18n'
 import { useUIStore } from './uiStore'
 
@@ -58,7 +58,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         modelsApi.getEffort(),
         settingsApi.getUser(),
       ])
-      const theme = userSettings.theme === 'dark' ? 'dark' : 'light'
+      const theme = normalizeThemeMode(userSettings.theme)
       useUIStore.getState().setTheme(theme)
       set({
         permissionMode: mode,

@@ -2,7 +2,6 @@ import { forwardRef, useRef, useState, useEffect, useCallback } from 'react'
 import { useTabStore, type Tab } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useTranslation } from '../../i18n'
-import { WindowControls, showWindowControls } from './WindowControls'
 
 const TAB_WIDTH = 180
 const DRAG_START_THRESHOLD = 4
@@ -228,7 +227,7 @@ export function TabBar() {
     void startDragging().catch(() => {})
   }, [])
 
-  if (tabs.length === 0 && !showWindowControls) return null
+  if (tabs.length === 0) return null
 
   return (
     <div
@@ -270,7 +269,7 @@ export function TabBar() {
           data-testid="tab-bar-drag-gutter"
           data-tauri-drag-region
           aria-hidden="true"
-          className={`flex-shrink-0 min-h-[37px] ${showWindowControls ? 'w-3' : 'w-4'}`}
+          className="min-h-[37px] w-4 flex-shrink-0"
         />
       )}
 
@@ -279,8 +278,6 @@ export function TabBar() {
           <span className="material-symbols-outlined text-[16px]">chevron_right</span>
         </button>
       )}
-
-      <WindowControls />
 
       {contextMenu && (
         <div

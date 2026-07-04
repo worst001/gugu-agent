@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120">
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#6f4720" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .bg { fill: #f6efe4; }
+      .card { fill: #fffaf3; stroke: #ddc5a8; stroke-width: 1.4; }
+      .shot { fill: #fbf6ec; stroke: #d8c0a4; stroke-width: 1.2; }
+      .top { fill: #fffaf1; stroke: #ead9c2; stroke-width: 1; }
+      .tabbar { fill: #fff7ea; stroke: #ead9c2; stroke-width: 1; }
+      .tab { fill: #fff2df; stroke: #ecdcc8; stroke-width: 1; }
+      .tabActive { fill: #fffaf3; stroke: #ecdcc8; stroke-width: 1; }
+      .text { fill: #2e241c; font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }
+      .muted { fill: #8a715b; font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }
+      .accent { fill: #b45b2d; }
+      .line { fill: #eadcc8; }
+      .line2 { fill: #efe3d1; }
+      .rail { fill: #fff8ee; stroke: #e2cdb2; stroke-width: 1; }
+      .btn { fill: #fffaf3; stroke: #d7c1a7; stroke-width: 1; }
+      .logo { fill: #f5b85d; stroke: #b9843c; stroke-width: 1; }
+      .callout { fill: #fff4df; stroke: #e2c69d; stroke-width: 1; }
+      .darkShot { fill: #111111; stroke: #303030; stroke-width: 1.2; }
+      .darkTop { fill: #171717; stroke: #2c2c2c; stroke-width: 1; }
+      .darkPanel { fill: #1b1b1b; stroke: #303030; stroke-width: 1; }
+      .darkText { fill: #eee4d9; font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }
+      .darkMuted { fill: #c6b8a7; font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1800" height="1120"/>
+  <text class="text" x="42" y="58" font-size="32" font-weight="800">Gugu Agent 侧栏收缩设计探索</text>
+  <text class="muted" x="42" y="88" font-size="16">目标：收起后不留粗边，仍保留新建、搜索、项目上下文等高频入口</text>
+  <rect x="1546" y="42" width="190" height="36" rx="18" class="btn"/>
+  <text class="muted" x="1576" y="65" font-size="14">概念稿 / 不改代码</text>
+
+  <!-- Card A -->
+  <g transform="translate(42 120)" filter="url(#shadow)">
+    <rect class="card" width="840" height="456" rx="18"/>
+    <text class="text" x="22" y="38" font-size="22" font-weight="800">A. 零宽收起</text>
+    <text class="accent" x="156" y="38" font-size="13" font-weight="800">最省空间</text>
+    <text class="muted" x="674" y="38" font-size="14">内容区最大化</text>
+    <g transform="translate(18 64)">
+      <rect class="shot" width="804" height="368" rx="13"/>
+      <rect class="top" x="0" y="0" width="804" height="38"/>
+      <rect class="btn" x="12" y="7" width="25" height="25" rx="7"/>
+      <text class="muted" x="19" y="26" font-size="16">☰</text>
+      <rect class="logo" x="48" y="4" width="31" height="31" rx="8"/>
+      <text class="text" x="55" y="26" font-size="17">咕</text>
+      <text class="muted" x="100" y="24" font-size="13">文件</text>
+      <text class="muted" x="148" y="24" font-size="13">编辑</text>
+      <text class="muted" x="196" y="24" font-size="13">视图</text>
+      <text class="muted" x="244" y="24" font-size="13">帮助</text>
+      <text class="muted" x="704" y="24" font-size="16">−  □  ×</text>
+      <rect class="tabbar" x="0" y="38" width="804" height="48"/>
+      <rect class="tabActive" x="0" y="38" width="230" height="48"/>
+      <rect class="accent" x="0" y="83" width="230" height="3"/>
+      <text class="text" x="14" y="68" font-size="14" font-weight="700">## 第四课：给你的AI团队...</text>
+      <rect class="tab" x="230" y="38" width="190" height="48"/>
+      <text class="muted" x="246" y="68" font-size="14">你是文案策划师</text>
+      <rect class="tab" x="420" y="38" width="190" height="48"/>
+      <text class="muted" x="436" y="68" font-size="14">项目修改 gugu</text>
+      <rect x="0" y="86" width="804" height="282" fill="#fbf3e6"/>
+      <rect class="line" x="68" y="132" width="280" height="20" rx="7"/>
+      <rect class="line2" x="68" y="170" width="420" height="13" rx="7"/>
+      <rect class="callout" x="464" y="286" width="304" height="44" rx="10"/>
+      <text class="muted" x="480" y="314" font-size="13">沉浸写作/代码：左侧完全收起。</text>
+    </g>
+  </g>
+
+  <!-- Card B -->
+  <g transform="translate(918 120)" filter="url(#shadow)">
+    <rect class="card" width="840" height="456" rx="18"/>
+    <text class="text" x="22" y="38" font-size="22" font-weight="800">B. 细图标栏</text>
+    <text class="accent" x="156" y="38" font-size="13" font-weight="800">推荐默认</text>
+    <text class="muted" x="660" y="38" font-size="14">入口清晰但不占宽</text>
+    <g transform="translate(18 64)">
+      <rect class="shot" width="804" height="368" rx="13"/>
+      <rect class="rail" x="0" y="0" width="44" height="368"/>
+      <rect class="logo" x="7" y="12" width="30" height="30" rx="8"/>
+      <text class="text" x="14" y="34" font-size="16">咕</text>
+      <rect class="btn" x="8" y="62" width="28" height="28" rx="8"/>
+      <text class="muted" x="15" y="82" font-size="16">☰</text>
+      <text class="muted" x="14" y="126" font-size="24">＋</text>
+      <text class="muted" x="15" y="168" font-size="21">⌕</text>
+      <text class="muted" x="15" y="212" font-size="19">▣</text>
+      <rect class="top" x="44" y="0" width="760" height="38"/>
+      <text class="muted" x="66" y="24" font-size="13">文件</text>
+      <text class="muted" x="114" y="24" font-size="13">编辑</text>
+      <text class="muted" x="162" y="24" font-size="13">视图</text>
+      <text class="muted" x="210" y="24" font-size="13">帮助</text>
+      <text class="muted" x="704" y="24" font-size="16">−  □  ×</text>
+      <rect class="tabbar" x="44" y="38" width="760" height="48"/>
+      <rect class="tabActive" x="44" y="38" width="230" height="48"/>
+      <rect class="accent" x="44" y="83" width="230" height="3"/>
+      <text class="text" x="58" y="68" font-size="14" font-weight="700">## 第四课：给你的AI团队...</text>
+      <rect class="tab" x="274" y="38" width="190" height="48"/>
+      <text class="muted" x="290" y="68" font-size="14">你是文案策划师</text>
+      <rect x="44" y="86" width="760" height="282" fill="#fbf3e6"/>
+      <rect class="line" x="112" y="132" width="280" height="20" rx="7"/>
+      <rect class="line2" x="112" y="170" width="420" height="13" rx="7"/>
+      <rect class="callout" x="482" y="286" width="286" height="44" rx="10"/>
+      <text class="muted" x="498" y="314" font-size="13">普通用户不迷路：入口仍可见。</text>
+    </g>
+  </g>
+
+  <!-- Card C -->
+  <g transform="translate(42 614)" filter="url(#shadow)">
+    <rect class="card" width="840" height="456" rx="18"/>
+    <text class="text" x="22" y="38" font-size="22" font-weight="800">C. 悬浮展开入口</text>
+    <text class="muted" x="628" y="38" font-size="14">临时操作，不长期占位</text>
+    <g transform="translate(18 64)">
+      <rect class="shot" width="804" height="368" rx="13"/>
+      <rect class="top" x="0" y="0" width="804" height="38"/>
+      <rect class="btn" x="12" y="7" width="25" height="25" rx="7"/>
+      <text class="muted" x="19" y="26" font-size="16">☰</text>
+      <text class="muted" x="56" y="24" font-size="13">文件</text>
+      <text class="muted" x="104" y="24" font-size="13">编辑</text>
+      <text class="muted" x="152" y="24" font-size="13">视图</text>
+      <text class="muted" x="200" y="24" font-size="13">帮助</text>
+      <rect class="card" x="14" y="48" width="148" height="118" rx="12"/>
+      <rect x="24" y="58" width="128" height="34" rx="8" fill="#f6e7d1"/>
+      <text class="text" x="38" y="80" font-size="14" font-weight="700">＋ 新建</text>
+      <text class="muted" x="38" y="118" font-size="14">⌕ 搜索</text>
+      <text class="muted" x="38" y="150" font-size="14">▣ 项目</text>
+      <rect class="tabbar" x="0" y="38" width="804" height="48"/>
+      <rect class="tabActive" x="180" y="38" width="200" height="48"/>
+      <rect class="accent" x="180" y="83" width="200" height="3"/>
+      <text class="text" x="194" y="68" font-size="14" font-weight="700">Untitled Session</text>
+      <rect class="tab" x="380" y="38" width="210" height="48"/>
+      <text class="muted" x="396" y="68" font-size="14">会议主题：AI谷子...</text>
+      <rect x="0" y="86" width="804" height="282" fill="#fbf3e6"/>
+      <rect class="line" x="210" y="132" width="280" height="20" rx="7"/>
+      <rect class="line2" x="210" y="170" width="420" height="13" rx="7"/>
+      <rect class="callout" x="482" y="286" width="286" height="44" rx="10"/>
+      <text class="muted" x="498" y="314" font-size="13">点按钮才展开，不占常驻空间。</text>
+    </g>
+  </g>
+
+  <!-- Card D -->
+  <g transform="translate(918 614)" filter="url(#shadow)">
+    <rect class="card" width="840" height="456" rx="18"/>
+    <text class="text" x="22" y="38" font-size="22" font-weight="800">D. 项目紧凑态</text>
+    <text class="accent" x="180" y="38" font-size="13" font-weight="800">适合开发/项目</text>
+    <text class="muted" x="660" y="38" font-size="14">收起但保留项目感</text>
+    <g transform="translate(18 64)">
+      <rect class="darkShot" width="804" height="368" rx="13"/>
+      <rect class="darkPanel" x="0" y="0" width="44" height="368"/>
+      <rect class="logo" x="7" y="12" width="30" height="30" rx="8"/>
+      <text class="text" x="14" y="34" font-size="16">咕</text>
+      <rect x="8" y="62" width="28" height="28" rx="8" fill="#2a2825" stroke="#403a34"/>
+      <text class="darkMuted" x="15" y="82" font-size="16">☰</text>
+      <text class="darkMuted" x="14" y="126" font-size="24">＋</text>
+      <text class="darkMuted" x="15" y="168" font-size="21">⌕</text>
+      <rect class="darkTop" x="44" y="0" width="760" height="38"/>
+      <text class="darkMuted" x="66" y="24" font-size="13">文件</text>
+      <text class="darkMuted" x="114" y="24" font-size="13">编辑</text>
+      <text class="darkMuted" x="162" y="24" font-size="13">视图</text>
+      <text class="darkMuted" x="210" y="24" font-size="13">帮助</text>
+      <rect class="darkPanel" x="44" y="38" width="760" height="50"/>
+      <path d="M66 60 h22 v16 h-22 z M66 55 h12 l4 5 h-16 z" fill="none" stroke="#c3ad92" stroke-width="2"/>
+      <text class="darkText" x="100" y="70" font-size="15" font-weight="800">项目修改 gugu</text>
+      <text class="darkMuted" x="220" y="70" font-size="13">已置顶</text>
+      <text class="darkMuted" x="742" y="70" font-size="22">⋯</text>
+      <rect x="44" y="88" width="760" height="48" fill="#171717" stroke="#292929"/>
+      <rect x="44" y="88" width="190" height="48" fill="#1d1d1d" stroke="#2b2b2b"/>
+      <rect x="44" y="133" width="190" height="3" fill="#d07342"/>
+      <text class="darkText" x="58" y="118" font-size="14" font-weight="700">## 第四课...</text>
+      <text class="darkMuted" x="250" y="118" font-size="14">API 诊断</text>
+      <rect x="44" y="136" width="760" height="232" fill="#141414"/>
+      <rect x="112" y="182" width="280" height="20" rx="7" fill="#2a2825"/>
+      <rect x="112" y="220" width="420" height="13" rx="7" fill="#26231f"/>
+      <rect x="482" y="286" width="286" height="44" rx="10" fill="#201b16" stroke="#4b3a2c"/>
+      <text class="darkMuted" x="498" y="314" font-size="13">多项目用户：项目上下文不丢。</text>
+    </g>
+  </g>
+</svg>

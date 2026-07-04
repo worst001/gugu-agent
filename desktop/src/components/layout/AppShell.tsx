@@ -8,6 +8,7 @@ import { useUIStore, type SettingsTab } from '../../stores/uiStore'
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
 import { initializeDesktopServerUrl } from '../../lib/desktopRuntime'
 import { TabBar } from './TabBar'
+import { AppMenu } from './AppMenu'
 import { StartupErrorView } from './StartupErrorView'
 import { useTabStore, SETTINGS_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -143,6 +144,7 @@ export function AppShell() {
         data-sidebar-state={sidebarOpen ? 'open' : 'closed'}
         className="min-w-0 flex-1 flex flex-col overflow-hidden"
       >
+        <AppMenu />
         <TabBar />
         <ContentRouter />
       </main>
