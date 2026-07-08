@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { OFFICIAL_MODELS } from '../../constants/modelCatalog'
 import { useTranslation } from '../../i18n'
+import { useProviderStore } from '../../stores/providerStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import type { SavedProvider } from '../../types/provider'
 import type { EffortLevel, ModelInfo } from '../../types/settings'
 
 type Props = {
@@ -13,6 +15,13 @@ type Props = {
 
 const HIDDEN_BUILT_IN_MODEL_IDS = new Set(OFFICIAL_MODELS.map((model) => model.id))
 
+type ModelChoice = ModelInfo & {
+  providerId?: string
+  providerName?: string
+  providerMainModel?: string
+  providerModelIds?: string[]
+}
+
 function isHiddenBuiltInModelId(modelId: string | undefined): boolean {
   return Boolean(modelId && HIDDEN_BUILT_IN_MODEL_IDS.has(modelId))
 }
@@ -21,13 +30,59 @@ function visibleDefaultModels(models: ModelInfo[]): ModelInfo[] {
   return models.filter((model) => !HIDDEN_BUILT_IN_MODEL_IDS.has(model.id))
 }
 
-function resolveSelectedModel(
+function isHiddenProvider(provider: SavedProvider): boolean {
+  return provider.authKind === 'chatgpt_oauth' ||
+    provider.apiFormat === 'chatgpt_codex' ||
+    provider.presetId === 'chatgpt'
+}
+
+function providerModelIds(provider: SavedProvider): string[] {
+  return Array.from(new Set(Object.values(provider.models).filter(Boolean)))
+}
+
+function displayProviderName(provider: SavedProvider): string {
+  if (provider.presetId === 'deepseek' || provider.name.toLowerCase() === 'deepseek') return 'DeepSeekV4'
+  return provider.name
+}
+
+function providerChoice(provider: SavedProvider): ModelChoice | null {
+  if (!provider.models.main || isHiddenBuiltInModelId(provider.models.main)) return null
+  const name = displayProviderName(provider)
+  return {
+    id: provider.models.main,
+    name,
+    description: name,
+    context: '',
+    providerId: provider.id,
+    providerName: name,
+    providerMainModel: provider.models.main,
+    providerModelIds: providerModelIds(provider),
+  }
+}
+
+function buildModelChoices(
   availableModels: ModelInfo[],
+  providers: SavedProvider[],
+): ModelChoice[] {
+  const providerChoices = providers
+    .filter((provider) => !isHiddenProvider(provider))
+    .map(providerChoice)
+    .filter((choice): choice is ModelChoice => choice !== null)
+  if (providerChoices.length === 0) return visibleDefaultModels(availableModels)
+  return providerChoices
+}
+
+function resolveSelectedModel(
+  modelChoices: ModelChoice[],
   modelId: string | undefined,
   fallback: ModelInfo | null,
-): ModelInfo | null {
-  const models = visibleDefaultModels(availableModels)
-  const selected = models.find((model) => model.id === modelId)
+  activeProviderId: string | null,
+): ModelChoice | null {
+  const selected =
+    modelChoices.find((model) => model.providerId && model.providerId === activeProviderId) ??
+    modelChoices.find((model) => model.providerModelIds?.includes(modelId ?? '')) ??
+    modelChoices.find((model) => model.id === modelId && (!model.providerId || model.providerId === activeProviderId)) ??
+    modelChoices.find((model) => model.id === modelId)
   if (selected) return selected
   return fallback && !isHiddenBuiltInModelId(fallback.id) ? fallback : null
 }
@@ -46,6 +101,14 @@ export function ModelSelector({
     setModel,
     setEffort,
   } = useSettingsStore()
+  const {
+    providers,
+    activeId: activeProviderId,
+    hasLoadedProviders,
+    isLoading: providersLoading,
+    fetchProviders,
+    activateProvider,
+  } = useProviderStore()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -76,12 +139,37 @@ export function ModelSelector({
     }
   }, [open])
 
-  const availableModelChoices = useMemo(() => visibleDefaultModels(availableModels), [availableModels])
+  useEffect(() => {
+    if (hasLoadedProviders || providersLoading) return
+    void fetchProviders()
+  }, [fetchProviders, hasLoadedProviders, providersLoading])
+
+  const availableModelChoices = useMemo(
+    () => buildModelChoices(availableModels, providers),
+    [availableModels, providers],
+  )
 
   const selectedModel = isControlled
-    ? resolveSelectedModel(availableModels, value, null)
-    : resolveSelectedModel(availableModels, storeModel?.id, storeModel)
+    ? resolveSelectedModel(availableModelChoices, value, null, activeProviderId)
+    : resolveSelectedModel(availableModelChoices, storeModel?.id, storeModel, activeProviderId)
   const buttonModelLabel = selectedModel?.name ?? t('model.selectModel')
+
+  const persistModelSelection = async (model: ModelChoice) => {
+    if (model.providerId && model.providerId !== activeProviderId) {
+      await activateProvider(model.providerId)
+      return
+    }
+    await setModel(model.providerMainModel ?? model.id)
+  }
+
+  const handleModelSelect = (model: ModelChoice) => {
+    if (isControlled) {
+      onChange?.(model.id)
+    } else {
+      void persistModelSelection(model)
+    }
+    setOpen(false)
+  }
 
   const handleEffortSelect = (level: EffortLevel) => {
     void setEffort(level)
@@ -121,18 +209,11 @@ export function ModelSelector({
 
             <div className="space-y-1">
               {availableModelChoices.map((model) => {
-                const isSelected = model.id === selectedModel?.id
+                const isSelected = model.id === selectedModel?.id && model.providerId === selectedModel?.providerId
                 return (
                   <button
-                    key={model.id}
-                    onClick={() => {
-                      if (isControlled) {
-                        onChange?.(model.id)
-                      } else {
-                        void setModel(model.id)
-                      }
-                      setOpen(false)
-                    }}
+                    key={`${model.providerId ?? 'settings'}:${model.id}`}
+                    onClick={() => handleModelSelect(model)}
                     className={`
                       w-full rounded-lg px-3 py-2.5 text-left transition-colors
                       ${isSelected
@@ -150,8 +231,13 @@ export function ModelSelector({
                         )}
                       </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-[var(--color-text-primary)]">{model.name}</div>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--color-text-primary)]">{model.name}</div>
+                        {model.providerName && model.providerName !== model.name && (
+                          <span className="shrink-0 rounded-full bg-[var(--color-surface-container-high)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-text-tertiary)]">
+                            {model.providerName}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </button>
