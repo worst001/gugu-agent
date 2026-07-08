@@ -5,16 +5,15 @@ import { useChatStore } from '../../stores/chatStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi, type SessionContextSnapshot } from '../../api/sessions'
 import { filesystemApi } from '../../api/filesystem'
 import { promptOptimizeApi } from '../../api/promptOptimize'
 import { audioTranscriptionApi } from '../../api/audioTranscription'
-import { AgentRunModeControl } from '../controls/AgentRunModeControl'
-import { OfficeToolboxControl } from '../controls/OfficeToolboxControl'
+import { OfficeToolboxMenuItems } from '../controls/OfficeToolboxControl'
 import { PermissionModeSelector } from '../controls/PermissionModeSelector'
-import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage } from '../../constants/agentRunModes'
+import { ModelSelector } from '../controls/ModelSelector'
+import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage, type AgentRunMode } from '../../constants/agentRunModes'
 import {
   buildOfficeToolMessage,
   getOfficeToolOption,
@@ -143,7 +142,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   const inputRef = useRef(input)
   const { sendMessage, stopGeneration } = useChatStore()
   const activeTabId = useTabStore((s) => s.activeTabId)
-  const runtimeSelection = useSessionRuntimeStore((s) => activeTabId ? s.selections[activeTabId] : undefined)
+  const selectedAgentRunMode = useAgentRunModeStore((s) => activeTabId ? (s.selections[activeTabId] ?? AGENT_RUN_MODE_DEFAULT) : AGENT_RUN_MODE_DEFAULT)
   const sessionState = useChatStore((s) => activeTabId ? s.sessions[activeTabId] : undefined)
   const chatState = sessionState?.chatState ?? 'idle'
   const slashCommands = sessionState?.slashCommands ?? []
@@ -534,6 +533,17 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
     })
   }, [input])
 
+  const selectAgentRunMode = useCallback((mode: AgentRunMode) => {
+    if (!activeTabId) return
+    useAgentRunModeStore.getState().setMode(activeTabId, mode)
+    setPlusMenuOpen(false)
+  }, [activeTabId])
+
+  const selectOfficeTool = useCallback((tool: OfficeToolId | 'normal') => {
+    setSelectedOfficeTool(tool === 'normal' ? null : tool)
+    setPlusMenuOpen(false)
+  }, [])
+
   const handleSubmit = (overrideText?: string) => {
     if (!activeTabId) return
     if (!isMemberSession && isActive) return
@@ -629,8 +639,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             : officeMessage.display
         )
         : display
-      const taskModelPreference = runtimeSelection ? undefined : taskContextMessage?.modelPreference
-      const nextModelPreference = modelPreference ?? taskModelPreference
+      const nextModelPreference = modelPreference ?? taskContextMessage?.modelPreference
       const taskContextNotice = taskContextMessage
         ? buildTaskContextNotice(taskContextMessage.classification, nextModelPreference)
         : undefined
@@ -641,7 +650,7 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
         ...(nextModelPreference ? { ceModelPreference: nextModelPreference } : {}),
         ...(taskContextNotice ? { taskContextNotice } : {}),
       })
-      if (agentMode === 'plan') {
+      if (agentMode !== AGENT_RUN_MODE_DEFAULT) {
         useAgentRunModeStore.getState().setMode(activeTabId, AGENT_RUN_MODE_DEFAULT)
       }
     } else {
@@ -676,11 +685,6 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
       const result = await promptOptimizeApi.optimize({
         text: originalText,
         sessionId: activeTabId,
-        ...(runtimeSelection
-          ? {
-              providerId: runtimeSelection.providerId,
-            }
-          : {}),
       }, {
         signal: controller.signal,
       })
@@ -1386,6 +1390,25 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
             />
           )}
 
+          {!isMemberSession && selectedAgentRunMode !== AGENT_RUN_MODE_DEFAULT && (
+            <div className={isHeroComposer ? '' : 'px-1 pt-2'}>
+              <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-low)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-[var(--color-text-tertiary)]">
+                  {selectedAgentRunMode === 'plan' ? 'architecture' : 'account_tree'}
+                </span>
+                <span className="min-w-0 truncate">{t(selectedAgentRunMode === 'plan' ? 'agentMode.plan' : 'agentMode.ce')}</span>
+                <button
+                  type="button"
+                  onClick={() => activeTabId && useAgentRunModeStore.getState().setMode(activeTabId, AGENT_RUN_MODE_DEFAULT)}
+                  aria-label={t('common.cancel')}
+                  className="-mr-1 rounded-full p-0.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">close</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {!isMemberSession && (isVoiceRecording || isVoiceTranscribing) && (
             <div className={isHeroComposer ? 'flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]' : 'mx-1 mb-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs text-[var(--color-text-secondary)]'}>
               <Mic className="h-4 w-4 animate-pulse text-[var(--color-text-accent)]" />
@@ -1544,9 +1567,9 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
           )}
 
           <div className={isHeroComposer
-            ? 'flex items-center justify-between border-t border-[var(--color-border-separator)] pt-3'
-            : 'absolute bottom-0 left-0 right-0 flex items-center justify-between rounded-b-xl border-t border-[var(--color-border-separator)] bg-[var(--color-surface-container-lowest)] px-3 py-3'}>
-            <div className="flex items-center gap-2">
+            ? 'flex min-w-0 flex-nowrap items-center gap-2 border-t border-[var(--color-border-separator)] pt-3'
+            : 'absolute bottom-0 left-0 right-0 z-10 flex min-w-0 flex-nowrap items-center gap-2 rounded-b-xl border-t border-[var(--color-border-separator)] bg-[var(--color-surface-container-lowest)] px-3 py-2'}>
+            <div className="flex min-w-0 shrink items-center gap-1.5">
               {!isMemberSession && (
                 <>
                   <div ref={plusMenuRef} className="relative">
@@ -1561,21 +1584,51 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     </button>
 
                     {plusMenuOpen && (
-                      <div className="absolute bottom-full left-0 z-50 mb-2 w-[240px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]">
+                      <div className="absolute bottom-full left-0 z-50 mb-2 flex max-h-[360px] w-[360px] flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]">
                         <button
                           onClick={() => void handleChooseFiles()}
-                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
                         >
-                          <span className="material-symbols-outlined text-[18px] text-[var(--color-text-secondary)]">attach_file</span>
-                          <span className="text-sm text-[var(--color-text-primary)]">{addFilesLabel}</span>
+                          <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">attach_file</span>
+                          <span className="text-xs text-[var(--color-text-primary)]">{addFilesLabel}</span>
                         </button>
                         <button
                           onClick={insertSlashCommand}
-                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
                         >
-                          <span className="w-[24px] text-center text-[18px] font-bold text-[var(--color-text-secondary)]">/</span>
-                          <span className="text-sm text-[var(--color-text-primary)]">{slashCommandsLabel}</span>
+                          <span className="w-[16px] text-center text-[16px] font-bold text-[var(--color-text-secondary)]">/</span>
+                          <span className="text-xs text-[var(--color-text-primary)]">{slashCommandsLabel}</span>
                         </button>
+                        <div className="my-1 h-px bg-[var(--color-border-separator)]" />
+                        <button
+                          onClick={() => selectAgentRunMode('plan')}
+                          aria-label={t('agentMode.plan')}
+                          className="flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+                        >
+                          <span className="material-symbols-outlined mt-0.5 text-[16px] text-[var(--color-text-secondary)]">architecture</span>
+                          <span className="min-w-0">
+                            <span className="block text-xs font-semibold leading-4 text-[var(--color-text-primary)]">{t('agentMode.plan')}</span>
+                            <span className="mt-0.5 block text-[10px] leading-[1.3] text-[var(--color-text-tertiary)]">{t('agentMode.planDescription')}</span>
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => selectAgentRunMode('ce')}
+                          aria-label={t('agentMode.ce')}
+                          className="flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+                        >
+                          <span className="material-symbols-outlined mt-0.5 text-[16px] text-[var(--color-text-secondary)]">account_tree</span>
+                          <span className="min-w-0">
+                            <span className="block text-xs font-semibold leading-4 text-[var(--color-text-primary)]">{t('agentMode.ce')}</span>
+                            <span className="mt-0.5 block text-[10px] leading-[1.3] text-[var(--color-text-tertiary)]">{t('agentMode.ceDescription')}</span>
+                          </span>
+                        </button>
+                        <div className="my-1 h-px bg-[var(--color-border-separator)]" />
+                        <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--color-outline)]">
+                          {t('chat.officeTool.title')}
+                        </div>
+                        <div className="min-h-0 overflow-y-auto overscroll-contain">
+                          <OfficeToolboxMenuItems value={selectedOfficeTool} onChange={selectOfficeTool} />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1624,32 +1677,31 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              {!isMemberSession && activeTabId && (
-                <>
-                  <OfficeToolboxControl
-                    value={selectedOfficeTool}
-                    onChange={setSelectedOfficeTool}
-                    disabled={isWorkspaceMissing || isInputLocked}
-                  />
-                  <AgentRunModeControl sessionKey={activeTabId} disabled={isWorkspaceMissing || isInputLocked} />
-                </>
+            <div className="ml-auto flex min-w-0 shrink items-center justify-end gap-1.5">
+              {!isMemberSession && (
+                <ModelSelector
+                  disabled={isInputLocked || isWorkspaceMissing}
+                  compact
+                />
               )}
               <button
                 data-chat-submit-button={!isMemberSession && isActive ? 'false' : 'true'}
                 onClick={!isMemberSession && isActive ? () => stopGeneration(activeTabId!) : () => handleSubmit()}
                 disabled={isStopping || (!isMemberSession && isActive ? false : !canSubmit)}
                 title={!isMemberSession && isActive ? t('chat.stopTitle') : undefined}
-                className={`flex w-[112px] items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all hover:brightness-105 disabled:opacity-30 ${
+                aria-label={isStopping ? t('chat.stopping') : !isMemberSession && isActive ? t('common.stop') : isMemberSession ? t('common.send') : t('common.run')}
+                className={`flex h-9 shrink-0 items-center justify-center gap-1 text-xs font-semibold transition-all hover:brightness-105 disabled:opacity-30 ${
                   !isMemberSession && isActive
-                    ? 'bg-[var(--color-error-container)] text-[var(--color-on-error-container)]'
-                    : 'bg-[image:var(--gradient-btn-primary)] text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)]'
+                    ? 'min-w-[88px] rounded-full bg-[var(--color-error-container)] px-3 text-[var(--color-on-error-container)]'
+                    : 'w-9 rounded-full bg-[image:var(--gradient-btn-primary)] px-0 text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)]'
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">
+                <span className="material-symbols-outlined text-[18px]">
                   {isStopping ? 'hourglass_empty' : !isMemberSession && isActive ? 'stop' : 'arrow_forward'}
                 </span>
-                {isStopping ? t('chat.stopping') : !isMemberSession && isActive ? t('common.stop') : isMemberSession ? t('common.send') : t('common.run')}
+                {(!isMemberSession && isActive) && (
+                  <span>{isStopping ? t('chat.stopping') : t('common.stop')}</span>
+                )}
               </button>
             </div>
           </div>
@@ -1677,7 +1729,6 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
                     const { replaceTabSession } = useTabStore.getState()
                     const { disconnectSession, connectToSession } = useChatStore.getState()
                     const newId = await createSession(newWorkDir)
-                    useSessionRuntimeStore.getState().moveSelection(oldId, newId)
                     useAgentRunModeStore.getState().moveMode(oldId, newId)
                     useCeWorkflowRoleStore.getState().moveRole(oldId, newId)
                     disconnectSession(oldId)

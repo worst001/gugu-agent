@@ -78,6 +78,7 @@ type UIStore = {
   sidebarOpen: boolean
   sidebarWidth: number
   capabilityPanelCollapsed: boolean
+  terminalDrawerOpen: boolean
   activeView: ActiveView
   pendingSettingsTab: SettingsTab | null
   activeModal: string | null
@@ -91,6 +92,7 @@ type UIStore = {
   resetSidebarWidth: () => void
   setCapabilityPanelCollapsed: (collapsed: boolean) => void
   toggleCapabilityPanel: () => void
+  setTerminalDrawerOpen: (open: boolean) => void
   setActiveView: (view: ActiveView) => void
   setPendingSettingsTab: (tab: SettingsTab | null) => void
   openModal: (id: string) => void
@@ -106,6 +108,7 @@ export const useUIStore = create<UIStore>((set) => ({
   sidebarOpen: true,
   sidebarWidth: getStoredSidebarWidth(),
   capabilityPanelCollapsed: getStoredCapabilityPanelCollapsed(),
+  terminalDrawerOpen: false,
   activeView: 'code',
   pendingSettingsTab: null,
   activeModal: null,
@@ -148,6 +151,7 @@ export const useUIStore = create<UIStore>((set) => ({
       return { capabilityPanelCollapsed: next }
     })
   },
+  setTerminalDrawerOpen: (open) => set({ terminalDrawerOpen: open }),
   setActiveView: (view) => set({ activeView: view }),
   setPendingSettingsTab: (tab) => set({ pendingSettingsTab: tab }),
   openModal: (id) => set({ activeModal: id }),

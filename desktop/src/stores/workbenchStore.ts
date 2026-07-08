@@ -1,11 +1,11 @@
 import { create } from 'zustand'
 
-export type WorkbenchTab = 'activity' | 'diff' | 'preview'
+export type WorkbenchTab = 'activity' | 'browser' | 'diff' | 'preview'
 
 const WORKBENCH_WIDTH_STORAGE_KEY = 'gugu-agent-workbench-width-v1'
 const DEFAULT_WORKBENCH_WIDTH = 390
-const MIN_WORKBENCH_WIDTH = 320
-const MAX_WORKBENCH_WIDTH = 720
+const MIN_WORKBENCH_WIDTH = 240
+const MAIN_PANE_MIN_WIDTH = 480
 
 type SessionWorkbenchState = {
   isOpen: boolean
@@ -13,6 +13,7 @@ type SessionWorkbenchState = {
   selectedToolUseId: string | null
   selectedFilePath: string | null
   selectedAttachmentId: string | null
+  browserUrl: string | null
 }
 
 type WorkbenchSelection = {
@@ -32,6 +33,7 @@ type WorkbenchStore = {
   closeWorkbench: (sessionId: string) => void
   toggleWorkbench: (sessionId: string) => void
   setActiveTab: (sessionId: string, tab: WorkbenchTab) => void
+  setBrowserUrl: (sessionId: string, url: string | null) => void
   selectTool: (sessionId: string, toolUseId: string | null, tab?: WorkbenchTab) => void
   selectFile: (sessionId: string, filePath: string | null, tab?: WorkbenchTab) => void
   selectAttachment: (sessionId: string, attachmentId: string | null) => void
@@ -43,11 +45,12 @@ const DEFAULT_WORKBENCH_STATE: SessionWorkbenchState = {
   selectedToolUseId: null,
   selectedFilePath: null,
   selectedAttachmentId: null,
+  browserUrl: null,
 }
 
 function getMaxWorkbenchWidth(): number {
-  if (typeof window === 'undefined') return MAX_WORKBENCH_WIDTH
-  return Math.min(MAX_WORKBENCH_WIDTH, Math.max(MIN_WORKBENCH_WIDTH, Math.floor(window.innerWidth * 0.5)))
+  if (typeof window === 'undefined') return 960
+  return Math.max(MIN_WORKBENCH_WIDTH, Math.floor(window.innerWidth - MAIN_PANE_MIN_WIDTH))
 }
 
 function clampWorkbenchWidth(width: number): number {
@@ -155,6 +158,21 @@ export const useWorkbenchStore = create<WorkbenchStore>((set, get) => ({
             ...current,
             isOpen: true,
             activeTab: tab,
+          },
+        },
+      }
+    })
+  },
+
+  setBrowserUrl: (sessionId, url) => {
+    set((state) => {
+      const current = getStateFor(state.sessions, sessionId)
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...current,
+            browserUrl: url,
           },
         },
       }

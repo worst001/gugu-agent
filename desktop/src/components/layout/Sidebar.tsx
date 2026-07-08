@@ -14,7 +14,6 @@ import { expandProjectKeys, isProjectInSet } from '../../utils/projectKeys'
 import { copyTextToClipboard } from '../chat/clipboard'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
-const isWindows = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
 
 type SessionProjectGroup = {
   id: string
@@ -53,9 +52,7 @@ export function Sidebar() {
   const setNewSessionWorkDir = useSessionStore((s) => s.setNewSessionWorkDir)
   const addToast = useUIStore((s) => s.addToast)
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const activeTabId = useTabStore((s) => s.activeTabId)
-  const activeTabType = useTabStore((s) => s.tabs.find((tab) => tab.sessionId === s.activeTabId)?.type)
   const closeTab = useTabStore((s) => s.closeTab)
   const disconnectSession = useChatStore((s) => s.disconnectSession)
   const chatSessions = useChatStore((s) => s.sessions)
@@ -309,33 +306,7 @@ export function Sidebar() {
       data-state={sidebarOpen ? 'open' : 'closed'}
       aria-label="Sidebar"
     >
-      <div className={`px-3 pb-2 ${isTauri && !isWindows ? 'pt-[44px]' : 'pt-3'}`}>
-        <div className={`flex ${sidebarOpen ? 'items-center justify-between gap-3' : 'flex-col items-center gap-2'}`}>
-          <div className={`flex min-w-0 items-center ${sidebarOpen ? 'gap-2.5' : 'justify-center'}`}>
-            <img src="/app-icon.svg" alt="" className="h-8 w-8 flex-shrink-0" />
-            <span
-              className={`sidebar-copy ${sidebarOpen ? 'sidebar-copy--visible' : 'sidebar-copy--hidden'} text-[13px] font-semibold tracking-tight text-[var(--color-text-primary)]`}
-              style={{ fontFamily: 'var(--font-headline)' }}
-            >
-              Gugu <span className="text-[var(--color-text-accent)]">Agent</span>
-            </span>
-          </div>
-          <div className={`flex items-center ${sidebarOpen ? 'gap-1.5' : 'flex-col gap-2'}`}>
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              data-testid={sidebarOpen ? 'sidebar-collapse-button' : 'sidebar-expand-button'}
-              className={`sidebar-toggle-button ${sidebarOpen ? 'sidebar-toggle-button--open h-8 w-8' : 'sidebar-toggle-button--collapsed h-8 w-8'} flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface-sidebar)]`}
-              aria-label={sidebarOpen ? t('sidebar.collapse') : t('sidebar.expand')}
-              title={sidebarOpen ? t('sidebar.collapse') : t('sidebar.expand')}
-            >
-              <SidebarToggleIcon collapsed={!sidebarOpen} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className={`px-3 pb-3 flex flex-col ${sidebarOpen ? 'gap-0.5' : 'items-center gap-2'}`}>
+      <div className={`px-3 pb-3 pt-3 flex flex-col ${sidebarOpen ? 'gap-0.5' : 'items-center gap-2'}`}>
         <NavItem
           active={false}
           collapsed={!sidebarOpen}
@@ -359,18 +330,6 @@ export function Sidebar() {
           icon={<ClockIcon />}
         >
           {t('sidebar.scheduled')}
-        </NavItem>
-        <NavItem
-          active={activeTabType === 'terminal'}
-          collapsed={!sidebarOpen}
-          label={t('sidebar.terminal')}
-          onClick={() => {
-            setShowArchived(false)
-            useTabStore.getState().openTerminalTab()
-          }}
-          icon={<span className="material-symbols-outlined text-[18px]">terminal</span>}
-        >
-          {t('sidebar.terminal')}
         </NavItem>
         <NavItem
           active={showArchived}
@@ -920,20 +879,3 @@ function SearchIcon() {
   )
 }
 
-function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg
-      width={collapsed ? 16 : 14}
-      height={collapsed ? 16 : 14}
-      viewBox="0 0 14 14"
-      fill="none"
-      className={`sidebar-toggle-icon ${collapsed ? 'sidebar-toggle-icon--collapsed' : 'sidebar-toggle-icon--open'}`}
-      aria-hidden="true"
-    >
-      <path
-        d={collapsed ? 'M5 3 9 7l-4 4' : 'M9 3 5 7l4 4'}
-        className="sidebar-toggle-chevron"
-      />
-    </svg>
-  )
-}

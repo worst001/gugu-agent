@@ -138,7 +138,7 @@ describe('Content-only pages render without errors', () => {
   it('EmptySession exposes the office toolbox in the default composer', () => {
     render(<EmptySession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
     expect(screen.getByRole('button', { name: 'Analyze spreadsheet' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
@@ -1280,6 +1280,7 @@ describe('Design system compliance', () => {
         html.includes('C47A5A') ||
         html.includes('8F482F') ||
         html.includes('var(--color-brand)') ||
+        html.includes('var(--gradient-btn-primary)') ||
         html.includes('bg-[var(--color-brand)]'),
       ).toBe(true)
       unmount()

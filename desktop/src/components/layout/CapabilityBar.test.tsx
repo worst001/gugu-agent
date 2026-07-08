@@ -86,8 +86,8 @@ describe('CapabilityBar', () => {
     expect(screen.getByText('Max')).toBeInTheDocument()
     expect(screen.getByText('Needs GLM key')).toBeInTheDocument()
     expect(screen.getByText('1 need attention')).toBeInTheDocument()
-    expect(screen.getByText('Terminal')).toBeInTheDocument()
-    expect(screen.getByText('Host shell')).toBeInTheDocument()
+    expect(screen.queryByText('Terminal')).not.toBeInTheDocument()
+    expect(screen.queryByText('Host shell')).not.toBeInTheDocument()
     expect(refreshCapabilities).toHaveBeenCalledWith('D:/repo', { force: true })
   })
 
@@ -118,11 +118,6 @@ describe('CapabilityBar', () => {
 
     expect(useTabStore.getState().activeTabId).toBe('__settings__')
     expect(useUIStore.getState().pendingSettingsTab).toBe('attachmentParser')
-
-    fireEvent.click(screen.getByRole('button', { name: /terminal/i }))
-
-    expect(useTabStore.getState().activeTabId).toBe('__settings__')
-    expect(useUIStore.getState().pendingSettingsTab).toBe('terminal')
   })
 
   it('collapses and expands the capability panel', () => {

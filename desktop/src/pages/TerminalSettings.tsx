@@ -15,8 +15,11 @@ const STATUS_LABEL_KEYS: Record<TerminalStatus, TranslationKey> = {
   unavailable: 'settings.terminal.status.unavailable',
 }
 
+const RESIZE_COMMIT_DELAY_MS = 180
+
 type TerminalSettingsProps = {
   active?: boolean
+  compact?: boolean
   onNewTerminal?: () => void
   testId?: string
   workspace?: boolean
@@ -24,6 +27,7 @@ type TerminalSettingsProps = {
 
 export function TerminalSettings({
   active = true,
+  compact = false,
   onNewTerminal,
   testId = 'settings-terminal-host',
   workspace = false,
@@ -33,10 +37,18 @@ export function TerminalSettings({
   const terminalRef = useRef<XTermTerminal | null>(null)
   const fitRef = useRef<XTermFitAddon | null>(null)
   const sessionIdRef = useRef<number | null>(null)
+  const lastResizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  const resizeCommitTimerRef = useRef<number | null>(null)
   const unlistenRef = useRef<Array<() => void>>([])
   const [status, setStatus] = useState<TerminalStatus>(() => terminalApi.isAvailable() ? 'idle' : 'unavailable')
   const [error, setError] = useState<string | null>(null)
   const [shellInfo, setShellInfo] = useState<{ shell: string; cwd: string } | null>(null)
+
+  const clearResizeCommitTimer = useCallback(() => {
+    if (resizeCommitTimerRef.current === null) return
+    window.clearTimeout(resizeCommitTimerRef.current)
+    resizeCommitTimerRef.current = null
+  }, [])
 
   const resizeSession = useCallback(() => {
     const terminal = terminalRef.current
@@ -44,11 +56,25 @@ export function TerminalSettings({
     const sessionId = sessionIdRef.current
     if (!terminal || !fit) return
 
-    fit.fit()
-    if (sessionId) {
-      void terminalApi.resize(sessionId, terminal.cols, terminal.rows).catch(() => {})
+    try {
+      fit.fit()
+    } catch {
+      return
     }
-  }, [])
+    terminal.refresh(0, terminal.rows - 1)
+    const last = lastResizeRef.current
+    if (sessionId && (!last || last.cols !== terminal.cols || last.rows !== terminal.rows)) {
+      const next = { cols: terminal.cols, rows: terminal.rows }
+      lastResizeRef.current = next
+      clearResizeCommitTimer()
+      // ponytail: Windows ConPTY loses visible text when spammed with resize events; commit only after drag/layout settles.
+      resizeCommitTimerRef.current = window.setTimeout(() => {
+        resizeCommitTimerRef.current = null
+        if (sessionIdRef.current !== sessionId) return
+        void terminalApi.resize(sessionId, next.cols, next.rows).catch(() => {})
+      }, RESIZE_COMMIT_DELAY_MS)
+    }
+  }, [clearResizeCommitTimer])
 
   const startTerminal = useCallback(async () => {
     if (!terminalApi.isAvailable()) {
@@ -65,9 +91,11 @@ export function TerminalSettings({
 
     const existing = sessionIdRef.current
     if (existing) {
+      clearResizeCommitTimer()
       await terminalApi.kill(existing).catch(() => {})
       sessionIdRef.current = null
     }
+    lastResizeRef.current = null
     unlistenRef.current.forEach((unlisten) => unlisten())
     unlistenRef.current = []
 
@@ -153,10 +181,12 @@ export function TerminalSettings({
       terminal.dispose()
       terminalRef.current = null
       fitRef.current = null
+      lastResizeRef.current = null
+      clearResizeCommitTimer()
       setError(err instanceof Error ? err.message : String(err))
       setStatus('error')
     }
-  }, [resizeSession])
+  }, [clearResizeCommitTimer, resizeSession])
 
   useEffect(() => {
     if (!terminalApi.isAvailable()) return
@@ -164,9 +194,11 @@ export function TerminalSettings({
 
     const observer = new ResizeObserver(() => resizeSession())
     if (hostRef.current) observer.observe(hostRef.current)
+    window.addEventListener('resize', resizeSession)
 
     return () => {
       observer.disconnect()
+      window.removeEventListener('resize', resizeSession)
       const sessionId = sessionIdRef.current
       if (sessionId) {
         void terminalApi.kill(sessionId).catch(() => {})
@@ -177,12 +209,21 @@ export function TerminalSettings({
       unlistenRef.current.forEach((unlisten) => unlisten())
       unlistenRef.current = []
       sessionIdRef.current = null
+      lastResizeRef.current = null
+      clearResizeCommitTimer()
     }
-  }, [resizeSession, startTerminal])
+  }, [clearResizeCommitTimer, resizeSession, startTerminal])
 
   useEffect(() => {
+    let frame: number | undefined
+    let timeout: number | undefined
     if (active) {
-      requestAnimationFrame(() => resizeSession())
+      frame = requestAnimationFrame(() => resizeSession())
+      timeout = window.setTimeout(() => resizeSession(), 220)
+    }
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      if (timeout) window.clearTimeout(timeout)
     }
   }, [active, resizeSession])
 
@@ -190,8 +231,13 @@ export function TerminalSettings({
     terminalRef.current?.clear()
   }
 
+  const rootClassName = compact
+    ? 'flex h-full min-h-0 flex-col overflow-hidden bg-[var(--color-terminal-bg)]'
+    : `flex h-full flex-col overflow-hidden ${workspace ? 'min-h-0 bg-[var(--color-surface)] px-5 py-4' : 'min-h-[620px]'}`
+
   return (
-    <div className={`flex h-full flex-col overflow-hidden ${workspace ? 'min-h-0 bg-[var(--color-surface)] px-5 py-4' : 'min-h-[620px]'}`}>
+    <div className={rootClassName}>
+      {!compact && (
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-[var(--color-text-primary)]">
@@ -231,7 +277,9 @@ export function TerminalSettings({
           </button>
         </div>
       </div>
+      )}
 
+      {!compact && (
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
         <StatusPill status={status} label={t(STATUS_LABEL_KEYS[status])} />
         {shellInfo && (
@@ -242,6 +290,7 @@ export function TerminalSettings({
           </>
         )}
       </div>
+      )}
 
       {error && (
         <div className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-error)]/20 bg-[var(--color-error)]/10 px-3 py-2 text-sm text-[var(--color-error)]">
@@ -264,7 +313,8 @@ export function TerminalSettings({
           </div>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-terminal-border)] bg-[var(--color-terminal-bg)] shadow-[var(--shadow-dropdown)]">
+        <div className={compact ? 'min-h-0 flex-1 overflow-hidden bg-[var(--color-terminal-bg)]' : 'min-h-0 flex-1 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-terminal-border)] bg-[var(--color-terminal-bg)] shadow-[var(--shadow-dropdown)]'}>
+          {!compact && (
           <div className="flex h-8 items-center gap-2 border-b border-[var(--color-terminal-border)] bg-[var(--color-terminal-header)] px-3">
             <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-terminal-danger)]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[var(--color-terminal-warning)]" />
@@ -273,10 +323,11 @@ export function TerminalSettings({
               {t('settings.terminal.windowTitle')}
             </span>
           </div>
+          )}
           <div
             ref={hostRef}
             data-testid={testId}
-            className="settings-terminal-host h-[calc(100%-2rem)] w-full overflow-hidden p-2"
+            className={`settings-terminal-host w-full overflow-hidden p-2 ${compact ? 'h-full' : 'h-[calc(100%-2rem)]'}`}
           />
         </div>
       )}

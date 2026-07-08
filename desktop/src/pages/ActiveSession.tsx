@@ -134,7 +134,7 @@ export function ActiveSession() {
 
   return (
     <div className="flex-1 flex min-h-0 overflow-hidden bg-background text-on-surface">
-      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-w-[480px] flex-1 flex-col overflow-hidden">
       {isMemberSession && (
         <div className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface-container)]">
           <div className="mx-auto max-w-[860px] flex items-center justify-between gap-4 px-8 py-2">
@@ -270,7 +270,7 @@ export function ActiveSession() {
       </div>
 
       {!isMemberSession && (
-        <WorkbenchPanel sessionId={activeTabId} messages={messages} />
+        <WorkbenchPanel sessionId={activeTabId} messages={messages} workDir={session?.workDir} />
       )}
     </div>
   )

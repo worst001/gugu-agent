@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Sidebar } from './Sidebar'
 import { ContentRouter } from './ContentRouter'
 import { ToastContainer } from '../shared/Toast'
@@ -14,6 +14,7 @@ import { useTabStore, SETTINGS_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useBillingStore } from '../../stores/billingStore'
 import { useTranslation } from '../../i18n'
+import { TerminalDrawer } from './TerminalDrawer'
 
 export function AppShell() {
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
@@ -21,10 +22,42 @@ export function AppShell() {
   const sidebarWidth = useUIStore((s) => s.sidebarWidth)
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth)
   const resetSidebarWidth = useUIStore((s) => s.resetSidebarWidth)
+  const terminalDrawerOpen = useUIStore((s) => s.terminalDrawerOpen)
   const [isSidebarResizing, setIsSidebarResizing] = useState(false)
+  const [renderSidebar, setRenderSidebar] = useState(sidebarOpen)
+  const [sidebarExpanded, setSidebarExpanded] = useState(sidebarOpen)
+  const [renderTerminalDrawer, setRenderTerminalDrawer] = useState(terminalDrawerOpen)
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<string | null>(null)
+  const didMountSidebarAnimation = useRef(false)
   const t = useTranslation()
+
+  useEffect(() => {
+    if (!didMountSidebarAnimation.current) {
+      didMountSidebarAnimation.current = true
+      setRenderSidebar(sidebarOpen)
+      setSidebarExpanded(sidebarOpen)
+      return
+    }
+    let timeout: number | undefined
+    let frame: number | undefined
+    let nextFrame: number | undefined
+    if (sidebarOpen) {
+      setSidebarExpanded(false)
+      setRenderSidebar(true)
+      frame = window.requestAnimationFrame(() => {
+        nextFrame = window.requestAnimationFrame(() => setSidebarExpanded(true))
+      })
+    } else {
+      setSidebarExpanded(false)
+      timeout = window.setTimeout(() => setRenderSidebar(false), 240)
+    }
+    return () => {
+      if (timeout) window.clearTimeout(timeout)
+      if (frame) window.cancelAnimationFrame(frame)
+      if (nextFrame) window.cancelAnimationFrame(nextFrame)
+    }
+  }, [sidebarOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +113,10 @@ export function AppShell() {
 
   useKeyboardShortcuts()
 
+  useEffect(() => {
+    if (terminalDrawerOpen) setRenderTerminalDrawer(true)
+  }, [terminalDrawerOpen])
+
   const startSidebarResize = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!sidebarOpen) return
     event.preventDefault()
@@ -114,40 +151,43 @@ export function AppShell() {
   }
 
   return (
-    <div className="h-screen flex overflow-hidden bg-[var(--color-surface)]">
-      <div
-        data-testid="sidebar-shell"
-        data-state={sidebarOpen ? 'open' : 'closed'}
-        data-resizing={isSidebarResizing ? 'true' : 'false'}
-        className="sidebar-shell relative"
-        style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
-      >
-        <Sidebar />
-        {sidebarOpen && (
+    <div className="h-screen flex flex-col overflow-hidden bg-[var(--color-surface)]">
+      <AppMenu />
+      <div className="min-h-0 flex flex-1 overflow-hidden">
+        {renderSidebar && (
           <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize sidebar"
-            title="Drag to resize. Double-click to reset."
-            onMouseDown={startSidebarResize}
-            onDoubleClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              resetSidebarWidth()
-            }}
-            className="absolute bottom-0 right-0 top-0 z-40 w-2 translate-x-1/2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-[var(--color-border-focus)]/20"
-          />
+            data-testid="sidebar-shell"
+            data-state={sidebarExpanded ? 'open' : 'closed'}
+            data-resizing={isSidebarResizing ? 'true' : 'false'}
+            className="sidebar-shell relative"
+            style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+          >
+            <Sidebar />
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar"
+              title="Drag to resize. Double-click to reset."
+              onMouseDown={startSidebarResize}
+              onDoubleClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                resetSidebarWidth()
+              }}
+              className="absolute bottom-0 right-0 top-0 z-40 w-2 translate-x-1/2 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-[var(--color-border-focus)]/20"
+            />
+          </div>
         )}
+        <main
+          id="content-area"
+          data-sidebar-state={sidebarOpen ? 'open' : 'closed'}
+          className="relative min-w-0 flex-1 flex flex-col overflow-hidden"
+        >
+          <TabBar />
+          <ContentRouter />
+          {renderTerminalDrawer && <TerminalDrawer open={terminalDrawerOpen} />}
+        </main>
       </div>
-      <main
-        id="content-area"
-        data-sidebar-state={sidebarOpen ? 'open' : 'closed'}
-        className="min-w-0 flex-1 flex flex-col overflow-hidden"
-      >
-        <AppMenu />
-        <TabBar />
-        <ContentRouter />
-      </main>
       <ToastContainer />
       <UpdateChecker />
     </div>

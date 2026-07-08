@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { sessionsApi } from '../api/sessions'
+import { nativeBrowserApi } from '../api/nativeBrowser'
 import { sanitizeSessionTitle } from '../utils/sessionTitle'
 
 const TAB_STORAGE_KEY = 'cc-haha-open-tabs'
@@ -78,6 +79,9 @@ export const useTabStore = create<TabStore>((set, get) => ({
     const { tabs, activeTabId } = get()
     const index = tabs.findIndex((t) => t.sessionId === sessionId)
     if (index < 0) return
+    if (tabs[index]?.type === 'session') {
+      void nativeBrowserApi.close(sessionId).catch(() => {})
+    }
 
     const newTabs = tabs.filter((t) => t.sessionId !== sessionId)
     let newActiveId = activeTabId

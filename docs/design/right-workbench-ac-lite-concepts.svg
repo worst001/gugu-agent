@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100">
+  <defs>
+    <style>
+      .bg{fill:#f6efe5}.board{fill:#fffaf2;stroke:#dfc9ad;stroke-width:1.4}.dark{fill:#121212;stroke:#312b27;stroke-width:1.4}.top{fill:#fbf7ef;stroke:#e4cfb4}.topd{fill:#181716;stroke:#332d28}.main{fill:#f8f1e7}.maind{fill:#101010}.panel{fill:#fffdf8;stroke:#dfc9ad}.paneld{fill:#171514;stroke:#332d28}.pill{fill:#f3e6d4}.pilld{fill:#25211d}.active{fill:#ead4b8}.ink{fill:#2d241e;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.muted{fill:#8d765f;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.white{fill:#f5eee5;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.dm{fill:#a99b8f;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.line{stroke:#e2cfb5}.lined{stroke:#302b27}.orange{fill:#a65b30}.green{fill:#33b66c}.title{font-size:24px;font-weight:700}.label{font-size:20px;font-weight:700}.small{font-size:16px}.tiny{font-size:14px}.icon{font-size:18px}
+    </style>
+  </defs>
+  <rect class="bg" width="1800" height="1100"/>
+  <text class="ink title" x="56" y="58">右侧工作台 A/C 收敛稿</text>
+  <text class="muted small" x="56" y="88">只保留：审查 / 终端 / 文件。去掉浏览器和侧边聊天，避免和主会话、Computer Use、文件解析流程冲突。</text>
+
+  <g transform="translate(56 130)">
+    <rect class="board" width="820" height="430" rx="22"/>
+    <text class="ink label" x="28" y="42">A1. 浮动三按钮，默认不展开</text>
+    <text class="muted tiny" x="28" y="68">最轻：右侧不常驻面板，只有顶部右侧工具组。</text>
+    <rect class="top" x="28" y="92" width="764" height="36"/>
+    <text class="muted tiny" x="50" y="115">文件　编辑　视图　帮助</text>
+    <rect class="main" x="28" y="128" width="764" height="264"/>
+    <rect class="pill" x="590" y="100" width="160" height="24" rx="12"/>
+    <text class="ink tiny" x="608" y="117">▣ 审查　⌘ 终端　□ 文件</text>
+    <text class="muted tiny" x="330" y="250">主聊天区保持干净，右侧工具按需展开。</text>
+  </g>
+
+  <g transform="translate(924 130)">
+    <rect class="dark" width="820" height="430" rx="22"/>
+    <text class="white label" x="28" y="42">A2. 浮动三按钮 + 轻抽屉</text>
+    <text class="dm tiny" x="28" y="68">点击按钮后右侧滑出抽屉，适合查看当前任务。</text>
+    <rect class="topd" x="28" y="92" width="764" height="36"/>
+    <text class="dm tiny" x="50" y="115">文件　编辑　视图　帮助</text>
+    <rect class="maind" x="28" y="128" width="764" height="264"/>
+    <rect class="pilld" x="590" y="100" width="160" height="24" rx="12"/>
+    <text class="white tiny" x="608" y="117">▣ 审查　⌘ 终端　□ 文件</text>
+    <rect class="paneld" x="548" y="150" width="204" height="214" rx="14"/>
+    <text class="white small" x="568" y="184">当前任务</text>
+    <line class="lined" x1="568" y1="204" x2="732" y2="204"/>
+    <text class="dm tiny" x="568" y="234">审查：3 个改动</text>
+    <text class="dm tiny" x="568" y="264">终端：空闲</text>
+    <text class="dm tiny" x="568" y="294">文件：2 个产物</text>
+  </g>
+
+  <g transform="translate(56 610)">
+    <rect class="board" width="820" height="430" rx="22"/>
+    <text class="ink label" x="28" y="42">C1. 保留 Agent 工作台，但更窄</text>
+    <text class="muted tiny" x="28" y="68">改动最小：保留右侧工作台概念，标签收敛成三项。</text>
+    <rect class="top" x="28" y="92" width="764" height="36"/>
+    <rect class="main" x="28" y="128" width="536" height="264"/>
+    <rect class="panel" x="564" y="128" width="228" height="264"/>
+    <text class="ink small" x="584" y="164">Agent 工作台</text>
+    <text class="muted tiny" x="584" y="186">本轮状态 · 3 个入口</text>
+    <rect class="pill" x="584" y="210" width="188" height="34" rx="12"/>
+    <rect class="active" x="588" y="214" width="58" height="26" rx="9"/>
+    <text class="ink tiny" x="604" y="232">审查</text><text class="muted tiny" x="660" y="232">终端</text><text class="muted tiny" x="716" y="232">文件</text>
+    <rect class="panel" x="584" y="264" width="188" height="62" rx="10"/>
+    <text class="ink tiny" x="600" y="288">Bash</text><text class="green tiny" x="722" y="288">完成</text>
+    <text class="muted tiny" x="600" y="310">检查最近文件</text>
+  </g>
+
+  <g transform="translate(924 610)">
+    <rect class="dark" width="820" height="430" rx="22"/>
+    <text class="white label" x="28" y="42">C2. 右轨 + 工作台二段式</text>
+    <text class="dm tiny" x="28" y="68">收起时只剩 36px 图标轨，展开后才显示三标签。</text>
+    <rect class="topd" x="28" y="92" width="764" height="36"/>
+    <rect class="maind" x="28" y="128" width="720" height="264"/>
+    <rect class="paneld" x="748" y="128" width="44" height="264"/>
+    <text class="dm icon" x="761" y="166">▣</text>
+    <text class="dm icon" x="761" y="214">⌘</text>
+    <text class="dm icon" x="761" y="262">□</text>
+    <rect class="paneld" x="520" y="146" width="228" height="226" rx="14"/>
+    <text class="white small" x="540" y="180">Agent 工作台</text>
+    <rect class="pilld" x="540" y="204" width="188" height="34" rx="12"/>
+    <text class="white tiny" x="558" y="226">审查</text><text class="dm tiny" x="614" y="226">终端</text><text class="dm tiny" x="670" y="226">文件</text>
+    <line class="lined" x1="540" y1="258" x2="728" y2="258"/>
+    <text class="dm tiny" x="540" y="292">当前任务：检查工具结果</text>
+    <text class="dm tiny" x="540" y="324">文件：demo.gugu.pptx</text>
+  </g>
+</svg>

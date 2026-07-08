@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Mic, WandSparkles } from 'lucide-react'
 import { settingsApi } from '../api/settings'
 import { skillsApi } from '../api/skills'
 import { filesystemApi } from '../api/filesystem'
@@ -8,11 +9,11 @@ import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
 import { DirectoryPicker } from '../components/shared/DirectoryPicker'
-import { AgentRunModeControl } from '../components/controls/AgentRunModeControl'
-import { OfficeToolboxControl } from '../components/controls/OfficeToolboxControl'
+import { OfficeToolboxMenuItems } from '../components/controls/OfficeToolboxControl'
 import { PermissionModeSelector } from '../components/controls/PermissionModeSelector'
+import { ModelSelector } from '../components/controls/ModelSelector'
 import { CE_WORKFLOW_DEFAULT_ROLE_ID } from '../constants/ceWorkflowRoles'
-import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage } from '../constants/agentRunModes'
+import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage, type AgentRunMode } from '../constants/agentRunModes'
 import {
   buildOfficeToolMessage,
   getOfficeToolOption,
@@ -122,6 +123,7 @@ export function EmptySession() {
   const connectToSession = useChatStore((state) => state.connectToSession)
   const setActiveView = useUIStore((state) => state.setActiveView)
   const addToast = useUIStore((state) => state.addToast)
+  const selectedDraftRunMode = useAgentRunModeStore((state) => state.selections[DRAFT_AGENT_RUN_MODE_KEY] ?? AGENT_RUN_MODE_DEFAULT)
   const canAcceptAttachments = !isSubmitting
   const showStarterTasks = !input.trim() && attachments.length === 0 && !isSubmitting
   const composerPlaceholder = selectedOfficeTool
@@ -407,7 +409,7 @@ export function EmptySession() {
         ...(nextModelPreference ? { ceModelPreference: nextModelPreference } : {}),
         ...(taskContextNotice ? { taskContextNotice } : {}),
       })
-      if (draftMode === 'plan') {
+      if (draftMode !== AGENT_RUN_MODE_DEFAULT) {
         useAgentRunModeStore.getState().setMode(sessionId, AGENT_RUN_MODE_DEFAULT)
         useAgentRunModeStore.getState().setMode(DRAFT_AGENT_RUN_MODE_KEY, AGENT_RUN_MODE_DEFAULT)
       }
@@ -765,6 +767,16 @@ export function EmptySession() {
     })
   }
 
+  const selectAgentRunMode = (mode: AgentRunMode) => {
+    useAgentRunModeStore.getState().setMode(DRAFT_AGENT_RUN_MODE_KEY, mode)
+    setPlusMenuOpen(false)
+  }
+
+  const selectOfficeTool = (tool: OfficeToolId | 'normal') => {
+    setSelectedOfficeTool(tool === 'normal' ? null : tool)
+    setPlusMenuOpen(false)
+  }
+
   const selectStarterTask = (promptKey: typeof STARTER_TASKS[number]['promptKey']) => {
     const value = t(promptKey)
     setInput(value)
@@ -903,6 +915,25 @@ export function EmptySession() {
               </div>
             )}
 
+            {selectedDraftRunMode !== AGENT_RUN_MODE_DEFAULT && (
+              <div className="flex min-w-0">
+                <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-low)] px-2.5 py-1 text-xs text-[var(--color-text-secondary)]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-[var(--color-text-tertiary)]">
+                    {selectedDraftRunMode === 'plan' ? 'architecture' : 'account_tree'}
+                  </span>
+                  <span className="min-w-0 truncate">{t(selectedDraftRunMode === 'plan' ? 'agentMode.plan' : 'agentMode.ce')}</span>
+                  <button
+                    type="button"
+                    onClick={() => useAgentRunModeStore.getState().setMode(DRAFT_AGENT_RUN_MODE_KEY, AGENT_RUN_MODE_DEFAULT)}
+                    aria-label={t('common.cancel')}
+                    className="-mr-1 rounded-full p-0.5 text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">close</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-start gap-3">
               <textarea
                 ref={textareaRef}
@@ -929,43 +960,91 @@ export function EmptySession() {
                   </button>
 
                   {plusMenuOpen && (
-                    <div className="absolute bottom-full left-0 mb-2 w-[240px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]">
+                    <div className="absolute bottom-full left-0 mb-2 flex max-h-[360px] w-[360px] flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)]">
                       <button
                         onClick={() => void handleChooseFiles()}
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
                       >
-                        <span className="material-symbols-outlined text-[18px] text-[var(--color-text-secondary)]">attach_file</span>
+                        <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">attach_file</span>
                         {t('empty.addFiles')}
                       </button>
                       <button
                         onClick={insertSlashCommand}
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)]"
                       >
-                        <span className="w-5 text-center text-[18px] font-bold text-[var(--color-text-secondary)]">/</span>
+                        <span className="w-4 text-center text-[16px] font-bold text-[var(--color-text-secondary)]">/</span>
                         {t('empty.slashCommands')}
                       </button>
+                      <div className="my-1 h-px bg-[var(--color-border-separator)]" />
+                      <button
+                        onClick={() => selectAgentRunMode('plan')}
+                        aria-label={t('agentMode.plan')}
+                        className="flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+                      >
+                        <span className="material-symbols-outlined mt-0.5 text-[16px] text-[var(--color-text-secondary)]">architecture</span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold leading-4 text-[var(--color-text-primary)]">{t('agentMode.plan')}</span>
+                          <span className="mt-0.5 block text-[10px] leading-[1.3] text-[var(--color-text-tertiary)]">{t('agentMode.planDescription')}</span>
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => selectAgentRunMode('ce')}
+                        aria-label={t('agentMode.ce')}
+                        className="flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+                      >
+                        <span className="material-symbols-outlined mt-0.5 text-[16px] text-[var(--color-text-secondary)]">account_tree</span>
+                        <span className="min-w-0">
+                          <span className="block text-xs font-semibold leading-4 text-[var(--color-text-primary)]">{t('agentMode.ce')}</span>
+                          <span className="mt-0.5 block text-[10px] leading-[1.3] text-[var(--color-text-tertiary)]">{t('agentMode.ceDescription')}</span>
+                        </span>
+                      </button>
+                      <div className="my-1 h-px bg-[var(--color-border-separator)]" />
+                      <div className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[var(--color-outline)]">
+                        {t('chat.officeTool.title')}
+                      </div>
+                      <div className="min-h-0 overflow-y-auto overscroll-contain">
+                        <OfficeToolboxMenuItems value={selectedOfficeTool} onChange={selectOfficeTool} />
+                      </div>
                     </div>
                   )}
                 </div>
+
+                <button
+                  type="button"
+                  disabled
+                  title={t('chat.promptOptimize.title')}
+                  aria-label={t('chat.promptOptimize.title')}
+                  className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] opacity-30"
+                >
+                  <WandSparkles className="h-[18px] w-[18px]" />
+                </button>
+
+                <button
+                  type="button"
+                  disabled
+                  title={t('chat.voice.start')}
+                  aria-label={t('chat.voice.start')}
+                  className="rounded-[var(--radius-md)] p-1.5 text-[var(--color-text-secondary)] opacity-30"
+                >
+                  <Mic className="h-[18px] w-[18px]" />
+                </button>
 
                 <PermissionModeSelector workDir={workDir} />
               </div>
 
               <div className="flex items-center gap-3">
-                <OfficeToolboxControl
-                  value={selectedOfficeTool}
-                  onChange={setSelectedOfficeTool}
+                <ModelSelector
                   disabled={isSubmitting}
+                  compact
                 />
-                <AgentRunModeControl sessionKey={DRAFT_AGENT_RUN_MODE_KEY} disabled={isSubmitting} />
                 <button
                   data-chat-submit-button="true"
+                  aria-label={t('common.run')}
                   onClick={handleSubmit}
                   disabled={(!input.trim() && attachments.length === 0) || isSubmitting}
-                  className="flex w-[112px] items-center justify-center gap-1 rounded-lg bg-[image:var(--gradient-btn-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)] transition-all hover:brightness-105 disabled:opacity-30"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[image:var(--gradient-btn-primary)] text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)] transition-all hover:brightness-105 disabled:opacity-30"
                 >
-                  {t('common.run')}
-                  <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                 </button>
               </div>
             </div>

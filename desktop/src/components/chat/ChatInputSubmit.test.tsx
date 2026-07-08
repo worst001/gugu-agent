@@ -54,6 +54,7 @@ import { useChatStore, type PerSessionState } from '../../stores/chatStore'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useSessionRuntimeStore } from '../../stores/sessionRuntimeStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
 
@@ -122,6 +123,7 @@ describe('ChatInput submit', () => {
     vi.clearAllMocks()
     useAgentRunModeStore.setState({ selections: {} })
     useCeWorkflowRoleStore.setState({ selections: {} })
+    useSessionRuntimeStore.setState({ selections: {} })
     useUIStore.setState({ toasts: [] })
   })
 
@@ -134,9 +136,17 @@ describe('ChatInput submit', () => {
       | undefined
   }
 
+  function chooseOfficeTool(name: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
+    fireEvent.click(screen.getByRole('button', { name }))
+  }
+
   it('optimistically shows image and text messages from an empty session', async () => {
     seedEmptySession('empty-image-session')
     const { container } = render(<ActiveSession />)
+
+    expect(screen.getByRole('button', { name: 'Optimize prompt' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Start voice input' })).toBeDisabled()
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File(['image-bytes'], 'whale.png', { type: 'image/png' })
@@ -250,8 +260,8 @@ describe('ChatInput submit', () => {
     seedEmptySession('plan-mode-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
-    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Plan' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'plan the composer modes', selectionStart: 23 },
     })
@@ -273,7 +283,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-placeholder-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
 
     expect(screen.getByRole('button', { name: 'Normal chat' })).toBeInTheDocument()
     expect(screen.getByText('Everyday questions, coding, and explanations.')).toBeInTheDocument()
@@ -289,6 +299,7 @@ describe('ChatInput submit', () => {
     expect(screen.getByText('Turn background, goal, and tone into an email draft. No auto-send.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Handle file' })).toBeInTheDocument()
     expect(screen.getByText('Upload PDF, Word, Excel, PPT, CSV, TXT, images; identify type and next step.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Office toolbox' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
 
@@ -302,15 +313,14 @@ describe('ChatInput submit', () => {
 
     expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
     expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask anything...')
-    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open composer tools' })).toBeInTheDocument()
   })
 
   it('routes a selected office tool through the wire prompt while keeping the user echo clean', async () => {
     seedEmptySession('office-toolbox-ppt-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Draft PPT' }))
+    chooseOfficeTool('Draft PPT')
     expect(screen.getByRole('button', { name: 'Clear office tool' })).toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'make a launch deck', selectionStart: 18 },
@@ -329,15 +339,14 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('User request:\nmake a launch deck')
     expect(screen.queryByText(/\[Office toolbox: ppt-draft\]/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open composer tools' })).toBeInTheDocument()
   })
 
   it('includes office routing precedence so explicit output type wins over source format', async () => {
     seedEmptySession('office-toolbox-routing-precedence-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Summarize document' }))
+    chooseOfficeTool('Summarize document')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'turn this PDF into a PPT deck', selectionStart: 29 },
     })
@@ -359,8 +368,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-coding-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Coding' }))
+    chooseOfficeTool('Coding')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'fix this TypeScript error', selectionStart: 25 },
     })
@@ -376,17 +384,38 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('Do not assume CodeGraph is installed or connected')
     expect(payload?.content).toContain('User request:\nfix this TypeScript error')
     expect(screen.queryByText(/\[Office toolbox: coding-assistant\]/)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open composer tools' })).toBeInTheDocument()
+  })
+
+  it('keeps automatic strong routing even if stale runtime model selection exists', async () => {
+    seedEmptySession('stale-runtime-selection-session')
+    useSessionRuntimeStore.getState().setSelection('stale-runtime-selection-session', {
+      providerId: 'custom-provider',
+      modelId: 'custom-model',
+    })
+    render(<ActiveSession />)
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'fix this TypeScript error', selectionStart: 25 },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('fix this TypeScript error')).toBeInTheDocument()
+    })
+
+    const payload = getLastUserMessagePayload()
+    expect(payload?.content).toContain('[Gugu context router]')
+    expect(payload?.ceModelPreference).toBe('strong')
   })
 
   it('keeps office tools and plan mode orthogonal for a single run', async () => {
     seedEmptySession('office-toolbox-plan-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Draft PPT' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
-    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
+    chooseOfficeTool('Draft PPT')
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Plan' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'make a launch deck', selectionStart: 18 },
     })
@@ -402,15 +431,14 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('Create a presentation outline first')
     expect(payload?.content).toContain('$ppt-master')
     expect(useAgentRunModeStore.getState().selections['office-toolbox-plan-session']).toBe('normal')
-    expect(screen.getByRole('button', { name: 'Office toolbox' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open composer tools' })).toBeInTheDocument()
   })
 
   it('runs document summary as an output task without requiring attachments', async () => {
     seedEmptySession('office-toolbox-document-summary-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Summarize document' }))
+    chooseOfficeTool('Summarize document')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'summarize this chat into a doc', selectionStart: 30 },
     })
@@ -436,8 +464,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-spreadsheet-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
+    chooseOfficeTool('Analyze spreadsheet')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'analyze monthly revenue by region', selectionStart: 33 },
     })
@@ -461,8 +488,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-mail-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Write email' }))
+    chooseOfficeTool('Write email')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'write a polite renewal reminder', selectionStart: 31 },
     })
@@ -488,8 +514,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-missing-attachment-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Handle file' }))
+    chooseOfficeTool('Handle file')
     fireEvent.click(screen.getByRole('button', { name: /Run/ }))
 
     expect(getLastUserMessagePayload()).toBeUndefined()
@@ -504,8 +529,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-attachment-only-session')
     const { container } = render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Office toolbox' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Handle file' }))
+    chooseOfficeTool('Handle file')
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File(['report'], 'report.pdf', { type: 'application/pdf' })
@@ -565,7 +589,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('ce-mode-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
     fireEvent.click(screen.getByRole('button', { name: 'CE' }))
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'fix the failing test', selectionStart: 20 },
@@ -583,18 +607,16 @@ describe('ChatInput submit', () => {
     expect(payload?.ceModelPreference).toBe('strong')
   })
 
-  it('switches from plan to CE mode and uses the selected CE workflow', async () => {
+  it('switches from plan to CE mode from the composer menu', async () => {
     seedEmptySession('ce-workflow-selection-session')
     render(<ActiveSession />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Default' }))
-    fireEvent.click(screen.getByRole('button', { name: /Plan/ }))
-    expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument()
-
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
     fireEvent.click(screen.getByRole('button', { name: 'Plan' }))
+    expect(screen.getByText('Plan')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
     fireEvent.click(screen.getByRole('button', { name: 'CE' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Light iteration' }))
-    fireEvent.click(screen.getByRole('button', { name: /Standard delivery/ }))
 
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'build a normal feature', selectionStart: 22 },
@@ -606,9 +628,10 @@ describe('ChatInput submit', () => {
     })
 
     const payload = getLastUserMessagePayload()
-    expect(payload?.content).toContain('[Workflow: standard delivery]')
-    expect(payload?.content).toContain('/ce-plan')
+    expect(payload?.content).toContain('[Workflow: quick iteration]')
+    expect(payload?.content).toContain('CE automation (binding)')
     expect(payload?.ceModelPreference).toBe('strong')
+    expect(useAgentRunModeStore.getState().selections['ce-workflow-selection-session']).toBe('normal')
   })
 
   it('creates a session from the empty composer and preserves the submitted image and text', async () => {

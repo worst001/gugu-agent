@@ -23,6 +23,8 @@ type MenuId = 'file' | 'edit' | 'view' | 'help'
 
 export function AppMenu() {
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null)
+  const sidebarOpen = useUIStore((s) => s.sidebarOpen)
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const t = useTranslation()
 
   useEffect(() => {
@@ -44,6 +46,18 @@ export function AppMenu() {
       data-testid="app-menu"
       className="flex h-8 flex-shrink-0 items-stretch gap-1 border-b border-[var(--color-border)]/70 bg-[var(--color-surface-container)]/92 pl-2 text-xs text-[var(--color-text-secondary)]"
     >
+      <button
+        type="button"
+        data-testid="app-menu-sidebar-toggle"
+        aria-label={sidebarOpen ? t('sidebar.collapse') : t('sidebar.expand')}
+        title={sidebarOpen ? t('sidebar.collapse') : t('sidebar.expand')}
+        className="mt-1 flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+        onClick={toggleSidebar}
+      >
+        <span className="material-symbols-outlined text-[17px]" aria-hidden="true">
+          {sidebarOpen ? 'dock_to_left' : 'dock_to_right'}
+        </span>
+      </button>
       <MenuButton id="file" label={t('appMenu.file')} openMenu={openMenu} setOpenMenu={setOpenMenu}>
         <MenuItem icon="add" label={t('appMenu.file.newSession')} shortcut="Ctrl/Cmd+N" onSelect={() => {
           useUIStore.getState().setActiveView('code')

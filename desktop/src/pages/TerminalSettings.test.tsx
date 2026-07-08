@@ -14,6 +14,7 @@ const terminalMocks = vi.hoisted(() => {
     write: vi.fn(),
     writeln: vi.fn(),
     clear: vi.fn(),
+    refresh: vi.fn(),
   }
   const fitInstance = {
     fit: vi.fn(),
@@ -70,6 +71,9 @@ describe('TerminalSettings', () => {
     terminalMocks.terminalInstance.write.mockClear()
     terminalMocks.terminalInstance.writeln.mockClear()
     terminalMocks.terminalInstance.clear.mockClear()
+    terminalMocks.terminalInstance.refresh.mockClear()
+    terminalMocks.terminalInstance.cols = 80
+    terminalMocks.terminalInstance.rows = 24
     terminalMocks.fitInstance.fit.mockClear()
     terminalMocks.onOutput.mockResolvedValue(vi.fn())
     terminalMocks.onExit.mockResolvedValue(vi.fn())
@@ -106,6 +110,7 @@ describe('TerminalSettings', () => {
     expect(screen.getByText('/Users/test')).toBeInTheDocument()
     expect(terminalMocks.terminalInstance.open).toHaveBeenCalled()
     expect(terminalMocks.fitInstance.fit).toHaveBeenCalled()
+    expect(terminalMocks.terminalInstance.refresh).toHaveBeenCalled()
   })
 
   it('writes matching terminal output events into xterm', async () => {
@@ -126,5 +131,27 @@ describe('TerminalSettings', () => {
 
     expect(terminalMocks.terminalInstance.write).toHaveBeenCalledWith('hello\r\n')
     expect(terminalMocks.terminalInstance.write).not.toHaveBeenCalledWith('ignored\r\n')
+  })
+
+  it('debounces backend resize while refreshing the local terminal immediately', async () => {
+    terminalMocks.available = true
+
+    render(<TerminalSettings />)
+    await waitFor(() => expect(terminalMocks.spawn).toHaveBeenCalled())
+    terminalMocks.resize.mockClear()
+
+    terminalMocks.terminalInstance.cols = 100
+    terminalMocks.terminalInstance.rows = 30
+    act(() => window.dispatchEvent(new Event('resize')))
+    terminalMocks.terminalInstance.cols = 120
+    terminalMocks.terminalInstance.rows = 34
+    act(() => window.dispatchEvent(new Event('resize')))
+
+    expect(terminalMocks.terminalInstance.refresh).toHaveBeenCalled()
+    expect(terminalMocks.resize).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(terminalMocks.resize).toHaveBeenCalledWith(7, 120, 34)
+    })
+    expect(terminalMocks.resize).toHaveBeenCalledTimes(1)
   })
 })

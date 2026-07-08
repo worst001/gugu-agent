@@ -112,11 +112,10 @@ export function PermissionModeSelector({
         onClick={() => !disabled && setOpen(!open)}
         disabled={disabled}
         title={disabled ? disabledReason : undefined}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--color-surface-container-low)] hover:bg-[var(--color-surface-hover)] rounded-full text-xs font-medium text-[var(--color-text-secondary)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label={MODE_LABELS[displayMode]}
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-surface-container-low)] text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <span className="material-symbols-outlined text-[14px]">{MODE_ICONS[displayMode]}</span>
-        <span>{MODE_LABELS[displayMode]}</span>
-        <span className="material-symbols-outlined text-[12px]">expand_more</span>
+        <span className="material-symbols-outlined shrink-0 text-[14px]">{MODE_ICONS[displayMode]}</span>
       </button>
 
       {open && (

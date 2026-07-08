@@ -138,7 +138,7 @@ export function AgentRunModeControl({ sessionKey, disabled = false }: Props) {
   return (
     <div ref={ref} className="relative">
       <div
-        className="flex h-8 items-center rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]/72 text-xs font-semibold text-[var(--color-text-secondary)] transition-[background-color,border-color] hover:border-[var(--color-brand)]/28 hover:bg-[var(--color-surface-container-lowest)]"
+        className="flex h-8 max-w-[142px] items-center overflow-hidden rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]/72 text-xs font-semibold text-[var(--color-text-secondary)] transition-[background-color,border-color] hover:border-[var(--color-brand)]/28 hover:bg-[var(--color-surface-container-lowest)]"
         role="group"
         aria-label={t('agentMode.groupLabel')}
       >
@@ -148,14 +148,14 @@ export function AgentRunModeControl({ sessionKey, disabled = false }: Props) {
           title={t(selectedModeMeta.title)}
           aria-expanded={openMenu === 'mode'}
           onClick={() => setOpenMenu(openMenu === 'mode' ? null : 'mode')}
-          className="flex h-full items-center gap-1.5 rounded-full px-3 transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-full min-w-0 items-center gap-1.5 rounded-full px-3 transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {selectedModeMeta.icon && (
             <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">
               {selectedModeMeta.icon}
             </span>
           )}
-          <span className="text-[var(--color-text-primary)]">{t(selectedModeMeta.label)}</span>
+          <span className="truncate whitespace-nowrap text-[var(--color-text-primary)]">{t(selectedModeMeta.label)}</span>
           {selectedMode !== 'ce' && (
             <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-[var(--color-text-tertiary)]">expand_more</span>
           )}
@@ -170,7 +170,7 @@ export function AgentRunModeControl({ sessionKey, disabled = false }: Props) {
               title={t('ceWorkflow.panelTitle')}
               aria-expanded={openMenu === 'workflow'}
               onClick={() => setOpenMenu(openMenu === 'workflow' ? null : 'workflow')}
-              className="flex h-full max-w-[160px] items-center gap-1.5 rounded-full px-2.5 transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-full min-w-0 max-w-[92px] items-center gap-1.5 rounded-full px-2.5 transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 min-[760px]:max-w-[160px]"
             >
               <span className="truncate text-[var(--color-text-primary)]">{t(selectedRoleI18n.label)}</span>
               <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-[var(--color-text-tertiary)]">expand_more</span>

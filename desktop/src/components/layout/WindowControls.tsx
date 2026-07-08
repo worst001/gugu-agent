@@ -11,7 +11,6 @@ export function WindowControls() {
   const [win, setWin] = useState<{
     minimize: () => Promise<void>
     toggleMaximize: () => Promise<void>
-    close: () => Promise<void>
     isMaximized: () => Promise<boolean>
     onResized: (handler: () => void) => Promise<() => void>
   } | null>(null)
@@ -75,7 +74,7 @@ export function WindowControls() {
 
       {/* Close */}
       <button
-        onClick={() => runWindowAction(() => win.close())}
+        onClick={() => runWindowAction(() => win.minimize())}
         aria-label="Close window"
         className="w-[46px] h-full flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-window-close-hover)] hover:text-white transition-colors"
       >

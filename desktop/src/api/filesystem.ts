@@ -37,6 +37,44 @@ type NativeRevealResult = {
   isDirectory?: boolean
 }
 
+export type WorkspaceDirEntry = {
+  name: string
+  path: string
+  isDirectory: boolean
+  size: number
+}
+
+export type WorkspaceDirResult = {
+  root: string
+  path: string
+  entries: WorkspaceDirEntry[]
+  truncated: boolean
+}
+
+export type WorkspaceTextFileResult = {
+  name: string
+  path: string
+  language: string
+  content: string
+  size: number
+  truncated: boolean
+}
+
+type NativeWorkspaceDirEntry = {
+  name: string
+  path: string
+  is_directory?: boolean
+  isDirectory?: boolean
+  size: number
+}
+
+type NativeWorkspaceDirResult = {
+  root: string
+  path: string
+  entries: NativeWorkspaceDirEntry[]
+  truncated: boolean
+}
+
 async function revealWithNativeCommand(path: string): Promise<RevealResult | null> {
   try {
     const { invoke } = await import('@tauri-apps/api/core')
@@ -102,5 +140,28 @@ export const filesystemApi = {
       if (nativeResult) return nativeResult
       throw error
     }
+  },
+
+  async listWorkspaceDir(root: string, path?: string): Promise<WorkspaceDirResult> {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const result = await invoke<NativeWorkspaceDirResult>('list_workspace_dir', {
+      input: { root, path },
+    })
+    return {
+      ...result,
+      entries: result.entries.map((entry) => ({
+        name: entry.name,
+        path: entry.path,
+        isDirectory: Boolean(entry.isDirectory ?? entry.is_directory),
+        size: entry.size,
+      })),
+    }
+  },
+
+  async readWorkspaceTextFile(root: string, path: string): Promise<WorkspaceTextFileResult> {
+    const { invoke } = await import('@tauri-apps/api/core')
+    return invoke<WorkspaceTextFileResult>('read_workspace_text_file', {
+      input: { root, path },
+    })
   },
 }

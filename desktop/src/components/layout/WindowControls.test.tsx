@@ -4,7 +4,6 @@ import '@testing-library/jest-dom'
 
 const minimize = vi.fn().mockResolvedValue(undefined)
 const toggleMaximize = vi.fn().mockResolvedValue(undefined)
-const close = vi.fn().mockResolvedValue(undefined)
 const isMaximized = vi.fn().mockResolvedValue(false)
 const onResized = vi.fn().mockResolvedValue(() => {})
 
@@ -12,7 +11,6 @@ vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({
     minimize,
     toggleMaximize,
-    close,
     isMaximized,
     onResized,
   }),
@@ -24,7 +22,6 @@ describe('WindowControls', () => {
   beforeEach(async () => {
     minimize.mockClear()
     toggleMaximize.mockClear()
-    close.mockClear()
     isMaximized.mockClear()
     onResized.mockClear()
 
@@ -61,9 +58,8 @@ describe('WindowControls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close window' }))
 
     await waitFor(() => {
-      expect(minimize).toHaveBeenCalledTimes(1)
+      expect(minimize).toHaveBeenCalledTimes(2)
       expect(toggleMaximize).toHaveBeenCalledTimes(1)
-      expect(close).toHaveBeenCalledTimes(1)
     })
   })
 })

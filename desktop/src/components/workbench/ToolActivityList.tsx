@@ -1,5 +1,6 @@
 import { useTranslation, type TranslationKey } from '../../i18n'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
+import { openExternalFromAppAction } from '../../utils/appActions'
 import type { ToolActivity, WorkbenchFileChange } from './workbenchModel'
 
 type Props = {
@@ -29,18 +30,18 @@ export function ToolActivityList({
       {activities.map((activity) => {
         const fileChange = fileChangeByToolUseId.get(activity.toolUseId)
         const isSelected = selectedToolUseId === activity.toolUseId
+        const externalUrl = findExternalUrl(activity)
+        const selectActivity = () => {
+          if (fileChange) {
+            selectFile(sessionId, fileChange.filePath, 'diff')
+            selectTool(sessionId, activity.toolUseId)
+          } else {
+            selectTool(sessionId, activity.toolUseId, 'preview')
+          }
+        }
         return (
-          <button
+          <div
             key={activity.toolUseId}
-            type="button"
-            onClick={() => {
-              if (fileChange) {
-                selectFile(sessionId, fileChange.filePath, 'diff')
-                selectTool(sessionId, activity.toolUseId)
-              } else {
-                selectTool(sessionId, activity.toolUseId, 'preview')
-              }
-            }}
             className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
               isSelected
                 ? 'border-[var(--color-border-focus)] bg-[var(--color-surface-container-high)]'
@@ -48,27 +49,70 @@ export function ToolActivityList({
             }`}
           >
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">
-                {getToolIcon(activity.toolName)}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--color-text-primary)]">
-                {activity.toolName}
-              </span>
-              <StatusPill status={activity.status} />
+              <button
+                type="button"
+                onClick={selectActivity}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+              >
+                <span className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">
+                  {getToolIcon(activity.toolName)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--color-text-primary)]">
+                  {activity.toolName}
+                </span>
+                <StatusPill status={activity.status} />
+              </button>
+              {externalUrl && (
+                <button
+                  type="button"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+                  aria-label={t('workbench.activity.openExternal')}
+                  title={t('workbench.activity.openExternal')}
+                  onClick={() => void openExternalFromAppAction(externalUrl)}
+                >
+                  <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
+                    open_in_new
+                  </span>
+                </button>
+              )}
             </div>
-            <div className="mt-1 truncate text-[11px] text-[var(--color-text-secondary)]">
+            <button
+              type="button"
+              onClick={selectActivity}
+              className="mt-1 block w-full truncate text-left text-[11px] text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+            >
               {activity.summary}
-            </div>
+            </button>
             {activity.filePath && (
-              <div className="mt-1 truncate font-[var(--font-mono)] text-[10px] text-[var(--color-text-tertiary)]">
+              <button
+                type="button"
+                onClick={selectActivity}
+                className="mt-1 block w-full truncate text-left font-[var(--font-mono)] text-[10px] text-[var(--color-text-tertiary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+              >
                 {activity.filePath}
-              </div>
+              </button>
             )}
-          </button>
+          </div>
         )
       })}
     </div>
   )
+}
+
+function findExternalUrl(activity: ToolActivity): string {
+  const input = activity.input && typeof activity.input === 'object'
+    ? activity.input as Record<string, unknown>
+    : {}
+  const explicitUrl = typeof input.url === 'string' ? input.url : ''
+  if (isHttpUrl(explicitUrl)) return explicitUrl
+
+  const text = JSON.stringify(activity.input)
+  const match = text?.match(/https?:\/\/[^\s"'<>\\]+/i)
+  return match?.[0] ?? ''
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value)
 }
 
 function StatusPill({ status }: { status: ToolActivity['status'] }) {

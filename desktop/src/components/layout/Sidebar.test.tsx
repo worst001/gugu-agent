@@ -294,24 +294,10 @@ describe('Sidebar', () => {
     })
   })
 
-  it('opens each terminal click as a first-class app tab', () => {
+  it('does not render terminal in the sidebar navigation header', () => {
     render(<Sidebar />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
-
-    const terminalTabs = useTabStore.getState().tabs.filter((tab) => tab.type === 'terminal')
-    expect(terminalTabs).toHaveLength(2)
-    expect(terminalTabs.map((tab) => tab.title)).toEqual(['Terminal 1', 'Terminal 2'])
-    expect(useTabStore.getState().activeTabId).toBe(terminalTabs[1]!.sessionId)
-
-    useTabStore.getState().closeTab(terminalTabs[0]!.sessionId)
-    useTabStore.getState().openTerminalTab()
-
-    expect(useTabStore.getState().tabs.filter((tab) => tab.type === 'terminal').map((tab) => tab.title)).toEqual([
-      'Terminal 2',
-      'Terminal 3',
-    ])
+    expect(screen.queryByRole('button', { name: 'Terminal' })).not.toBeInTheDocument()
   })
 
   it('does not render an external repository shortcut in the navigation header', () => {
@@ -905,23 +891,10 @@ describe('Sidebar', () => {
     expect(useTabStore.getState().activeTabId).toBeNull()
   })
 
-  it('collapses into an icon rail and expands back', async () => {
+  it('leaves sidebar toggling to the top app menu', () => {
     render(<Sidebar />)
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
-    })
-
-    expect(useUIStore.getState().sidebarOpen).toBe(false)
-    expect(screen.queryByPlaceholderText('Search sessions')).not.toBeInTheDocument()
-    expect(screen.getByRole('complementary')).toHaveAttribute('data-state', 'closed')
-    expect(screen.getByTestId('sidebar-expand-button')).toHaveClass('sidebar-toggle-button--collapsed')
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }))
-    })
-
-    expect(useUIStore.getState().sidebarOpen).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).not.toBeInTheDocument()
     expect(screen.getByPlaceholderText('Search sessions')).toBeInTheDocument()
     expect(screen.getByRole('complementary')).toHaveAttribute('data-state', 'open')
   })

@@ -15,15 +15,20 @@ use std::{
 };
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::menu::MenuBuilder;
+use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent};
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
 use tauri::path::BaseDirectory;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Emitter;
-use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+use tauri::WebviewBuilder;
+use tauri::{
+    AppHandle, LogicalPosition, LogicalSize, Manager, RunEvent, State, Webview, WebviewUrl,
+    WindowEvent, Wry,
+};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -36,6 +41,50 @@ const TRAY_QUIT_ID: &str = "tray_quit";
 const DEFAULT_GATEWAY_URL: Option<&str> = option_env!("GUGU_DESKTOP_DEFAULT_GATEWAY_URL");
 const BUILTIN_GATEWAY_URL: &str = "https://gugu.guxingyao.com";
 const RTK_EXPECTED_VERSION: &str = "0.42.3";
+const BROWSER_LINK_INTERCEPT_SCRIPT: &str = r#"
+(() => {
+  const isHttpUrl = (value) => typeof value === 'string' && /^https?:\/\//i.test(value);
+  const isExpectedShellOpenDenial = (value) => {
+    const message = String(value?.message || value || '');
+    return message.includes('shell.open not allowed');
+  };
+
+  window.addEventListener('unhandledrejection', (event) => {
+    if (!isExpectedShellOpenDenial(event.reason)) return;
+    event.preventDefault();
+  });
+
+  const navigateHere = (url) => {
+    if (!isHttpUrl(url)) return false;
+    window.location.href = url;
+    return true;
+  };
+
+  const nativeOpen = window.open;
+  window.open = function(url, target, features) {
+    const href = url ? String(url) : '';
+    if (navigateHere(href)) return null;
+    return nativeOpen ? nativeOpen.call(window, url, target, features) : null;
+  };
+
+  document.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const anchor = target?.closest?.('a[href]');
+    if (!anchor || !isHttpUrl(anchor.href)) return;
+
+    const opensNewContext =
+      anchor.target?.toLowerCase() === '_blank' ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.altKey;
+    if (!opensNewContext) return;
+
+    event.preventDefault();
+    navigateHere(anchor.href);
+  }, true);
+})();
+"#;
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 const RTK_WINDOWS_X64_SHA256: &str =
     "16f5a93780841f49a70c11de090cc80b6aad3c4f103e314da05bd951cf3079ef";
@@ -119,6 +168,68 @@ struct TerminalSession {
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
 }
 
+#[derive(Default)]
+struct BrowserState(Mutex<HashMap<String, BrowserWebview>>);
+
+struct BrowserWebview {
+    webview: Webview<Wry>,
+    url: String,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BrowserBoundsInput {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserCreateInput {
+    session_id: String,
+    url: String,
+    bounds: BrowserBoundsInput,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserNavigateInput {
+    session_id: String,
+    url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserBoundsUpdateInput {
+    session_id: String,
+    bounds: BrowserBoundsInput,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserSessionInput {
+    session_id: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BrowserCommandResult {
+    session_id: String,
+    url: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BrowserEventPayload {
+    session_id: String,
+    event: String,
+    url: Option<String>,
+    title: Option<String>,
+    message: Option<String>,
+}
+
 #[derive(Serialize, Clone)]
 struct TerminalSpawnResult {
     session_id: u32,
@@ -143,6 +254,38 @@ struct TerminalExitPayload {
 struct RevealPathResult {
     path: String,
     is_directory: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct WorkspaceDirEntry {
+    name: String,
+    path: String,
+    is_directory: bool,
+    size: u64,
+}
+
+#[derive(Serialize, Clone)]
+struct WorkspaceDirResult {
+    root: String,
+    path: String,
+    entries: Vec<WorkspaceDirEntry>,
+    truncated: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct WorkspaceTextFileResult {
+    name: String,
+    path: String,
+    language: String,
+    content: String,
+    size: u64,
+    truncated: bool,
+}
+
+#[derive(Deserialize)]
+struct WorkspacePathInput {
+    root: String,
+    path: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -226,6 +369,160 @@ fn open_path(path: String) -> Result<RevealPathResult, String> {
     })
 }
 
+#[tauri::command]
+fn list_workspace_dir(input: WorkspacePathInput) -> Result<WorkspaceDirResult, String> {
+    const MAX_ENTRIES: usize = 500;
+    let (root, target) = resolve_workspace_path(&input.root, input.path.as_deref())?;
+    if !target.is_dir() {
+        return Err("path is not a directory".to_string());
+    }
+
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    for entry in fs::read_dir(&target).map_err(|err| format!("read directory: {err}"))? {
+        let entry = entry.map_err(|err| format!("read directory entry: {err}"))?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if should_hide_workspace_entry(&name) {
+            continue;
+        }
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if metadata.is_dir() && should_skip_workspace_dir(&name) {
+            continue;
+        }
+        entries.push(WorkspaceDirEntry {
+            name,
+            path: entry.path().to_string_lossy().to_string(),
+            is_directory: metadata.is_dir(),
+            size: if metadata.is_file() { metadata.len() } else { 0 },
+        });
+        if entries.len() >= MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
+    }
+
+    entries.sort_by(|a, b| {
+        b.is_directory
+            .cmp(&a.is_directory)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    Ok(WorkspaceDirResult {
+        root: root.to_string_lossy().to_string(),
+        path: target.to_string_lossy().to_string(),
+        entries,
+        truncated,
+    })
+}
+
+#[tauri::command]
+fn read_workspace_text_file(input: WorkspacePathInput) -> Result<WorkspaceTextFileResult, String> {
+    const MAX_BYTES: u64 = 256 * 1024;
+    let (_root, target) = resolve_workspace_path(&input.root, input.path.as_deref())?;
+    let metadata = fs::metadata(&target).map_err(|err| format!("read file metadata: {err}"))?;
+    if !metadata.is_file() {
+        return Err("path is not a file".to_string());
+    }
+
+    let mut file = fs::File::open(&target).map_err(|err| format!("open file: {err}"))?;
+    let mut bytes = Vec::new();
+    std::io::Read::by_ref(&mut file)
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("read file: {err}"))?;
+    if bytes.iter().any(|byte| *byte == 0) {
+        return Err("binary file preview is not supported".to_string());
+    }
+
+    let truncated = bytes.len() as u64 > MAX_BYTES;
+    if truncated {
+        bytes.truncate(MAX_BYTES as usize);
+    }
+    let content = String::from_utf8(bytes).map_err(|_| "file is not valid UTF-8".to_string())?;
+
+    Ok(WorkspaceTextFileResult {
+        name: target
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".to_string()),
+        path: target.to_string_lossy().to_string(),
+        language: infer_workspace_file_language(&target),
+        content,
+        size: metadata.len(),
+        truncated,
+    })
+}
+
+fn resolve_workspace_path(root: &str, target: Option<&str>) -> Result<(PathBuf, PathBuf), String> {
+    let root = PathBuf::from(root.trim())
+        .canonicalize()
+        .map_err(|err| format!("workspace not found: {err}"))?;
+    if !root.is_dir() {
+        return Err("workspace root is not a directory".to_string());
+    }
+
+    let raw_target = target.unwrap_or("").trim();
+    let target_path = if raw_target.is_empty() {
+        root.clone()
+    } else {
+        let path = PathBuf::from(raw_target);
+        if path.is_absolute() { path } else { root.join(path) }
+    };
+    let target = target_path
+        .canonicalize()
+        .map_err(|err| format!("path not found: {err}"))?;
+    if !is_path_within(&target, &root) {
+        return Err("path is outside the workspace".to_string());
+    }
+    Ok((root, target))
+}
+
+fn is_path_within(target: &Path, root: &Path) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let target = target.to_string_lossy().to_ascii_lowercase();
+        let root = root.to_string_lossy().to_ascii_lowercase();
+        target == root || target.starts_with(&(root + "\\"))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        target == root || target.starts_with(root)
+    }
+}
+
+fn should_hide_workspace_entry(name: &str) -> bool {
+    name.starts_with('.') || name.contains('\0')
+}
+
+fn should_skip_workspace_dir(name: &str) -> bool {
+    matches!(
+        name,
+        "node_modules" | "dist" | "build" | ".next" | ".nuxt" | "target" | "vendor" | "coverage"
+    )
+}
+
+fn infer_workspace_file_language(path: &Path) -> String {
+    match path.extension().and_then(|ext| ext.to_str()).unwrap_or("").to_lowercase().as_str() {
+        "md" | "markdown" => "markdown",
+        "ts" | "tsx" => "typescript",
+        "js" | "jsx" => "javascript",
+        "json" => "json",
+        "html" | "htm" => "html",
+        "css" => "css",
+        "rs" => "rust",
+        "py" => "python",
+        "csv" => "csv",
+        "xml" => "xml",
+        "yaml" | "yml" => "yaml",
+        "toml" => "toml",
+        "txt" => "plaintext",
+        _ => "plaintext",
+    }.to_string()
+}
+
 #[cfg(target_os = "windows")]
 fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
     let mut command = StdCommand::new("explorer.exe");
@@ -239,8 +536,8 @@ fn build_reveal_path_command(path: &PathBuf, is_directory: bool) -> StdCommand {
 
 #[cfg(target_os = "windows")]
 fn build_open_path_command(path: &PathBuf) -> StdCommand {
-    let mut command = StdCommand::new("cmd.exe");
-    command.arg("/C").arg("start").arg("").arg(path);
+    let mut command = StdCommand::new("explorer.exe");
+    command.arg(path);
     command
 }
 
@@ -291,6 +588,7 @@ fn restart_adapters_sidecar(app: AppHandle) -> Result<AdapterRestartReport, Stri
 #[tauri::command]
 fn prepare_for_update_install(app: AppHandle) -> Result<(), String> {
     mark_app_quitting(&app);
+    close_browser_webviews(&app);
     stop_server_sidecar(&app);
     stop_adapters_sidecar(&app);
 
@@ -577,6 +875,471 @@ fn terminal_kill(state: State<'_, TerminalState>, session_id: u32) -> Result<(),
             .map_err(|err| format!("kill terminal shell: {err}"))?;
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn browser_create(
+    app: AppHandle,
+    state: State<'_, BrowserState>,
+    input: BrowserCreateInput,
+) -> Result<BrowserCommandResult, String> {
+    let session_id = normalize_browser_session_id(&input.session_id)?;
+    let url = parse_browser_url(&input.url)?;
+    let url_string = url.to_string();
+    let window = app
+        .get_window(MAIN_WINDOW_LABEL)
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+
+    {
+        let mut browsers = state
+            .0
+            .lock()
+            .map_err(|_| "browser state is unavailable".to_string())?;
+
+        if let Some(existing) = browsers.get_mut(&session_id) {
+            apply_browser_bounds(&existing.webview, &input.bounds)?;
+            if existing.url != url_string {
+                existing
+                    .webview
+                    .navigate(url.clone())
+                    .map_err(|err| format!("navigate browser: {err}"))?;
+                existing.url = url_string.clone();
+            }
+            existing
+                .webview
+                .show()
+                .map_err(|err| format!("show browser: {err}"))?;
+            return Ok(BrowserCommandResult {
+                session_id,
+                url: url_string,
+            });
+        }
+    }
+
+    let label = browser_webview_label(&session_id);
+    let navigation_app = app.clone();
+    let navigation_session_id = session_id.clone();
+    let page_load_app = app.clone();
+    let page_load_session_id = session_id.clone();
+    let title_app = app.clone();
+    let title_session_id = session_id.clone();
+    let new_window_app = app.clone();
+    let new_window_session_id = session_id.clone();
+    let download_app = app.clone();
+    let download_session_id = session_id.clone();
+    let builder = WebviewBuilder::new(label, WebviewUrl::External(url.clone()))
+        .initialization_script_for_all_frames(BROWSER_LINK_INTERCEPT_SCRIPT)
+        .on_navigation(move |next_url| {
+            let allowed = matches!(next_url.scheme(), "http" | "https");
+            if allowed {
+                remember_browser_url(
+                    &navigation_app,
+                    &navigation_session_id,
+                    &next_url.to_string(),
+                );
+            }
+            emit_browser_event(
+                &navigation_app,
+                BrowserEventPayload {
+                    session_id: navigation_session_id.clone(),
+                    event: if allowed { "navigation" } else { "navigation-blocked" }.to_string(),
+                    url: Some(next_url.to_string()),
+                    title: None,
+                    message: if allowed {
+                        None
+                    } else {
+                        Some("only http and https URLs are supported".to_string())
+                    },
+                },
+            );
+            allowed
+        })
+        .on_page_load(move |_webview, payload| {
+            emit_browser_event(
+                &page_load_app,
+                BrowserEventPayload {
+                    session_id: page_load_session_id.clone(),
+                    event: match payload.event() {
+                        PageLoadEvent::Started => "loading-started",
+                        PageLoadEvent::Finished => "loading-finished",
+                    }
+                    .to_string(),
+                    url: Some(payload.url().to_string()),
+                    title: None,
+                    message: None,
+                },
+            );
+        })
+        .on_document_title_changed(move |_webview, title| {
+            emit_browser_event(
+                &title_app,
+                BrowserEventPayload {
+                    session_id: title_session_id.clone(),
+                    event: "title-changed".to_string(),
+                    url: None,
+                    title: Some(title),
+                    message: None,
+                },
+            );
+        })
+        .on_new_window(move |next_url, _features| {
+            if matches!(next_url.scheme(), "http" | "https") {
+                let message = navigate_existing_browser(
+                    &new_window_app,
+                    &new_window_session_id,
+                    next_url.clone(),
+                )
+                .err();
+                emit_browser_event(
+                    &new_window_app,
+                    BrowserEventPayload {
+                        session_id: new_window_session_id.clone(),
+                        event: if message.is_none() {
+                            "navigation"
+                        } else {
+                            "new-window"
+                        }
+                        .to_string(),
+                        url: Some(next_url.to_string()),
+                        title: None,
+                        message,
+                    },
+                );
+                return NewWindowResponse::Deny;
+            }
+            emit_browser_event(
+                &new_window_app,
+                BrowserEventPayload {
+                    session_id: new_window_session_id.clone(),
+                    event: "new-window".to_string(),
+                    url: Some(next_url.to_string()),
+                    title: None,
+                    message: Some("new window blocked; open externally if needed".to_string()),
+                },
+            );
+            NewWindowResponse::Deny
+        })
+        .on_download(move |_webview, event| {
+            match event {
+                DownloadEvent::Requested { url, .. } => {
+                    emit_browser_event(
+                        &download_app,
+                        BrowserEventPayload {
+                            session_id: download_session_id.clone(),
+                            event: "download-requested".to_string(),
+                            url: Some(url.to_string()),
+                            title: None,
+                            message: Some("download blocked in the embedded browser".to_string()),
+                        },
+                    );
+                    false
+                }
+                DownloadEvent::Finished { url, success, path } => {
+                    emit_browser_event(
+                        &download_app,
+                        BrowserEventPayload {
+                            session_id: download_session_id.clone(),
+                            event: "download-finished".to_string(),
+                            url: Some(url.to_string()),
+                            title: None,
+                            message: Some(format!("success={success}, path={}", path
+                                .as_ref()
+                                .map(|value| value.to_string_lossy().to_string())
+                                .unwrap_or_default())),
+                        },
+                    );
+                    true
+                }
+                _ => true,
+            }
+        });
+    let webview = window
+        .add_child(
+            builder,
+            browser_position(&input.bounds),
+            browser_size(&input.bounds),
+        )
+        .map_err(|err| format!("create browser webview: {err}"))?;
+
+    {
+        let mut browsers = state
+            .0
+            .lock()
+            .map_err(|_| "browser state is unavailable".to_string())?;
+        browsers.insert(
+            session_id.clone(),
+            BrowserWebview {
+                webview,
+                url: url_string.clone(),
+            },
+        );
+    }
+
+    Ok(BrowserCommandResult {
+        session_id,
+        url: url_string,
+    })
+}
+
+#[tauri::command]
+fn browser_navigate(
+    state: State<'_, BrowserState>,
+    input: BrowserNavigateInput,
+) -> Result<BrowserCommandResult, String> {
+    let session_id = normalize_browser_session_id(&input.session_id)?;
+    let url = parse_browser_url(&input.url)?;
+    let mut browsers = state
+        .0
+        .lock()
+        .map_err(|_| "browser state is unavailable".to_string())?;
+    let browser = browsers
+        .get_mut(&session_id)
+        .ok_or_else(|| "browser webview is not running".to_string())?;
+
+    browser
+        .webview
+        .navigate(url.clone())
+        .map_err(|err| format!("navigate browser: {err}"))?;
+    browser.url = url.to_string();
+    Ok(BrowserCommandResult {
+        session_id,
+        url: url.to_string(),
+    })
+}
+
+#[tauri::command]
+fn browser_go_back(
+    state: State<'_, BrowserState>,
+    input: BrowserSessionInput,
+) -> Result<(), String> {
+    run_browser_script(state, input, "window.history.back()")
+}
+
+#[tauri::command]
+fn browser_go_forward(
+    state: State<'_, BrowserState>,
+    input: BrowserSessionInput,
+) -> Result<(), String> {
+    run_browser_script(state, input, "window.history.forward()")
+}
+
+#[tauri::command]
+fn browser_reload(
+    state: State<'_, BrowserState>,
+    input: BrowserSessionInput,
+) -> Result<(), String> {
+    run_browser_script(state, input, "window.location.reload()")
+}
+
+#[tauri::command]
+fn browser_stop(state: State<'_, BrowserState>, input: BrowserSessionInput) -> Result<(), String> {
+    run_browser_script(state, input, "window.stop()")
+}
+
+fn run_browser_script(
+    state: State<'_, BrowserState>,
+    input: BrowserSessionInput,
+    script: &str,
+) -> Result<(), String> {
+    let session_id = normalize_browser_session_id(&input.session_id)?;
+    let browsers = state
+        .0
+        .lock()
+        .map_err(|_| "browser state is unavailable".to_string())?;
+    let browser = browsers
+        .get(&session_id)
+        .ok_or_else(|| "browser webview is not running".to_string())?;
+
+    browser
+        .webview
+        .eval(script)
+        .map_err(|err| format!("run browser script: {err}"))
+}
+
+fn emit_browser_event(app: &AppHandle, payload: BrowserEventPayload) {
+    let _ = app.emit("browser-event", payload);
+}
+
+fn remember_browser_url(app: &AppHandle, session_id: &str, url: &str) {
+    let state = app.state::<BrowserState>();
+    if let Ok(mut browsers) = state.0.lock() {
+        if let Some(browser) = browsers.get_mut(session_id) {
+            browser.url = url.to_string();
+        }
+    };
+}
+
+fn navigate_existing_browser(
+    app: &AppHandle,
+    session_id: &str,
+    url: tauri::Url,
+) -> Result<(), String> {
+    let state = app.state::<BrowserState>();
+    let mut browsers = state
+        .0
+        .lock()
+        .map_err(|_| "browser state is unavailable".to_string())?;
+    let browser = browsers
+        .get_mut(session_id)
+        .ok_or_else(|| "browser webview is not running".to_string())?;
+    browser
+        .webview
+        .navigate(url.clone())
+        .map_err(|err| format!("navigate browser: {err}"))?;
+    browser.url = url.to_string();
+    Ok(())
+}
+
+#[tauri::command]
+fn browser_set_bounds(
+    state: State<'_, BrowserState>,
+    input: BrowserBoundsUpdateInput,
+) -> Result<(), String> {
+    let session_id = normalize_browser_session_id(&input.session_id)?;
+    let browsers = state
+        .0
+        .lock()
+        .map_err(|_| "browser state is unavailable".to_string())?;
+    let browser = browsers
+        .get(&session_id)
+        .ok_or_else(|| "browser webview is not running".to_string())?;
+
+    apply_browser_bounds(&browser.webview, &input.bounds)
+}
+
+#[tauri::command]
+fn browser_show(
+    state: State<'_, BrowserState>,
+    input: BrowserSessionInput,
+) -> Result<(), String> {
+    let session_id = normalize_browser_session_id(&input.session_id)?;
+    let browsers = state
+        .0
+        .lock()
+        .map_err(|_| "browser state is unavailable".to_string())?;
+    let browser = browsers
+        .get(&session_id)
+        .ok_or_else(|| "browser webview is not running".to_string())?;
+
+    browser
+        .webview
+        .show()
+        .map_err(|err| format!("show browser: {err}"))
+}
+
+#[tauri::command]
+fn browser_hide(
+    state: State<'_, BrowserState>,
+    input: BrowserSessionInput,
+) -> Result<(), String> {
+    let session_id = normalize_browser_session_id(&input.session_id)?;
+    let browsers = state
+        .0
+        .lock()
+        .map_err(|_| "browser state is unavailable".to_string())?;
+    let browser = browsers
+        .get(&session_id)
+        .ok_or_else(|| "browser webview is not running".to_string())?;
+
+    browser
+        .webview
+        .hide()
+        .map_err(|err| format!("hide browser: {err}"))
+}
+
+#[tauri::command]
+fn browser_close(
+    state: State<'_, BrowserState>,
+    input: BrowserSessionInput,
+) -> Result<(), String> {
+    let session_id = normalize_browser_session_id(&input.session_id)?;
+    let browser = {
+        let mut browsers = state
+            .0
+            .lock()
+            .map_err(|_| "browser state is unavailable".to_string())?;
+        browsers.remove(&session_id)
+    };
+
+    if let Some(browser) = browser {
+        browser
+            .webview
+            .close()
+            .map_err(|err| format!("close browser: {err}"))?;
+    }
+    Ok(())
+}
+
+fn normalize_browser_session_id(session_id: &str) -> Result<String, String> {
+    let trimmed = session_id.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("invalid browser session id".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+fn parse_browser_url(raw: &str) -> Result<tauri::Url, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.contains('\0') {
+        return Err("invalid browser URL".to_string());
+    }
+    let candidate = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    };
+    let url = tauri::Url::parse(&candidate).map_err(|err| format!("invalid browser URL: {err}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("only http and https URLs are supported".to_string());
+    }
+    Ok(url)
+}
+
+fn browser_webview_label(session_id: &str) -> String {
+    let compact: String = session_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+        .take(64)
+        .collect();
+    if compact.is_empty() {
+        let digest = Sha256::digest(session_id.as_bytes());
+        format!("gugu-browser-{digest:x}")
+    } else {
+        format!("gugu-browser-{compact}")
+    }
+}
+
+fn browser_position(bounds: &BrowserBoundsInput) -> LogicalPosition<f64> {
+    LogicalPosition::new(bounds.x.max(0.0), bounds.y.max(0.0))
+}
+
+fn browser_size(bounds: &BrowserBoundsInput) -> LogicalSize<f64> {
+    LogicalSize::new(bounds.width.max(16.0), bounds.height.max(16.0))
+}
+
+fn apply_browser_bounds(
+    webview: &Webview<Wry>,
+    bounds: &BrowserBoundsInput,
+) -> Result<(), String> {
+    webview
+        .set_position(browser_position(bounds))
+        .map_err(|err| format!("position browser: {err}"))?;
+    webview
+        .set_size(browser_size(bounds))
+        .map_err(|err| format!("resize browser: {err}"))?;
+    Ok(())
+}
+
+fn close_browser_webviews(app: &AppHandle) {
+    let Some(state) = app.try_state::<BrowserState>() else {
+        return;
+    };
+    let Ok(mut browsers) = state.0.lock() else {
+        return;
+    };
+    for (_, browser) in browsers.drain() {
+        let _ = browser.webview.close();
+    }
 }
 
 fn decode_terminal_output(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
@@ -1989,6 +2752,22 @@ mod tests {
             Some("https://legacy-runtime.example.com")
         );
     }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_open_path_uses_explorer_without_cmd_shell() {
+        let path = std::path::PathBuf::from(r"C:\Users\example\demo file.txt");
+        let command = super::build_open_path_command(&path);
+
+        assert_eq!(command.get_program().to_string_lossy(), "explorer.exe");
+        assert_eq!(
+            command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+            vec![path.to_string_lossy().to_string()]
+        );
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2001,6 +2780,7 @@ pub fn run() {
         .manage(AdapterState::default())
         .manage(ScreenshotBridgeState::default())
         .manage(TerminalState::default())
+        .manage(BrowserState::default())
         .manage(AppExitState::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -2011,12 +2791,24 @@ pub fn run() {
             get_server_url,
             reveal_path,
             open_path,
+            list_workspace_dir,
+            read_workspace_text_file,
             restart_adapters_sidecar,
             prepare_for_update_install,
             terminal_spawn,
             terminal_write,
             terminal_resize,
-            terminal_kill
+            terminal_kill,
+            browser_create,
+            browser_navigate,
+            browser_go_back,
+            browser_go_forward,
+            browser_reload,
+            browser_stop,
+            browser_set_bounds,
+            browser_show,
+            browser_hide,
+            browser_close
         ]);
 
     // macOS: native menu bar (traffic-light overlay style)
@@ -2134,11 +2926,13 @@ pub fn run() {
         }
         RunEvent::ExitRequested { .. } => {
             mark_app_quitting(app_handle);
+            close_browser_webviews(app_handle);
             stop_server_sidecar(app_handle);
             stop_adapters_sidecar(app_handle);
         }
         RunEvent::Exit => {
             mark_app_quitting(app_handle);
+            close_browser_webviews(app_handle);
             stop_server_sidecar(app_handle);
             stop_adapters_sidecar(app_handle);
         }

@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 import { providersApi } from '../api/providers'
 import { useSettingsStore } from './settingsStore'
-import { OFFICIAL_DEFAULT_MODEL_ID } from '../constants/modelCatalog'
+import { GUGU_MANAGED_DEFAULT_MODEL_ID } from '../constants/modelCatalog'
 import type {
   SavedProvider,
   CreateProviderInput,
@@ -100,7 +100,7 @@ export const useProviderStore = create<ProviderStore>((set, get) => ({
     await get().fetchProviders()
     // 切回官方默认时同样重置 currentModel，避免残留第三方 model id。
     const settings = useSettingsStore.getState()
-    await settings.setModel(OFFICIAL_DEFAULT_MODEL_ID)
+    await settings.setModel(GUGU_MANAGED_DEFAULT_MODEL_ID)
     await settings.fetchAll()
   },
 

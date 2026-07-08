@@ -70,37 +70,52 @@ export function OfficeToolboxControl({ value, onChange, disabled = false }: Prop
         aria-label={value ? t('chat.officeTool.selectedAria', { tool: selectedLabel }) : t('chat.officeTool.title')}
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="flex h-8 max-w-[128px] items-center gap-1.5 rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]/72 px-3 text-xs font-semibold text-[var(--color-text-secondary)] transition-[background-color,border-color] hover:border-[var(--color-brand)]/28 hover:bg-[var(--color-surface-container-lowest)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-8 max-w-[40px] items-center gap-1.5 overflow-hidden rounded-full border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)]/72 px-2 text-xs font-semibold text-[var(--color-text-secondary)] transition-[background-color,border-color] hover:border-[var(--color-brand)]/28 hover:bg-[var(--color-surface-container-lowest)] disabled:cursor-not-allowed disabled:opacity-50 min-[640px]:max-w-[128px] min-[640px]:px-3"
       >
         <SelectedIcon className="h-[14px] w-[14px] shrink-0 text-[var(--color-text-tertiary)]" />
-        <span className="truncate text-[var(--color-text-primary)]">{selectedLabel}</span>
-        <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-[var(--color-text-tertiary)]">expand_more</span>
+        <span className="hidden truncate whitespace-nowrap text-[var(--color-text-primary)] min-[640px]:inline">{selectedLabel}</span>
+        <span aria-hidden="true" className="material-symbols-outlined hidden shrink-0 text-[12px] text-[var(--color-text-tertiary)] min-[640px]:inline">expand_more</span>
       </button>
 
       {open && (
         <div className="absolute right-0 bottom-full z-50 mb-2 w-[360px] overflow-hidden rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-surface-container-lowest)] shadow-[var(--shadow-dropdown)]">
-          <div className="p-2">
-            <ToolboxMenuItem
-              value="normal"
-              selected={selection === 'normal'}
-              label={t('chat.officeTool.normal')}
-              description={t('chat.officeTool.normalDescription')}
-              onClick={pick}
-            />
-            <div className="my-1 h-px bg-[var(--color-border-separator)]" />
-            {OFFICE_TOOL_OPTIONS.map((tool) => (
-              <ToolboxMenuItem
-                key={tool.id}
-                value={tool.id}
-                selected={selection === tool.id}
-                label={t(tool.labelKey)}
-                description={t(tool.descriptionKey)}
-                onClick={pick}
-              />
-            ))}
-          </div>
+          <OfficeToolboxMenuItems value={value} onChange={pick} />
         </div>
       )}
+    </div>
+  )
+}
+
+export function OfficeToolboxMenuItems({
+  value,
+  onChange,
+}: {
+  value: OfficeToolId | null
+  onChange: (value: OfficeToolSelection) => void
+}) {
+  const t = useTranslation()
+  const selection: OfficeToolSelection = value ?? 'normal'
+
+  return (
+    <div className="p-2">
+      <ToolboxMenuItem
+        value="normal"
+        selected={selection === 'normal'}
+        label={t('chat.officeTool.normal')}
+        description={t('chat.officeTool.normalDescription')}
+        onClick={onChange}
+      />
+      <div className="my-1 h-px bg-[var(--color-border-separator)]" />
+      {OFFICE_TOOL_OPTIONS.map((tool) => (
+        <ToolboxMenuItem
+          key={tool.id}
+          value={tool.id}
+          selected={selection === tool.id}
+          label={t(tool.labelKey)}
+          description={t(tool.descriptionKey)}
+          onClick={onChange}
+        />
+      ))}
     </div>
   )
 }
@@ -125,19 +140,19 @@ function ToolboxMenuItem({
       type="button"
       aria-label={label}
       onClick={() => onClick(value)}
-      className={`flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+      className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${
         selected ? 'bg-[var(--color-model-option-selected-bg)]' : 'hover:bg-[var(--color-surface-hover)]'
       }`}
     >
-      <span aria-hidden="true" className="mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-        <Icon className={`h-[16px] w-[16px] ${selected ? 'text-[var(--color-brand)]' : 'text-[var(--color-text-tertiary)]'}`} />
+      <span aria-hidden="true" className="mt-0.5 flex h-[16px] w-[16px] shrink-0 items-center justify-center">
+        <Icon className={`h-[14px] w-[14px] ${selected ? 'text-[var(--color-brand)]' : 'text-[var(--color-text-tertiary)]'}`} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-semibold text-[var(--color-text-primary)]">{label}</span>
-        <span className="mt-0.5 block text-[11px] leading-[1.35] text-[var(--color-text-tertiary)]">{description}</span>
+        <span className="block text-[12px] font-semibold leading-4 text-[var(--color-text-primary)]">{label}</span>
+        <span className="mt-0.5 block text-[10px] leading-[1.3] text-[var(--color-text-tertiary)]">{description}</span>
       </span>
       {selected && (
-        <span aria-hidden="true" className="material-symbols-outlined mt-0.5 text-[15px] text-[var(--color-brand)]">check</span>
+        <span aria-hidden="true" className="material-symbols-outlined mt-0.5 text-[14px] text-[var(--color-brand)]">check</span>
       )}
     </button>
   )

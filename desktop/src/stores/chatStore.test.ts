@@ -2831,6 +2831,55 @@ describe('chatStore history mapping', () => {
     vi.useRealTimers()
   })
 
+  it('does not append a replayed completed assistant reply after reconnect', () => {
+    vi.useFakeTimers()
+    const finalReply = [
+      '全部完成。最终提交历史：',
+      '',
+      '```',
+      'd04c40a fix: replace remaining copy',
+      '27b9fa0 feat: systematic copy warm-up',
+      '```',
+      '',
+      '本轮 16+1 个文件，47 处改动。',
+    ].join('\n')
+    seedSession({
+      chatState: 'thinking',
+      messages: [
+        {
+          id: 'assistant-existing',
+          type: 'assistant_text',
+          content: finalReply,
+          timestamp: 1,
+        },
+      ],
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_start',
+      blockType: 'text',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: finalReply,
+    })
+    vi.advanceTimersByTime(60)
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'assistant_text',
+        content: finalReply,
+      },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
   it('does not split one streamed markdown reply when task progress arrives mid-stream', () => {
     vi.useFakeTimers()
 

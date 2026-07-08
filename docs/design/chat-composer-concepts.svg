@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <style>
+      .bg { fill: #f8f3ea; }
+      .panel { fill: #fffaf3; stroke: #e4cdb4; stroke-width: 1.5; }
+      .card { fill: #fffdfa; stroke: #dfc4a8; stroke-width: 1.5; }
+      .muted { fill: #8b6d56; font: 24px "Microsoft YaHei", sans-serif; }
+      .title { fill: #2d2119; font: 700 34px "Microsoft YaHei", sans-serif; }
+      .label { fill: #5b4333; font: 700 26px "Microsoft YaHei", sans-serif; }
+      .text { fill: #6c5341; font: 22px "Microsoft YaHei", sans-serif; }
+      .small { fill: #8d7562; font: 18px "Microsoft YaHei", sans-serif; }
+      .mono { fill: #6b5140; font: 18px Consolas, monospace; }
+      .button { fill: #a75d32; }
+      .chip { fill: #fff6e9; stroke: #e2c2a0; stroke-width: 1.3; }
+      .chip2 { fill: #f7ead9; }
+      .icon { fill: #7b614d; font: 30px "Segoe UI Symbol", sans-serif; }
+      .white { fill: #fff7ef; font: 700 22px "Microsoft YaHei", sans-serif; }
+      .line { stroke: #e7d2bc; stroke-width: 1.2; }
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="1000"/>
+  <text x="72" y="76" class="title">Gugu Agent 底部聊天框设计方向</text>
+  <text x="72" y="116" class="muted">目标：主次更清楚，窄宽度不变形，低频能力收进轻量菜单。</text>
+
+  <g transform="translate(72 160)">
+    <rect class="panel" x="0" y="0" width="1456" height="220" rx="28"/>
+    <text x="34" y="52" class="label">A. 单容器极简版</text>
+    <text x="34" y="86" class="small">最像 Codex：输入区为主，工具只是一行低噪声控件。</text>
+    <rect class="card" x="300" y="52" width="1060" height="122" rx="24"/>
+    <text x="332" y="96" class="text">随便问点什么...</text>
+    <line class="line" x1="324" y1="118" x2="1336" y2="118"/>
+    <text x="332" y="154" class="icon">＋</text>
+    <text x="388" y="154" class="icon">✧</text>
+    <text x="448" y="154" class="icon">🎙</text>
+    <rect class="chip2" x="514" y="128" width="134" height="42" rx="21"/>
+    <text x="544" y="156" class="small">自动接受⌄</text>
+    <circle cx="690" cy="149" r="23" fill="#fff8ee" stroke="#dec1a2" stroke-width="2"/>
+    <text x="673" y="156" class="mono">30%</text>
+    <rect class="chip" x="736" y="128" width="132" height="42" rx="21"/>
+    <text x="769" y="156" class="small">工具箱⌄</text>
+    <rect class="chip" x="888" y="128" width="110" height="42" rx="21"/>
+    <text x="923" y="156" class="small">默认⌄</text>
+    <rect class="button" x="1180" y="124" width="142" height="50" rx="24"/>
+    <text x="1218" y="157" class="white">运行 →</text>
+  </g>
+
+  <g transform="translate(72 420)">
+    <rect class="panel" x="0" y="0" width="1456" height="220" rx="28"/>
+    <text x="34" y="52" class="label">B. Gugu 温润版</text>
+    <text x="34" y="86" class="small">保留当前品牌温度，但弱化按钮背景，选中工具才强调。</text>
+    <rect class="card" x="300" y="42" width="1060" height="142" rx="28"/>
+    <rect class="chip" x="330" y="68" width="118" height="36" rx="18"/>
+    <text x="360" y="92" class="small">写邮件 ×</text>
+    <text x="332" y="136" class="text">把这段会议记录整理成邮件...</text>
+    <line class="line" x1="324" y1="154" x2="1336" y2="154"/>
+    <text x="334" y="182" class="icon">＋</text>
+    <text x="390" y="182" class="icon">✧</text>
+    <text x="450" y="182" class="icon">🎙</text>
+    <rect class="chip2" x="520" y="160" width="92" height="36" rx="18"/>
+    <text x="548" y="184" class="small">⚡⌄</text>
+    <circle cx="652" cy="178" r="21" fill="#fff8ee" stroke="#dec1a2" stroke-width="2"/>
+    <text x="636" y="185" class="mono">30%</text>
+    <rect class="chip" x="698" y="160" width="136" height="36" rx="18"/>
+    <text x="731" y="184" class="small">工具箱⌄</text>
+    <rect class="chip" x="854" y="160" width="108" height="36" rx="18"/>
+    <text x="887" y="184" class="small">默认⌄</text>
+    <rect class="button" x="1190" y="150" width="132" height="54" rx="27"/>
+    <text x="1232" y="184" class="white">运行</text>
+  </g>
+
+  <g transform="translate(72 680)">
+    <rect class="panel" x="0" y="0" width="1456" height="220" rx="28"/>
+    <text x="34" y="52" class="label">C. 窄宽响应版</text>
+    <text x="34" y="86" class="small">右侧工作台很宽时使用：只保留图标和一个合并菜单，绝不换行。</text>
+    <rect class="card" x="430" y="42" width="720" height="142" rx="28"/>
+    <text x="462" y="96" class="text">随便问点什么...</text>
+    <line class="line" x1="454" y1="124" x2="1126" y2="124"/>
+    <text x="462" y="164" class="icon">＋</text>
+    <text x="520" y="164" class="icon">✧</text>
+    <text x="580" y="164" class="icon">🎙</text>
+    <circle cx="660" cy="154" r="22" fill="#fff8ee" stroke="#dec1a2" stroke-width="2"/>
+    <text x="644" y="161" class="mono">30%</text>
+    <rect class="chip" x="704" y="133" width="92" height="42" rx="21"/>
+    <text x="738" y="161" class="small">⋯</text>
+    <circle cx="1082" cy="154" r="26" fill="#a75d32"/>
+    <text x="1068" y="164" class="white">→</text>
+  </g>
+</svg>

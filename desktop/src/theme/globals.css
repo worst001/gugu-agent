@@ -564,12 +564,20 @@ button, input, textarea, select, a, [role="button"] {
   width: var(--sidebar-width);
   flex-shrink: 0;
   overflow: hidden;
-  transition: width var(--motion-sidebar-duration) var(--motion-sidebar-easing);
+  opacity: 1;
+  transition:
+    width var(--motion-sidebar-duration) var(--motion-sidebar-easing),
+    opacity calc(var(--motion-sidebar-duration) - 80ms) ease;
   will-change: width;
 }
 
 .sidebar-shell[data-state="closed"] {
-  width: var(--sidebar-rail-width);
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    width var(--motion-sidebar-duration) var(--motion-sidebar-easing),
+    opacity calc(var(--motion-sidebar-duration) - 80ms) ease;
 }
 
 .sidebar-shell[data-resizing="true"],
@@ -585,13 +593,15 @@ button, input, textarea, select, a, [role="button"] {
   background-image: var(--sidebar-panel-bg-image);
   background-repeat: no-repeat;
   transition:
+    opacity var(--motion-sidebar-duration) ease,
+    transform var(--motion-sidebar-duration) var(--motion-sidebar-easing),
     background-color var(--motion-sidebar-duration) var(--motion-sidebar-easing),
     border-color var(--motion-sidebar-duration) var(--motion-sidebar-easing);
 }
 
 .sidebar-panel[data-state="closed"] {
-  width: var(--sidebar-rail-width);
-  min-width: var(--sidebar-rail-width);
+  opacity: 0;
+  transform: translateX(-12px);
 }
 
 .sidebar-toggle-button {

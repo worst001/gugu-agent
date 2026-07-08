@@ -55,7 +55,7 @@ export function focusSidebarSearchFromAppAction() {
 }
 
 export function openTerminalFromAppAction() {
-  useTabStore.getState().openTerminalTab()
+  useUIStore.getState().setTerminalDrawerOpen(true)
 }
 
 export function switchActiveTabFromAppAction(direction: -1 | 1) {

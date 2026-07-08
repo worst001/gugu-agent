@@ -36,6 +36,7 @@ import type { AttachmentParserConfig, AttachmentParserTestResult } from '../type
 import { ConfigBackupSettings } from './ConfigBackupSettings'
 import { useBillingStore } from '../stores/billingStore'
 import type { BillingStatus } from '../types/billing'
+import { openTerminalFromAppAction } from '../utils/appActions'
 
 const SELF_CONFIG_PROVIDER_PRESET_ID = 'custom'
 const MANAGED_PROVIDER_PRESET_ID = 'gugu-managed'
@@ -72,7 +73,6 @@ export function Settings() {
             <TabButton icon="shield" label={t('settings.tab.permissions')} active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} />
             <TabButton icon="tune" label={t('settings.tab.general')} active={activeTab === 'general'} onClick={() => setActiveTab('general')} />
             <TabButton icon="chat" label={t('settings.tab.adapters')} active={activeTab === 'adapters'} onClick={() => setActiveTab('adapters')} />
-            <TabButton icon="terminal" label={t('settings.tab.terminal')} active={activeTab === 'terminal'} onClick={() => setActiveTab('terminal')} />
             <TabButton icon="dns" label={t('settings.tab.mcp')} active={activeTab === 'mcp'} onClick={() => setActiveTab('mcp')} />
             <TabButton icon="smart_toy" label={t('settings.tab.agents')} active={activeTab === 'agents'} onClick={() => setActiveTab('agents')} />
             <TabButton icon="auto_awesome" label={t('settings.tab.skills')} active={activeTab === 'skills'} onClick={() => setActiveTab('skills')} />
@@ -1362,6 +1362,7 @@ type CapabilityHealthItem = {
   tone: CapabilityHealthTone
   actionLabel?: string
   actionTab?: SettingsTab
+  onAction?: () => void
 }
 
 function GeneralSettings({ onOpenTab }: { onOpenTab: (tab: SettingsTab) => void }) {
@@ -1601,13 +1602,21 @@ function CapabilityHealthCard({
             </span>
           </div>
           <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">{item.detail}</p>
-          {item.actionTab && item.actionLabel && (
+          {item.actionLabel && (item.actionTab || item.onAction) && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="mt-2 px-0 text-[var(--color-brand)] hover:bg-transparent"
-              onClick={() => onOpenTab(item.actionTab!)}
+              onClick={() => {
+                if (item.onAction) {
+                  item.onAction()
+                  return
+                }
+                if (item.actionTab) {
+                  onOpenTab(item.actionTab)
+                }
+              }}
             >
               {item.actionLabel}
             </Button>
@@ -1676,7 +1685,7 @@ function buildCapabilityHealthItems(
       detail: t('settings.general.health.rtk.optional'),
       tone: 'optional',
       actionLabel: t('settings.general.health.openTerminal'),
-      actionTab: 'terminal',
+      onAction: openTerminalFromAppAction,
     },
     {
       id: 'computer-use',

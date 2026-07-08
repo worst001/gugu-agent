@@ -1,5 +1,7 @@
 import type { ModelInfo } from '../types/settings'
 
+export const GUGU_MANAGED_DEFAULT_MODEL_ID = 'gugu-managed-main'
+
 export const OFFICIAL_DEFAULT_MODEL_ID = 'claude-opus-4-7'
 
 export const OFFICIAL_MODELS: ModelInfo[] = [

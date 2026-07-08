@@ -538,7 +538,17 @@ function getStreamingAppendText(currentText: string, incomingText: string): stri
   ) {
     return incomingText.slice(currentText.length)
   }
+  if (
+    incomingText.length >= SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH &&
+    currentText.endsWith(incomingText)
+  ) {
+    return ''
+  }
   return incomingText
+}
+
+function normalizeReplayComparableText(text: string): string {
+  return text.trim()
 }
 
 function appendAssistantTextMessage(
@@ -558,6 +568,26 @@ function appendAssistantTextMessage(
     (last.origin ?? null) === (origin ?? null)
   if (shouldMergeWithLast) {
     if (last.content === normalizedContent) return messages
+    const lastComparable = normalizeReplayComparableText(last.content)
+    const nextComparable = normalizeReplayComparableText(normalizedContent)
+    if (
+      nextComparable.length >= SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH &&
+      lastComparable.endsWith(nextComparable)
+    ) {
+      return messages
+    }
+    if (
+      lastComparable.length >= SNAPSHOT_DEDUPE_MIN_PREFIX_LENGTH &&
+      nextComparable.startsWith(lastComparable)
+    ) {
+      const replaced: UIMessage = {
+        ...last,
+        content: normalizedContent,
+        ...(model ?? last.model ? { model: model ?? last.model } : {}),
+        ...(origin ? { origin } : {}),
+      }
+      return [...messages.slice(0, -1), replaced]
+    }
 
     const merged: UIMessage = {
       ...last,

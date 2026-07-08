@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100">
+  <defs>
+    <style>
+      .bg{fill:#f6efe5}.panel{fill:#fffaf2;stroke:#dfc9ad;stroke-width:1.4}.dark{fill:#141313;stroke:#302b27;stroke-width:1.4}.chrome{fill:#fbf6ee;stroke:#e5d1b7}.main{fill:#f8f1e7}.rail{fill:#fffdf8;stroke:#e3cdb0}.work{fill:#fffaf2;stroke:#dfc9ad}.work-dark{fill:#171514;stroke:#332d28}.ink{fill:#2d241e;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.muted{fill:#8d765f;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.white{fill:#f6efe5;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.dm{fill:#a99b8f;font-family:"Microsoft YaHei","PingFang SC",Arial,sans-serif}.accent{fill:#a65b30}.soft{fill:#f2e4d0}.line{stroke:#e2cfb5}.line-dark{stroke:#302b27}.title{font-size:24px;font-weight:700}.label{font-size:20px;font-weight:700}.small{font-size:17px}.tiny{font-size:14px}.icon{font-size:18px}.pill{fill:#f4eadc}.pill-dark{fill:#25211d}.green{fill:#36b86a}
+    </style>
+  </defs>
+  <rect class="bg" width="1800" height="1100"/>
+  <text class="ink title" x="56" y="58">Gugu Agent 右侧工作台设计稿</text>
+  <text class="muted small" x="56" y="88">目标：右侧从“粗边栏 + 突兀面板”改成轻量工具区，空态可理解，展开/收起都有明确职责。</text>
+
+  <g transform="translate(56 130)">
+    <rect class="panel" width="820" height="430" rx="22"/>
+    <text class="ink label" x="28" y="42">A. 顶部浮动工具组</text>
+    <text class="muted tiny" x="28" y="68">右侧不常驻厚边，工具入口收进顶部右侧，适合当前 C 方案。</text>
+    <rect class="chrome" x="28" y="92" width="764" height="300" rx="14"/>
+    <rect class="main" x="28" y="124" width="764" height="268"/>
+    <rect class="soft" x="510" y="101" width="230" height="28" rx="14"/>
+    <text class="ink tiny" x="528" y="120">▣</text><text class="muted tiny" x="570" y="120">审查</text><text class="muted tiny" x="624" y="120">终端</text><text class="muted tiny" x="680" y="120">面板</text>
+    <rect class="rail" x="744" y="124" width="48" height="268"/>
+    <text class="muted icon" x="759" y="164">▣</text><text class="muted icon" x="759" y="210">⌘</text><text class="muted icon" x="759" y="256">▤</text>
+    <rect class="work" x="520" y="156" width="224" height="196" rx="12"/>
+    <text class="ink small" x="540" y="186">Agent 工作台</text>
+    <line class="line" x1="540" y1="205" x2="724" y2="205"/>
+    <text class="muted tiny" x="540" y="235">活动  Diff  预览</text>
+    <rect class="pill" x="540" y="260" width="164" height="42" rx="10"/>
+    <text class="ink tiny" x="555" y="286">Bash 已完成</text>
+  </g>
+
+  <g transform="translate(924 130)">
+    <rect class="dark" width="820" height="430" rx="22"/>
+    <text class="white label" x="28" y="42">B. 空态任务入口</text>
+    <text class="dm tiny" x="28" y="68">没有工作台内容时，不展示空白边栏，居中给可执行入口。</text>
+    <rect class="work-dark" x="28" y="92" width="764" height="300" rx="14"/>
+    <text class="dm tiny" x="700" y="122">⛶  ▭  ▣</text>
+    <g transform="translate(235 210)">
+      <rect class="pill-dark" width="350" height="34" rx="8"/><text class="white tiny" x="22" y="23">▣  审查</text><text class="dm tiny" x="270" y="23">Ctrl+Shift+G</text>
+      <rect class="pill-dark" y="43" width="350" height="34" rx="8"/><text class="white tiny" x="22" y="66">⌘  终端</text>
+      <rect class="pill-dark" y="86" width="350" height="34" rx="8"/><text class="white tiny" x="22" y="109">◎  浏览器</text><text class="dm tiny" x="290" y="109">Ctrl+T</text>
+      <rect class="pill-dark" y="129" width="350" height="34" rx="8"/><text class="white tiny" x="22" y="152">□  文件</text><text class="dm tiny" x="290" y="152">Ctrl+P</text>
+    </g>
+  </g>
+
+  <g transform="translate(56 610)">
+    <rect class="panel" width="820" height="430" rx="22"/>
+    <text class="ink label" x="28" y="42">C. 改良当前工作台</text>
+    <text class="muted tiny" x="28" y="68">保留现有 Activity/Diff/Preview，但头部更轻、按钮更收敛。</text>
+    <rect class="chrome" x="28" y="92" width="764" height="300" rx="14"/>
+    <rect class="main" x="28" y="92" width="500" height="300"/>
+    <rect class="work" x="528" y="92" width="264" height="300"/>
+    <text class="ink small" x="548" y="126">Agent 工作台</text><text class="muted tiny" x="548" y="148">41 个工具 · 1 个文件</text>
+    <text class="muted icon" x="760" y="126">▣</text>
+    <rect class="soft" x="548" y="172" width="204" height="36" rx="12"/><text class="ink tiny" x="584" y="196">活动</text><text class="muted tiny" x="650" y="196">Diff</text><text class="muted tiny" x="706" y="196">预览</text>
+    <rect class="work" x="548" y="226" width="214" height="78" rx="10"/><text class="ink tiny" x="565" y="254">Bash</text><text class="green tiny" x="715" y="254">完成</text><text class="muted tiny" x="565" y="282">List recently modified files</text>
+  </g>
+
+  <g transform="translate(924 610)">
+    <rect class="panel" width="820" height="430" rx="22"/>
+    <text class="ink label" x="28" y="42">D. 极简右轨 + 抽屉</text>
+    <text class="muted tiny" x="28" y="68">收起时只有 40px 右轨；展开是抽屉，不挤压主内容太多。</text>
+    <rect class="chrome" x="28" y="92" width="764" height="300" rx="14"/>
+    <rect class="main" x="28" y="92" width="724" height="300"/>
+    <rect class="rail" x="752" y="92" width="40" height="300"/>
+    <text class="muted icon" x="763" y="132">▣</text><text class="muted icon" x="763" y="178">⌘</text><text class="muted icon" x="763" y="224">◎</text><text class="muted icon" x="763" y="270">□</text>
+    <rect class="work" x="548" y="110" width="204" height="260" rx="12"/>
+    <text class="ink small" x="566" y="144">当前任务</text>
+    <text class="muted tiny" x="566" y="174">正在检查工具结果</text>
+    <line class="line" x1="566" y1="196" x2="730" y2="196"/>
+    <text class="ink tiny" x="566" y="228">审查</text><text class="ink tiny" x="566" y="260">终端</text><text class="ink tiny" x="566" y="292">浏览器</text><text class="ink tiny" x="566" y="324">侧边聊天</text>
+  </g>
+</svg>
