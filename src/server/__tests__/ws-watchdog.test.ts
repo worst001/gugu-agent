@@ -122,6 +122,25 @@ describe('desktop WebSocket watchdog', () => {
     expect(snapshot?.lastKeepAliveAt).toBeGreaterThan(0)
   })
 
+  test('stream pings keep the connection alive without masking a stalled model', () => {
+    process.env.CC_HAHA_MODEL_IDLE_TIMEOUT_MS = '1000'
+    __testing.setTurnMonitor(SESSION_ID, {
+      phase: 'thinking',
+      lastProgressAt: 100,
+      lastKeepAliveAt: 0,
+    })
+
+    __testing.noteTurnActivity(SESSION_ID, {
+      type: 'stream_event',
+      event: { type: 'ping' },
+    })
+
+    const snapshot = __testing.getTurnMonitorSnapshot(SESSION_ID)
+    expect(snapshot?.lastProgressAt).toBe(100)
+    expect(snapshot?.lastKeepAliveAt).toBeGreaterThan(0)
+    expect(__testing.shouldRecoverForModelIdle(SESSION_ID, 1_200)).toBe(true)
+  })
+
   test('does not recover a quiet model turn while the SDK socket is connected', () => {
     process.env.CC_HAHA_SDK_LIVENESS_TIMEOUT_MS = '500'
     __testing.setTurnMonitor(SESSION_ID, {

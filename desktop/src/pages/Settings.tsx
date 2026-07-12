@@ -1471,7 +1471,7 @@ function GeneralSettings({ onOpenTab }: { onOpenTab: (tab: SettingsTab) => void 
               onClick={() => void setTheme(value)}
               className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-xs transition-all ${
                 selected
-                  ? 'border-[var(--color-brand)] bg-[var(--color-primary-fixed)] text-[var(--color-text-primary)] shadow-[var(--shadow-button-primary)]'
+                  ? 'border-[var(--color-brand)] bg-[var(--color-primary-fixed)] text-[#161616] shadow-[var(--shadow-button-primary)]'
                   : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
               }`}
             >

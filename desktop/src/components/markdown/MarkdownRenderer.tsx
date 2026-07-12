@@ -221,14 +221,14 @@ function parseMarkdown(content: string): { html: string; codeBlocks: CodeBlock[]
 
 const BASE_PROSE_CLASSES = `markdown-prose prose prose-sm max-w-none text-[var(--color-text-primary)]
   prose-headings:text-[var(--color-text-primary)] prose-headings:font-semibold
-  prose-p:my-2 prose-p:leading-relaxed
+  prose-p:my-2 prose-p:leading-relaxed prose-p:text-[var(--color-text-primary)]
   prose-p:break-words
   prose-code:text-[13px] prose-code:text-[var(--color-code-fg)] prose-code:font-[var(--font-mono)] prose-code:bg-[var(--color-code-bg)] prose-code:border prose-code:border-[var(--color-border)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:hidden prose-code:after:hidden
   prose-pre:!bg-transparent prose-pre:!p-0 prose-pre:!shadow-none
   prose-a:break-all prose-a:text-[var(--color-text-accent)] prose-a:no-underline hover:prose-a:underline
   prose-strong:text-[var(--color-text-primary)]
   prose-ul:my-2 prose-ol:my-2
-  prose-li:my-0.5
+  prose-li:my-0.5 prose-li:text-[var(--color-text-primary)] prose-blockquote:text-[var(--color-text-primary)]
   prose-table:my-0 prose-table:w-full prose-table:table-auto prose-table:text-sm
   prose-th:bg-[var(--color-surface-info)] prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:whitespace-normal prose-th:break-words prose-th:align-top prose-th:border-b prose-th:border-[var(--color-border)]
   prose-td:px-3 prose-td:py-2 prose-td:border-b prose-td:border-[var(--color-border)] prose-td:whitespace-normal prose-td:break-words prose-td:align-top prose-td:bg-[var(--color-surface)]

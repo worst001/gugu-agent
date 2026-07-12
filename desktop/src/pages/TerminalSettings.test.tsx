@@ -1,7 +1,9 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
+import type { ITheme } from '@xterm/xterm'
 import '@testing-library/jest-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useUIStore } from '../stores/uiStore'
 
 const terminalMocks = vi.hoisted(() => {
   const terminalInstance = {
@@ -15,6 +17,7 @@ const terminalMocks = vi.hoisted(() => {
     writeln: vi.fn(),
     clear: vi.fn(),
     refresh: vi.fn(),
+    options: { theme: undefined as ITheme | undefined },
   }
   const fitInstance = {
     fit: vi.fn(),
@@ -33,7 +36,10 @@ const terminalMocks = vi.hoisted(() => {
 })
 
 vi.mock('@xterm/xterm', () => ({
-  Terminal: vi.fn(() => terminalMocks.terminalInstance),
+  Terminal: vi.fn((options) => {
+    terminalMocks.terminalInstance.options = options
+    return terminalMocks.terminalInstance
+  }),
 }))
 
 vi.mock('@xterm/addon-fit', () => ({
@@ -111,6 +117,28 @@ describe('TerminalSettings', () => {
     expect(terminalMocks.terminalInstance.open).toHaveBeenCalled()
     expect(terminalMocks.fitInstance.fit).toHaveBeenCalled()
     expect(terminalMocks.terminalInstance.refresh).toHaveBeenCalled()
+  })
+
+  it('updates xterm colors when the app theme changes', async () => {
+    terminalMocks.available = true
+    document.documentElement.style.setProperty('--color-terminal-bg', '#fefcf8')
+    document.documentElement.style.setProperty('--color-terminal-black', '#211b17')
+
+    render(<TerminalSettings />)
+    await waitFor(() => expect(terminalMocks.spawn).toHaveBeenCalled())
+    expect(terminalMocks.terminalInstance.options.theme?.background).toBe('#fefcf8')
+    expect(terminalMocks.terminalInstance.options.theme?.black).toBe('#211b17')
+
+    act(() => {
+      document.documentElement.style.setProperty('--color-terminal-bg', '#101820')
+      document.documentElement.style.setProperty('--color-terminal-black', '#29384a')
+      useUIStore.getState().setTheme('blue-dark')
+    })
+
+    await waitFor(() => {
+      expect(terminalMocks.terminalInstance.options.theme?.background).toBe('#101820')
+      expect(terminalMocks.terminalInstance.options.theme?.black).toBe('#29384a')
+    })
   })
 
   it('writes matching terminal output events into xterm', async () => {

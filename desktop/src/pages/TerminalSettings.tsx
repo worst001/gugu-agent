@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Terminal as XTermTerminal } from '@xterm/xterm'
+import type { ITheme, Terminal as XTermTerminal } from '@xterm/xterm'
 import type { FitAddon as XTermFitAddon } from '@xterm/addon-fit'
 import { useTranslation, type TranslationKey } from '../i18n'
 import { terminalApi } from '../api/terminal'
+import { useUIStore } from '../stores/uiStore'
 
 type TerminalStatus = 'idle' | 'starting' | 'running' | 'exited' | 'error' | 'unavailable'
 
@@ -16,6 +17,45 @@ const STATUS_LABEL_KEYS: Record<TerminalStatus, TranslationKey> = {
 }
 
 const RESIZE_COMMIT_DELAY_MS = 180
+
+function getThemeColor(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+function getTerminalTheme(): ITheme {
+  const foreground = getThemeColor('--color-terminal-fg', '#D4D4D4')
+  const muted = getThemeColor('--color-terminal-muted', '#999999')
+  const brand = getThemeColor('--color-brand', '#D95D2B')
+  const success = getThemeColor('--color-success', '#28C840')
+  const warning = getThemeColor('--color-terminal-warning', '#FEBC2E')
+  const error = getThemeColor('--color-terminal-danger', '#FF5F57')
+  const secondary = getThemeColor('--color-secondary', '#77A8FF')
+  const tertiary = getThemeColor('--color-tertiary', '#61D6D6')
+
+  return {
+    background: getThemeColor('--color-terminal-bg', '#1E1E1E'),
+    foreground,
+    cursor: brand,
+    selectionBackground: getThemeColor('--color-selection-bg', '#5F4A40'),
+    black: getThemeColor('--color-terminal-black', '#2D2D2D'),
+    red: error,
+    green: success,
+    yellow: warning,
+    blue: brand,
+    magenta: secondary,
+    cyan: tertiary,
+    white: foreground,
+    brightBlack: muted,
+    brightRed: error,
+    brightGreen: success,
+    brightYellow: warning,
+    brightBlue: brand,
+    brightMagenta: secondary,
+    brightCyan: tertiary,
+    brightWhite: foreground,
+  }
+}
 
 type TerminalSettingsProps = {
   active?: boolean
@@ -33,6 +73,7 @@ export function TerminalSettings({
   workspace = false,
 }: TerminalSettingsProps = {}) {
   const t = useTranslation()
+  const theme = useUIStore((state) => state.theme)
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<XTermTerminal | null>(null)
   const fitRef = useRef<XTermFitAddon | null>(null)
@@ -115,28 +156,7 @@ export function TerminalSettings({
       fontSize: 12,
       lineHeight: 1.25,
       scrollback: 4000,
-      theme: {
-        background: '#121212',
-        foreground: '#d7d2d0',
-        cursor: '#ffb59f',
-        selectionBackground: '#5f4a40',
-        black: '#1f1f1f',
-        red: '#ff6d67',
-        green: '#7ef18a',
-        yellow: '#f8c55f',
-        blue: '#77a8ff',
-        magenta: '#d699ff',
-        cyan: '#61d6d6',
-        white: '#d7d2d0',
-        brightBlack: '#8f8683',
-        brightRed: '#ff8a85',
-        brightGreen: '#9ff7a7',
-        brightYellow: '#ffdd7a',
-        brightBlue: '#a6c5ff',
-        brightMagenta: '#e3b8ff',
-        brightCyan: '#8ceeee',
-        brightWhite: '#ffffff',
-      },
+      theme: getTerminalTheme(),
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit)
@@ -213,6 +233,13 @@ export function TerminalSettings({
       clearResizeCommitTimer()
     }
   }, [clearResizeCommitTimer, resizeSession, startTerminal])
+
+  useEffect(() => {
+    const terminal = terminalRef.current
+    if (!terminal) return
+    terminal.options.theme = getTerminalTheme()
+    terminal.refresh(0, terminal.rows - 1)
+  }, [theme])
 
   useEffect(() => {
     let frame: number | undefined

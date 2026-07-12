@@ -26,7 +26,7 @@ describe('theme mode helpers', () => {
     const { getThemeOppositeTone, getThemeTone, normalizeThemeMode } = await import('../types/settings')
 
     expect(normalizeThemeMode('blue-dark')).toBe('blue-dark')
-    expect(normalizeThemeMode('unknown-theme')).toBe('light')
+    expect(normalizeThemeMode('unknown-theme')).toBe('dark')
     expect(getThemeTone('pink-dark')).toBe('dark')
     expect(getThemeTone('green-light')).toBe('light')
     expect(getThemeOppositeTone('blue-light')).toBe('blue-dark')

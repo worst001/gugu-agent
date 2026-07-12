@@ -110,14 +110,14 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
       <button
         type="button"
         onClick={() => setTerminalDrawerOpen(!terminalDrawerOpen)}
-        className={`pointer-events-auto absolute right-12 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] shadow-sm transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
+        className={`pointer-events-auto absolute right-11 top-2 z-40 flex h-7 w-7 items-center justify-center rounded-md bg-transparent text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
           terminalDrawerOpen ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]' : ''
         }`}
         aria-pressed={terminalDrawerOpen}
         aria-label={terminalDrawerOpen ? t('tabs.close') : t('appMenu.view.terminal')}
         title={terminalDrawerOpen ? t('tabs.close') : t('appMenu.view.terminal')}
       >
-        <span className="material-symbols-outlined text-[17px]" aria-hidden="true">
+        <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
           terminal
         </span>
       </button>
@@ -127,11 +127,11 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
           if (state.isOpen) closeWorkbench(sessionId)
           else openWorkbench(sessionId)
         }}
-        className="pointer-events-auto absolute right-3 top-3 z-40 flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] shadow-sm transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+        className="pointer-events-auto absolute right-3 top-2 z-40 flex h-7 w-7 items-center justify-center rounded-md bg-transparent text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
         aria-label={state.isOpen ? t('workbench.close') : t('workbench.open')}
         title={state.isOpen ? t('workbench.close') : t('workbench.open')}
       >
-        <span className="material-symbols-outlined text-[17px]">
+        <span className="material-symbols-outlined text-[16px]">
           {state.isOpen ? 'right_panel_close' : 'right_panel_open'}
         </span>
       </button>

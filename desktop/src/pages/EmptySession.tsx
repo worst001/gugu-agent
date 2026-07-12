@@ -25,6 +25,7 @@ import { buildTaskContextMessage, buildTaskContextNotice } from '../constants/ta
 import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../stores/agentRunModeStore'
 import { DRAFT_CE_WORKFLOW_KEY, useCeWorkflowRoleStore } from '../stores/ceWorkflowRoleStore'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
+import { EmptySessionWelcome } from '../components/chat/EmptySessionWelcome'
 import { FileSearchMenu, type FileSearchMenuHandle } from '../components/chat/FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from '../components/chat/LocalSlashCommandPanel'
 import {
@@ -53,45 +54,6 @@ type Attachment = {
   path?: string
   size?: number
 }
-
-const STARTER_TASKS = [
-  {
-    id: 'document',
-    icon: 'description',
-    labelKey: 'empty.starters.document.label',
-    promptKey: 'empty.starters.document.prompt',
-  },
-  {
-    id: 'spreadsheet',
-    icon: 'table_chart',
-    labelKey: 'empty.starters.spreadsheet.label',
-    promptKey: 'empty.starters.spreadsheet.prompt',
-  },
-  {
-    id: 'mail',
-    icon: 'mail',
-    labelKey: 'empty.starters.mail.label',
-    promptKey: 'empty.starters.mail.prompt',
-  },
-  {
-    id: 'code',
-    icon: 'code',
-    labelKey: 'empty.starters.code.label',
-    promptKey: 'empty.starters.code.prompt',
-  },
-  {
-    id: 'folder',
-    icon: 'folder_open',
-    labelKey: 'empty.starters.folder.label',
-    promptKey: 'empty.starters.folder.prompt',
-  },
-  {
-    id: 'computer',
-    icon: 'desktop_windows',
-    labelKey: 'empty.starters.computer.label',
-    promptKey: 'empty.starters.computer.prompt',
-  },
-] as const
 
 export function EmptySession() {
   const t = useTranslation()
@@ -777,8 +739,7 @@ export function EmptySession() {
     setPlusMenuOpen(false)
   }
 
-  const selectStarterTask = (promptKey: typeof STARTER_TASKS[number]['promptKey']) => {
-    const value = t(promptKey)
+  const selectStarterTask = (value: string) => {
     setInput(value)
     requestAnimationFrame(() => {
       textareaRef.current?.focus()
@@ -789,30 +750,10 @@ export function EmptySession() {
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-surface)]">
       <div className="flex flex-1 flex-col items-center justify-center p-8 pb-32">
-        <div className="flex max-w-md flex-col items-center text-center">
-          <img src="/app-icon.svg" alt="Gugu Agent" className="mb-6 h-24 w-24" />
-          <h1 className="mb-2 text-3xl font-extrabold tracking-tight text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-headline)' }}>
-            {t('empty.title')}
-          </h1>
-          <p className="mx-auto max-w-xs text-[var(--color-text-secondary)]" style={{ fontFamily: 'var(--font-body)' }}>
-            {t('empty.subtitle')}
-          </p>
-          {showStarterTasks && (
-            <div className="mt-6 grid w-full max-w-lg grid-cols-2 gap-2 sm:grid-cols-3">
-              {STARTER_TASKS.map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => selectStarterTask(task.promptKey)}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
-                >
-                  <span className="material-symbols-outlined text-[16px]" aria-hidden="true">{task.icon}</span>
-                  <span className="truncate">{t(task.labelKey)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <EmptySessionWelcome
+          showStarterTasks={showStarterTasks}
+          onSelectPrompt={selectStarterTask}
+        />
       </div>
 
       <div className="absolute bottom-4 left-0 right-0 flex justify-center px-8">

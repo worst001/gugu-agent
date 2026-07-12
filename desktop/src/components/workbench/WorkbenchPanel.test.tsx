@@ -135,12 +135,14 @@ describe('WorkbenchPanel', () => {
     expect(screen.queryByText('Agent Workbench')).not.toBeInTheDocument()
 
     const openButton = screen.getByLabelText('Open workbench')
-    expect(openButton.className).toContain('absolute right-3 top-3')
+    expect(openButton.className).toContain('absolute right-3 top-2')
+    expect(openButton).toHaveClass('h-7', 'w-7', 'bg-transparent')
+    expect(openButton).not.toHaveClass('border', 'shadow-sm')
 
     fireEvent.click(openButton)
     expect(screen.getByTestId('workbench-panel')).toBeInTheDocument()
     expect(screen.getByText('Agent Workbench')).toBeInTheDocument()
-    expect(screen.getByLabelText('Collapse workbench').className).toContain('absolute right-3 top-3')
+    expect(screen.getByLabelText('Collapse workbench').className).toContain('absolute right-3 top-2')
 
     fireEvent.click(screen.getByRole('tab', { name: /review/i }))
 

@@ -23,7 +23,7 @@ const THEME_MODE_SET = new Set<string>(THEME_MODES)
 export function normalizeThemeMode(value: unknown): ThemeMode {
   return typeof value === 'string' && THEME_MODE_SET.has(value)
     ? value as ThemeMode
-    : 'light'
+    : 'dark'
 }
 
 export function getThemeTone(theme: ThemeMode): 'light' | 'dark' {

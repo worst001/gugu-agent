@@ -7,6 +7,7 @@ import { useTeamStore } from '../stores/teamStore'
 import { useTranslation } from '../i18n'
 import { MessageList } from '../components/chat/MessageList'
 import { ChatInput } from '../components/chat/ChatInput'
+import { EmptySessionWelcome } from '../components/chat/EmptySessionWelcome'
 import { ComputerUsePermissionModal } from '../components/chat/ComputerUsePermissionModal'
 import { TeamStatusBar } from '../components/teams/TeamStatusBar'
 import { SessionTaskBar } from '../components/chat/SessionTaskBar'
@@ -31,6 +32,7 @@ export function ActiveSession() {
   const sessions = useSessionStore((s) => s.sessions)
   const connectToSession = useChatStore((s) => s.connectToSession)
   const loadHistory = useChatStore((s) => s.loadHistory)
+  const queueComposerPrefill = useChatStore((s) => s.queueComposerPrefill)
   const sessionState = useChatStore((s) => activeTabId ? s.sessions[activeTabId] : undefined)
   const pendingComputerUsePermission = sessionState?.pendingComputerUsePermission ?? null
   const fetchSessionTasks = useCLITaskStore((s) => s.fetchSessionTasks)
@@ -193,15 +195,9 @@ export function ActiveSession() {
                 </p>
               </>
             ) : (
-              <>
-                <img src="/app-icon.svg" alt="Gugu Agent" className="mb-6 h-24 w-24" />
-                <h1 className="mb-2 text-3xl font-extrabold tracking-tight text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-headline)' }}>
-                  {t('empty.title')}
-                </h1>
-                <p className="mx-auto max-w-xs text-[var(--color-text-secondary)]" style={{ fontFamily: 'var(--font-body)' }}>
-                  {t('empty.subtitle')}
-                </p>
-              </>
+              <EmptySessionWelcome
+                onSelectPrompt={(prompt) => queueComposerPrefill(activeTabId, { text: prompt })}
+              />
             )}
           </div>
         </div>

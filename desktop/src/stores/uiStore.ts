@@ -12,7 +12,7 @@ function getStoredTheme(): ThemeMode {
   try {
     return normalizeThemeMode(localStorage.getItem(THEME_STORAGE_KEY))
   } catch { /* localStorage unavailable */ }
-  return 'light'
+  return 'dark'
 }
 
 function clampSidebarWidth(width: number): number {

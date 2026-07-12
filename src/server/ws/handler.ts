@@ -377,6 +377,13 @@ function noteTurnActivity(sessionId: string, cliMsg: any): void {
     return
   }
 
+
+  if (cliMsg?.type === 'stream_event' && cliMsg.event?.type === 'ping') {
+    monitor.lastKeepAliveAt = now
+    monitor.sdkDisconnectedAt = null
+    monitor.sdkDisconnectNoticeSent = false
+    return
+  }
   monitor.sdkDisconnectedAt = null
   monitor.sdkDisconnectNoticeSent = false
   monitor.sdkRestoredAt = null
