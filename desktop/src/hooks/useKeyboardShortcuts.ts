@@ -4,7 +4,7 @@ import { useUIStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
 import {
   closeCurrentTabFromAppAction,
-  createSessionFromAppAction,
+  openNewSessionDraftFromAppAction,
   focusSidebarSearchFromAppAction,
   openSettingsFromAppAction,
   quitAppFromAppAction,
@@ -14,7 +14,6 @@ import {
 } from '../utils/appActions'
 
 export function useKeyboardShortcuts() {
-  const setActiveView = useUIStore((s) => s.setActiveView)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const closeModal = useUIStore((s) => s.closeModal)
   const activeModal = useUIStore((s) => s.activeModal)
@@ -74,8 +73,7 @@ export function useKeyboardShortcuts() {
 
       if (key === 'n') {
         event.preventDefault()
-        setActiveView('code')
-        void createSessionFromAppAction()
+        openNewSessionDraftFromAppAction()
         return
       }
 
@@ -115,7 +113,7 @@ export function useKeyboardShortcuts() {
 
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [closeModal, setActiveView, toggleSidebar])
+  }, [closeModal, toggleSidebar])
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

@@ -1,6 +1,12 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { Button } from '../components/shared/Button'
+import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { configBackupApi } from '../api/configBackup'
+import {
+  flushDesktopStateWrites,
+  reloadDesktopProfile,
+  resetDesktopProfileData,
+} from '../stores/desktopProfilePersistence'
 import { useTranslation, type TranslationKey } from '../i18n'
 import type {
   ConfigBackupPackage,
@@ -17,6 +23,8 @@ export function ConfigBackupSettings() {
   const [isExporting, setIsExporting] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
+  const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [configPackage, setConfigPackage] = useState<ConfigBackupPackage | null>(null)
   const [preview, setPreview] = useState<ConfigBackupPreview | null>(null)
@@ -80,13 +88,30 @@ export function ConfigBackupSettings() {
     setIsImporting(true)
     setMessage(null)
     try {
+      await flushDesktopStateWrites()
       const result = await configBackupApi.importConfig(configPackage, overwrite)
+      await reloadDesktopProfile()
       setPreview(result.preview)
       setMessage({ type: 'success', text: t('settings.configBackup.imported') })
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : String(error) })
     } finally {
       setIsImporting(false)
+    }
+  }
+
+  const handleReset = async () => {
+    setIsResetting(true)
+    setMessage(null)
+    try {
+      await resetDesktopProfileData()
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : String(error),
+      })
+      setIsResetting(false)
+      setResetConfirmationOpen(false)
     }
   }
 
@@ -189,6 +214,36 @@ export function ConfigBackupSettings() {
           </div>
         </section>
       </div>
+
+      <section className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-[var(--color-border)] pt-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="material-symbols-outlined mt-0.5 text-[20px] text-[var(--color-error)]">delete_sweep</span>
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+              {t('settings.configBackup.resetTitle')}
+            </h3>
+            <p className="mt-1 max-w-xl text-xs leading-5 text-[var(--color-text-tertiary)]">
+              {t('settings.configBackup.resetDescription')}
+            </p>
+          </div>
+        </div>
+        <Button variant="danger" onClick={() => setResetConfirmationOpen(true)}>
+          <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
+          {t('settings.configBackup.resetButton')}
+        </Button>
+      </section>
+
+      <ConfirmDialog
+        open={resetConfirmationOpen}
+        onClose={() => setResetConfirmationOpen(false)}
+        onConfirm={handleReset}
+        title={t('settings.configBackup.resetConfirmTitle')}
+        body={t('settings.configBackup.resetConfirmBody')}
+        confirmLabel={t('settings.configBackup.resetConfirmButton')}
+        cancelLabel={t('common.cancel')}
+        confirmVariant="danger"
+        loading={isResetting}
+      />
 
       {message && (
         <div className={`mt-4 rounded-lg border px-3 py-2 text-xs ${

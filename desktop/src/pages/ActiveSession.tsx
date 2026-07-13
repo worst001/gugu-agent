@@ -3,6 +3,7 @@ import { useTabStore } from '../stores/tabStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { useCLITaskStore } from '../stores/cliTaskStore'
+import { useAgentTaskStore } from '../stores/agentTaskStore'
 import { useTeamStore } from '../stores/teamStore'
 import { useTranslation } from '../i18n'
 import { MessageList } from '../components/chat/MessageList'
@@ -11,10 +12,12 @@ import { EmptySessionWelcome } from '../components/chat/EmptySessionWelcome'
 import { ComputerUsePermissionModal } from '../components/chat/ComputerUsePermissionModal'
 import { TeamStatusBar } from '../components/teams/TeamStatusBar'
 import { SessionTaskBar } from '../components/chat/SessionTaskBar'
+import { AgentTaskStatusBar } from '../components/chat/AgentTaskStatusBar'
 import { WorkbenchPanel } from '../components/workbench/WorkbenchPanel'
 import { FALLBACK_SESSION_TITLE, sanitizeSessionTitle } from '../utils/sessionTitle'
 
 const TASK_POLL_INTERVAL_MS = 1000
+const AGENT_TASK_POLL_INTERVAL_MS = 2000
 
 function isRecoverableDirtySessionTitle(title: string | undefined): boolean {
   if (!title) return false
@@ -38,6 +41,8 @@ export function ActiveSession() {
   const fetchSessionTasks = useCLITaskStore((s) => s.fetchSessionTasks)
   const trackedTaskSessionId = useCLITaskStore((s) => s.sessionId)
   const hasIncompleteTasks = useCLITaskStore((s) => s.tasks.some((task) => task.status !== 'completed'))
+  const fetchAgentTasks = useAgentTaskStore((s) => s.fetchSessionTasks)
+  const clearAgentTasks = useAgentTaskStore((s) => s.clear)
   const chatState = sessionState?.chatState ?? 'idle'
   const tokenUsage = sessionState?.tokenUsage ?? { input_tokens: 0, output_tokens: 0 }
 
@@ -58,6 +63,7 @@ export function ActiveSession() {
     const reconcileVisibleSession = () => {
       if (document.visibilityState === 'hidden') return
       void loadHistory(activeTabId)
+      void fetchAgentTasks(activeTabId)
     }
 
     window.addEventListener('focus', reconcileVisibleSession)
@@ -66,7 +72,7 @@ export function ActiveSession() {
       window.removeEventListener('focus', reconcileVisibleSession)
       document.removeEventListener('visibilitychange', reconcileVisibleSession)
     }
-  }, [activeTabId, isMemberSession, loadHistory])
+  }, [activeTabId, isMemberSession, loadHistory, fetchAgentTasks])
 
   useEffect(() => {
     if (!activeTabId || isMemberSession) return
@@ -92,6 +98,22 @@ export function ActiveSession() {
     hasIncompleteTasks,
     fetchSessionTasks,
   ])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession) {
+      clearAgentTasks()
+      return
+    }
+
+    void fetchAgentTasks(activeTabId)
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'hidden') {
+        void fetchAgentTasks(activeTabId)
+      }
+    }, AGENT_TASK_POLL_INTERVAL_MS)
+
+    return () => clearInterval(timer)
+  }, [activeTabId, isMemberSession, fetchAgentTasks, clearAgentTasks])
 
   const t = useTranslation()
   const messages = sessionState?.messages ?? []
@@ -250,6 +272,8 @@ export function ActiveSession() {
           <MessageList />
         </>
       )}
+
+      {!isMemberSession && <AgentTaskStatusBar sessionId={activeTabId} />}
 
       {!isMemberSession && <SessionTaskBar />}
 

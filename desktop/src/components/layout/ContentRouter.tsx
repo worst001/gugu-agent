@@ -11,20 +11,29 @@ export function ContentRouter() {
   const tabs = useTabStore((s) => s.tabs)
   const activeTabType = tabs.find((t) => t.sessionId === activeTabId)?.type
   const terminalTabs = tabs.filter((tab) => tab.type === 'terminal')
+  const hasDraft = tabs.some((tab) => tab.type === 'draft')
+  const showDraft = !activeTabId || !activeTabType || activeTabType === 'draft'
 
   let page: ReactNode = null
-  if (!activeTabId || !activeTabType) {
-    page = <EmptySession />
-  } else if (activeTabType === 'settings') {
+  if (!showDraft && activeTabType === 'settings') {
     page = <Settings />
   } else if (activeTabType === 'scheduled') {
     page = <ScheduledTasks />
-  } else if (activeTabType !== 'terminal') {
+  } else if (!showDraft && activeTabType !== 'terminal') {
     page = <ActiveSession />
   }
 
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">
+      {(hasDraft || showDraft) && (
+        <div
+          aria-hidden={!showDraft}
+          data-testid='new-session-draft-panel'
+          className={'absolute inset-0 flex min-h-0 flex-col overflow-hidden ' + (showDraft ? 'visible z-10' : 'invisible z-0')}
+        >
+          <EmptySession active={showDraft} />
+        </div>
+      )}
       {page && (
         <div className="absolute inset-0 z-10 flex min-h-0 flex-col overflow-hidden">
           {page}

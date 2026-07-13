@@ -2,19 +2,20 @@ import { SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useUIStore, type SettingsTab } from '../stores/uiStore'
+import { flushDesktopStateWrites } from '../stores/desktopProfilePersistence'
 import { resolveNewSessionWorkDir } from './newSessionWorkDir'
 
-export async function createSessionFromAppAction() {
-  try {
-    const sessionId = await useSessionStore.getState().createSession(resolveNewSessionWorkDir())
-    useTabStore.getState().openTab(sessionId, 'New Session')
-    useChatStore.getState().connectToSession(sessionId)
-  } catch (error) {
-    useUIStore.getState().addToast({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to create session',
-    })
+export function openNewSessionDraftFromAppAction(title = 'New Session') {
+  const tabStore = useTabStore.getState()
+  if (!tabStore.tabs.some((tab) => tab.type === 'draft')) {
+    const workDir = resolveNewSessionWorkDir()
+    useSessionStore.getState().setNewSessionWorkDir(workDir ?? null)
   }
+  useUIStore.getState().setActiveView('code')
+  tabStore.openDraftTab(title)
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLTextAreaElement>('[data-new-session-composer]')?.focus()
+  })
 }
 
 export function closeCurrentTabFromAppAction() {
@@ -96,6 +97,7 @@ export async function openExternalFromAppAction(url: string) {
 }
 
 export async function quitAppFromAppAction() {
+  await flushDesktopStateWrites()
   try {
     const { exit } = await import('@tauri-apps/plugin-process')
     await exit(0)

@@ -8,7 +8,7 @@ import { ConfirmDialog } from '../shared/ConfirmDialog'
 import type { SessionListItem } from '../../types/session'
 import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
-import { resolveNewSessionWorkDir } from '../../utils/newSessionWorkDir'
+import { openNewSessionDraftFromAppAction } from '../../utils/appActions'
 import { filesystemApi } from '../../api/filesystem'
 import { expandProjectKeys, isProjectInSet } from '../../utils/projectKeys'
 import { copyTextToClipboard } from '../chat/clipboard'
@@ -247,18 +247,6 @@ export function Sidebar() {
     setProjectPinned(projectKeys, pinned)
   }, [setProjectPinned])
 
-  const createSessionForWorkDir = useCallback(async (workDir?: string) => {
-    try {
-      const sessionId = await useSessionStore.getState().createSession(workDir)
-      useTabStore.getState().openTab(sessionId, t('sidebar.newSession'))
-      useChatStore.getState().connectToSession(sessionId)
-    } catch (error) {
-      addToast({
-        type: 'error',
-        message: error instanceof Error ? error.message : t('sidebar.sessionListFailed'),
-      })
-    }
-  }, [addToast, t])
 
   const confirmDelete = useCallback(async () => {
     if (!pendingDeleteSessionId) return
@@ -313,7 +301,7 @@ export function Sidebar() {
           label={t('sidebar.newSession')}
           onClick={() => {
             setShowArchived(false)
-            void createSessionForWorkDir(resolveNewSessionWorkDir())
+            openNewSessionDraftFromAppAction(t('sidebar.newSession'))
           }}
           icon={<PlusIcon />}
         >

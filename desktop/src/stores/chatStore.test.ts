@@ -16,6 +16,8 @@ const {
   resetCompletedTasksMock,
   refreshTasksMock,
   notifyChatTaskCompleteMock,
+  blockCurrentAgentTaskMock,
+  agentTaskStoreSnapshot,
   cliTaskStoreSnapshot,
 } = vi.hoisted(() => ({
   sendMock: vi.fn(),
@@ -31,6 +33,12 @@ const {
   resetCompletedTasksMock: vi.fn(async () => {}),
   refreshTasksMock: vi.fn(),
   notifyChatTaskCompleteMock: vi.fn(),
+  blockCurrentAgentTaskMock: vi.fn(async () => {}),
+  agentTaskStoreSnapshot: {
+    enabled: false,
+    sessionId: null as string | null,
+    currentTask: null as { id: string } | null,
+  },
   cliTaskStoreSnapshot: {
     tasks: [] as Array<{ id: string; subject: string; status: string; activeForm?: string }>,
     sessionId: null as string | null,
@@ -98,6 +106,15 @@ vi.mock('./cliTaskStore', () => ({
   },
 }))
 
+vi.mock('./agentTaskStore', () => ({
+  useAgentTaskStore: {
+    getState: () => ({
+      ...agentTaskStoreSnapshot,
+      blockCurrentTask: blockCurrentAgentTaskMock,
+    }),
+  },
+}))
+
 vi.mock('../utils/taskCompletionNotification', () => ({
   notifyChatTaskComplete: notifyChatTaskCompleteMock,
 }))
@@ -161,6 +178,10 @@ describe('chatStore history mapping', () => {
     resetCompletedTasksMock.mockReset()
     refreshTasksMock.mockReset()
     notifyChatTaskCompleteMock.mockReset()
+    blockCurrentAgentTaskMock.mockReset()
+    agentTaskStoreSnapshot.enabled = false
+    agentTaskStoreSnapshot.sessionId = null
+    agentTaskStoreSnapshot.currentTask = null
     cliTaskStoreSnapshot.tasks = []
     cliTaskStoreSnapshot.sessionId = null
     vi.mocked(wsManager.connect).mockClear()
@@ -1366,6 +1387,10 @@ describe('chatStore history mapping', () => {
       chatState: 'permission_pending',
     })
 
+    agentTaskStoreSnapshot.enabled = true
+    agentTaskStoreSnapshot.sessionId = TEST_SESSION_ID
+    agentTaskStoreSnapshot.currentTask = { id: 'agent-task-1' }
+
     useChatStore.getState().respondToPermission(TEST_SESSION_ID, 'perm-plan-1', false, {
       message: 'Please revise the plan.',
     })
@@ -1376,6 +1401,9 @@ describe('chatStore history mapping', () => {
       allowed: false,
       message: 'Please revise the plan.',
     })
+    expect(blockCurrentAgentTaskMock).toHaveBeenCalledWith(
+      'Permission denied: ExitPlanMode',
+    )
   })
 
   it('ignores stale permission status heartbeats after a permission was answered', () => {

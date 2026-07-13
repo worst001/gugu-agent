@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useTranslation, type TranslationKey } from '../../i18n'
 import { useUIStore } from '../../stores/uiStore'
+import { useAgentTaskStore } from '../../stores/agentTaskStore'
+import { flushDesktopProfileWrites } from '../../stores/desktopProfileStore'
 import { useWorkbenchStore, type WorkbenchTab } from '../../stores/workbenchStore'
 import type { UIMessage } from '../../types/chat'
+import { AgentTaskEvidenceView } from './AgentTaskEvidenceView'
 import { AttachmentPreviewList } from './AttachmentPreviewList'
 import { BrowserWorkbenchView } from './BrowserWorkbenchView'
 import { DiffPreview } from './DiffPreview'
@@ -32,8 +35,21 @@ const TABS: Array<{ id: WorkbenchTab; icon: string; labelKey: TranslationKey }> 
   { id: 'activity', icon: 'construction', labelKey: 'workbench.tab.activity' },
 ]
 
+const EVIDENCE_TAB: {
+  id: WorkbenchTab
+  icon: string
+  labelKey: TranslationKey
+} = {
+  id: 'evidence',
+  icon: 'fact_check',
+  labelKey: 'workbench.tab.evidence',
+}
+
 export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
   const t = useTranslation()
+  const agentTaskDetail = useAgentTaskStore((store) =>
+    store.detail?.task.sessionId === sessionId ? store.detail : null,
+  )
   const state = useWorkbenchStore((store) => store.getSessionState(sessionId))
   const openWorkbench = useWorkbenchStore((store) => store.openWorkbench)
   const closeWorkbench = useWorkbenchStore((store) => store.closeWorkbench)
@@ -46,6 +62,11 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
   const [isResizing, setIsResizing] = useState(false)
 
   const model = useMemo(() => buildWorkbenchModel(messages), [messages])
+  const tabs = agentTaskDetail ? [...TABS, EVIDENCE_TAB] : TABS
+  const activeTab =
+    !agentTaskDetail && state.activeTab === 'evidence'
+      ? 'activity'
+      : state.activeTab
   const selectedActivity = findSelectedActivity(model, state.selectedToolUseId)
   const selectedFileChange = findSelectedFileChange(
     model,
@@ -59,7 +80,7 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
   )
   const selectedAttachment = state.selectedAttachmentId
     ? findSelectedAttachmentPreview(model, state.selectedAttachmentId)
-    : state.activeTab === 'preview' && !state.selectedToolUseId && !state.selectedFilePath
+    : activeTab === 'preview' && !state.selectedToolUseId && !state.selectedFilePath
       ? findSelectedAttachmentPreview(model, null)
       : null
   const activityCount = model.activities.length
@@ -86,6 +107,7 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
     }
     const handleUp = () => {
       setIsResizing(false)
+      void flushDesktopProfileWrites()
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
     }
@@ -170,17 +192,19 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
           <div
             role="tablist"
             aria-label={t('workbench.tabs')}
-            className="mx-3 my-2 grid grid-cols-4 gap-1 rounded-xl bg-[var(--color-surface-container-low)] p-1"
+            className={`mx-3 my-2 grid gap-1 rounded-xl bg-[var(--color-surface-container-low)] p-1 ${
+              agentTaskDetail ? 'grid-cols-5' : 'grid-cols-4'
+            }`}
           >
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 role="tab"
-                aria-selected={state.activeTab === tab.id}
+                aria-selected={activeTab === tab.id}
                 onClick={() => setActiveTab(sessionId, tab.id)}
                 className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
-                  state.activeTab === tab.id
+                  activeTab === tab.id
                     ? 'bg-[var(--color-surface)] text-[var(--color-text-primary)] shadow-sm'
                     : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
                 }`}
@@ -194,7 +218,11 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {state.activeTab === 'activity' && (
+            {activeTab === 'evidence' && (
+              <AgentTaskEvidenceView detail={agentTaskDetail} />
+            )}
+
+            {activeTab === 'activity' && (
               <ToolActivityList
                 sessionId={sessionId}
                 activities={model.activities}
@@ -203,7 +231,7 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
               />
             )}
 
-            {state.activeTab === 'diff' && (
+            {activeTab === 'diff' && (
               <div className="space-y-3">
                 <FileChangeList
                   sessionId={sessionId}
@@ -214,11 +242,11 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
               </div>
             )}
 
-            {state.activeTab === 'browser' && (
+            {activeTab === 'browser' && (
               <BrowserWorkbenchView key={sessionId} sessionId={sessionId} />
             )}
 
-            {state.activeTab === 'preview' && (
+            {activeTab === 'preview' && (
               <div className="space-y-3">
                 <AttachmentPreviewList
                   sessionId={sessionId}

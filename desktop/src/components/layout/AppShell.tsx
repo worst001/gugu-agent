@@ -15,6 +15,11 @@ import { useChatStore } from '../../stores/chatStore'
 import { useBillingStore } from '../../stores/billingStore'
 import { useTranslation } from '../../i18n'
 import { TerminalDrawer } from './TerminalDrawer'
+import { flushDesktopProfileWrites } from '../../stores/desktopProfileStore'
+import {
+  flushDesktopStateWrites,
+  initializeDesktopProfilePersistence,
+} from '../../stores/desktopProfilePersistence'
 
 export function AppShell() {
   const fetchSettings = useSettingsStore((s) => s.fetchAll)
@@ -23,6 +28,7 @@ export function AppShell() {
   const setSidebarWidth = useUIStore((s) => s.setSidebarWidth)
   const resetSidebarWidth = useUIStore((s) => s.resetSidebarWidth)
   const terminalDrawerOpen = useUIStore((s) => s.terminalDrawerOpen)
+  const tabCount = useTabStore((s) => s.tabs.length)
   const [isSidebarResizing, setIsSidebarResizing] = useState(false)
   const [renderSidebar, setRenderSidebar] = useState(sidebarOpen)
   const [sidebarExpanded, setSidebarExpanded] = useState(sidebarOpen)
@@ -65,10 +71,11 @@ export function AppShell() {
     const bootstrap = async () => {
       try {
         await initializeDesktopServerUrl()
+        await initializeDesktopProfilePersistence()
         await fetchSettings()
         void useBillingStore.getState().fetchBilling()
 
-        // Restore tabs from localStorage
+        // The profile bootstrap mirrors authoritative tab state before validation.
         await useTabStore.getState().restoreTabs()
         const { activeTabId: activeId, tabs } = useTabStore.getState()
         const activeTab = tabs.find((tab) => tab.sessionId === activeId)
@@ -93,6 +100,31 @@ export function AppShell() {
     }
   }, [fetchSettings])
 
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    let closing = false
+
+    import('@tauri-apps/api/window')
+      .then(({ getCurrentWindow }) => {
+        const appWindow = getCurrentWindow()
+        return appWindow.onCloseRequested(async (event) => {
+          event.preventDefault()
+          if (closing) return
+          closing = true
+          try {
+            await flushDesktopStateWrites()
+            await appWindow.destroy()
+          } finally {
+            closing = false
+          }
+        })
+      })
+      .then((fn) => { unlisten = fn })
+      .catch(() => {})
+
+    return () => { unlisten?.() }
+  }, [])
+
   // Listen for macOS native menu navigation events (About / Settings)
   useEffect(() => {
     let unlisten: (() => void) | undefined
@@ -114,6 +146,12 @@ export function AppShell() {
   useKeyboardShortcuts()
 
   useEffect(() => {
+    if (ready && tabCount === 0) {
+      useTabStore.getState().openDraftTab(t('sidebar.newSession'))
+    }
+  }, [ready, tabCount, t])
+
+  useEffect(() => {
     if (terminalDrawerOpen) setRenderTerminalDrawer(true)
   }, [terminalDrawerOpen])
 
@@ -130,6 +168,7 @@ export function AppShell() {
     }
     const handleUp = () => {
       setIsSidebarResizing(false)
+      void flushDesktopProfileWrites()
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseup', handleUp)
     }

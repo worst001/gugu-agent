@@ -1,5 +1,5 @@
 /**
- * API Router — 将请求路由到对应的 API handler
+ * API Router - routes requests to the matching API handler.
  */
 
 import { handleSessionsApi } from './api/sessions.js'
@@ -25,6 +25,7 @@ import { handleAttachmentParserApi } from './api/attachment-parser.js'
 import { handleConfigBackupApi } from './api/config-backup.js'
 import { handleBillingApi } from './api/billing.js'
 import { handleAudioTranscriptionApi } from './api/audio-transcription.js'
+import { handleAgentTasksApi } from './api/agent-tasks.js'
 
 export async function handleApiRequest(req: Request, url: URL): Promise<Response> {
   const path = url.pathname
@@ -58,6 +59,9 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
 
     case 'scheduled-tasks':
       return handleScheduledTasksApi(req, url, segments)
+
+    case 'agent-tasks':
+      return handleAgentTasksApi(req, url, segments)
 
     case 'search':
       return handleSearchApi(req, url, segments)

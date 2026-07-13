@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { settingsApi } from '../api/settings'
 import { modelsApi } from '../api/models'
-import { normalizeThemeMode, type PermissionMode, type EffortLevel, type ModelInfo, type ThemeMode } from '../types/settings'
+import type { PermissionMode, EffortLevel, ModelInfo, ThemeMode } from '../types/settings'
 import type { Locale } from '../i18n'
 import { useUIStore } from './uiStore'
 
@@ -32,7 +32,7 @@ type SettingsStore = {
   setModel: (modelId: string) => Promise<void>
   setEffort: (level: EffortLevel) => Promise<void>
   setLocale: (locale: Locale) => void
-  setTheme: (theme: ThemeMode) => Promise<void>
+  setTheme: (theme: ThemeMode) => void
   setSkipWebFetchPreflight: (enabled: boolean) => Promise<void>
 }
 
@@ -58,8 +58,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         modelsApi.getEffort(),
         settingsApi.getUser(),
       ])
-      const theme = normalizeThemeMode(userSettings.theme)
-      useUIStore.getState().setTheme(theme)
+      const theme = useUIStore.getState().theme
       set({
         permissionMode: mode,
         availableModels: modelsRes.models,
@@ -110,16 +109,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     try { localStorage.setItem(LOCALE_STORAGE_KEY, locale) } catch { /* noop */ }
   },
 
-  setTheme: async (theme) => {
-    const prev = get().theme
+  setTheme: (theme) => {
     set({ theme })
     useUIStore.getState().setTheme(theme)
-    try {
-      await settingsApi.updateUser({ theme })
-    } catch {
-      set({ theme: prev })
-      useUIStore.getState().setTheme(prev)
-    }
   },
 
   setSkipWebFetchPreflight: async (enabled) => {

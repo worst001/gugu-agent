@@ -6,6 +6,12 @@ import { AgentService, type AgentDefinition } from './agentService.js'
 import { PluginService } from './pluginService.js'
 import { ProviderService } from './providerService.js'
 import { SettingsService } from './settingsService.js'
+import { DesktopProfileService } from './desktopProfileService.js'
+import {
+  desktopProfileSchema,
+  desktopThemeSchema,
+  desktopWorkspaceStateSchema,
+} from '../types/desktopProfile.js'
 import {
   addMcpConfig,
   getClaudeCodeMcpConfigs,
@@ -23,7 +29,8 @@ import { getCwd, runWithCwdOverride } from '../../utils/cwd.js'
 import type { ProvidersIndex, SavedProvider } from '../types/provider.js'
 
 const CONFIG_FORMAT = 'gugu-config-export'
-const CONFIG_VERSION = 1
+const CONFIG_VERSION = 2
+const SUPPORTED_CONFIG_VERSIONS = new Set([1, CONFIG_VERSION])
 const MASKED_SECRET = '__CC_HAHA_SECRET_OMITTED__'
 const EDITABLE_MCP_SCOPES = new Set<ConfigScope>(['user', 'project', 'local'])
 const SKILL_ROOT_NAMES = ['skills', '.agents/skills'] as const
@@ -49,7 +56,7 @@ export type ConfigBackupImportOptions = {
 
 export type ConfigBackupPackage = {
   format: typeof CONFIG_FORMAT
-  version: typeof CONFIG_VERSION
+  version: number
   exportedAt: string
   app: {
     name: 'Gugu Agent'
@@ -139,6 +146,7 @@ export class ConfigBackupService {
   private readonly pluginService = new PluginService()
   private readonly providerService = new ProviderService()
   private readonly settingsService = new SettingsService()
+  private readonly desktopProfileService = new DesktopProfileService()
 
   async exportConfig(options: ConfigBackupExportOptions = {}): Promise<ConfigBackupPackage> {
     const cwd = options.cwd || getCwd()
@@ -159,7 +167,7 @@ export class ConfigBackupService {
         this.exportSkills(cwd),
         this.exportPlugins(cwd),
         this.agentService.listAgents(),
-        this.exportGuiPreferences(),
+        this.exportGuiPreferences(includeSecrets),
       ])
 
       return {
@@ -168,7 +176,7 @@ export class ConfigBackupService {
         exportedAt: new Date().toISOString(),
         app: {
           name: 'Gugu Agent',
-          configDir: this.getConfigDir(),
+          configDir: includeSecrets ? this.getConfigDir() : '',
         },
         secretsIncluded: includeSecrets,
         sections: {
@@ -405,20 +413,27 @@ export class ConfigBackupService {
     }
   }
 
-  private async exportGuiPreferences(): Promise<Record<string, unknown>> {
-    const settings = await this.settingsService.getUserSettings()
-    const prefs: Record<string, unknown> = {}
+  private async exportGuiPreferences(
+    includePrivateData: boolean,
+  ): Promise<Record<string, unknown>> {
+    const [settings, desktop] = await Promise.all([
+      this.settingsService.getUserSettings(),
+      this.desktopProfileService.getBundle(),
+    ])
+    const cli: Record<string, unknown> = {}
     for (const key of [
-      'theme',
       'skipWebFetchPreflight',
       'defaultMode',
       'model',
       'effort',
       'defaultSessionWorkDir',
     ]) {
-      if (settings[key] !== undefined) prefs[key] = settings[key]
+      if (settings[key] !== undefined) cli[key] = settings[key]
     }
-    return prefs
+    return {
+      cli,
+      desktop: includePrivateData ? desktop : { profile: desktop.profile },
+    }
   }
 
   private async importProviders(section: ExportedProviders | undefined, overwrite: boolean): Promise<void> {
@@ -497,7 +512,64 @@ export class ConfigBackupService {
     overwrite: boolean,
   ): Promise<void> {
     if (!preferences || !overwrite) return
-    await this.settingsService.updateUserSettings(preferences)
+
+    const structured = 'cli' in preferences || 'desktop' in preferences
+    if (!structured) {
+      const { theme, ...legacyCli } = preferences
+      await this.settingsService.updateUserSettings(legacyCli)
+      const parsedTheme = desktopThemeSchema.safeParse(theme)
+      if (parsedTheme.success) {
+        await this.desktopProfileService.updateBundle({
+          profile: {
+            preferences: { appearance: { theme: parsedTheme.data } },
+          },
+        })
+      }
+      return
+    }
+
+    const cli = preferences.cli
+    if (cli !== undefined) {
+      if (!cli || typeof cli !== 'object' || Array.isArray(cli)) {
+        throw ApiError.badRequest('Invalid CLI preferences in config package')
+      }
+      await this.settingsService.updateUserSettings(cli as Record<string, unknown>)
+    }
+
+    const desktop = preferences.desktop
+    if (desktop === undefined) return
+    if (!desktop || typeof desktop !== 'object' || Array.isArray(desktop)) {
+      throw ApiError.badRequest('Invalid desktop profile in config package')
+    }
+    const desktopRecord = desktop as Record<string, unknown>
+    const profile = desktopProfileSchema.safeParse(desktopRecord.profile)
+    if (!profile.success) {
+      throw ApiError.badRequest('Invalid desktop profile in config package')
+    }
+
+    const patch: Parameters<DesktopProfileService['updateBundle']>[0] = {
+      profile: {
+        preferences: profile.data.preferences,
+        migration: profile.data.migration,
+      },
+    }
+    if (desktopRecord.workspaceState !== undefined) {
+      const workspaceState = desktopWorkspaceStateSchema.safeParse(
+        desktopRecord.workspaceState,
+      )
+      if (!workspaceState.success) {
+        throw ApiError.badRequest('Invalid desktop profile in config package')
+      }
+      patch.workspaceState = {
+        projects: workspaceState.data.projects,
+        tabs: workspaceState.data.tabs,
+        drafts: workspaceState.data.drafts,
+        tools: workspaceState.data.tools,
+        migration: workspaceState.data.migration,
+      }
+    }
+
+    await this.desktopProfileService.updateBundle(patch)
   }
 
   private async readProvidersIndex(): Promise<ProvidersIndex> {
@@ -565,7 +637,8 @@ export class ConfigBackupService {
       throw ApiError.badRequest('Invalid GuGu config package')
     }
     const pkg = value as Partial<ConfigBackupPackage>
-    if (pkg.format !== CONFIG_FORMAT || pkg.version !== CONFIG_VERSION) {
+    if (pkg.format !== CONFIG_FORMAT ||
+      !SUPPORTED_CONFIG_VERSIONS.has(pkg.version ?? -1)) {
       throw ApiError.badRequest('Unsupported GuGu config package format')
     }
     if (!pkg.sections || typeof pkg.sections !== 'object') {

@@ -4,7 +4,7 @@ import '@testing-library/jest-dom'
 import { useKeyboardShortcuts } from './useKeyboardShortcuts'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
-import { useTabStore } from '../stores/tabStore'
+import { DRAFT_TAB_ID, useTabStore } from '../stores/tabStore'
 import { useUIStore } from '../stores/uiStore'
 
 function ShortcutHost({ onSubmit }: { onSubmit?: () => void }) {
@@ -56,30 +56,25 @@ describe('useKeyboardShortcuts', () => {
     } as Partial<ReturnType<typeof useUIStore.getState>>)
   })
 
-  it('creates and opens a new session with Cmd/Ctrl+N', async () => {
-    createSession.mockResolvedValue('session-new')
+  it('opens the new-session draft with Cmd/Ctrl+N', () => {
     render(<ShortcutHost />)
 
     fireEvent.keyDown(document, { key: 'n', ctrlKey: true })
 
-    await waitFor(() => {
-      expect(createSession).toHaveBeenCalled()
-      expect(connectToSession).toHaveBeenCalledWith('session-new')
-    })
-    expect(useTabStore.getState().activeTabId).toBe('session-new')
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).not.toHaveBeenCalled()
+    expect(useTabStore.getState().activeTabId).toBe(DRAFT_TAB_ID)
   })
 
-  it('creates a new session in the sidebar-selected work directory with Cmd/Ctrl+N', async () => {
-    createSession.mockResolvedValue('session-new')
+  it('keeps the sidebar-selected work directory in the draft with Cmd/Ctrl+N', () => {
     useSessionStore.setState({ newSessionWorkDir: '/workspace/selected-project' })
     render(<ShortcutHost />)
 
     fireEvent.keyDown(document, { key: 'n', ctrlKey: true })
 
-    await waitFor(() => {
-      expect(createSession).toHaveBeenCalledWith('/workspace/selected-project')
-      expect(connectToSession).toHaveBeenCalledWith('session-new')
-    })
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).not.toHaveBeenCalled()
+    expect(useTabStore.getState().activeTabId).toBe(DRAFT_TAB_ID)
     expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/selected-project')
   })
 

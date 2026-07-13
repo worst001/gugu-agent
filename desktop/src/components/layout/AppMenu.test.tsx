@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { AppMenu } from './AppMenu'
 import { useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useTabStore } from '../../stores/tabStore'
+import { DRAFT_TAB_ID, useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
 
 vi.mock('./WindowControls', () => ({
@@ -26,18 +26,18 @@ describe('AppMenu', () => {
     useUIStore.setState({ sidebarOpen: true, activeView: 'code', pendingSettingsTab: null, terminalDrawerOpen: false })
   })
 
-  it('creates a session from the File menu', async () => {
-    createSession.mockResolvedValue('session-new')
+  it('opens a local draft from the File menu without creating a session', () => {
     render(<AppMenu />)
 
     fireEvent.click(screen.getByRole('button', { name: 'File' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /New Session/ }))
 
-    await waitFor(() => {
-      expect(createSession).toHaveBeenCalled()
-      expect(connectToSession).toHaveBeenCalledWith('session-new')
-    })
-    expect(useTabStore.getState().activeTabId).toBe('session-new')
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).not.toHaveBeenCalled()
+    expect(useTabStore.getState().tabs).toEqual([
+      { sessionId: DRAFT_TAB_ID, title: 'New session', type: 'draft', status: 'idle' },
+    ])
+    expect(useTabStore.getState().activeTabId).toBe(DRAFT_TAB_ID)
   })
 
   it('renders window controls in the top menu bar', () => {

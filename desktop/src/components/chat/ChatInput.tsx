@@ -5,6 +5,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useSessionStore } from '../../stores/sessionStore'
+import { DESKTOP_STATE_FLUSH_EVENT } from '../../stores/desktopProfilePersistence'
 import { useTeamStore } from '../../stores/teamStore'
 import { sessionsApi, type SessionContextSnapshot } from '../../api/sessions'
 import { filesystemApi } from '../../api/filesystem'
@@ -300,9 +301,14 @@ export function ChatInput({ variant = 'default' }: ChatInputProps) {
   useEffect(() => {
     if (!activeTabId || isMemberSession) return
     const sessionId = activeTabId
+    const persistCurrentDraft = () => {
+      saveComposerDraft(sessionId, inputRef.current)
+    }
+    window.addEventListener(DESKTOP_STATE_FLUSH_EVENT, persistCurrentDraft)
 
     return () => {
-      saveComposerDraft(sessionId, inputRef.current)
+      window.removeEventListener(DESKTOP_STATE_FLUSH_EVENT, persistCurrentDraft)
+      persistCurrentDraft()
     }
   }, [activeTabId, isMemberSession])
 

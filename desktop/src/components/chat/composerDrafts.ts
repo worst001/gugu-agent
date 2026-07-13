@@ -1,3 +1,8 @@
+import {
+  persistDesktopProfilePatch,
+  useDesktopProfileStore,
+} from '../../stores/desktopProfileStore'
+
 export const COMPOSER_DRAFTS_STORAGE_KEY = 'cc-haha-composer-drafts-v1'
 
 const MAX_DRAFTS = 50
@@ -55,6 +60,11 @@ function writeDrafts(drafts: ComposerDraftMap): void {
     localStorage.setItem(COMPOSER_DRAFTS_STORAGE_KEY, JSON.stringify(drafts))
   } catch {
     // localStorage can be disabled or full; losing a draft is better than blocking input.
+  }
+  if (useDesktopProfileStore.getState().loaded) {
+    void persistDesktopProfilePatch({
+      workspaceState: { drafts },
+    })
   }
 }
 

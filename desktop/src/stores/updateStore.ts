@@ -1,7 +1,11 @@
 import { create } from 'zustand'
 import type { Update } from '@tauri-apps/plugin-updater'
 import { isTauriRuntime } from '../lib/desktopRuntime'
-
+import {
+  scheduleDesktopProfilePatch,
+  useDesktopProfileStore,
+} from './desktopProfileStore'
+import { flushDesktopStateWrites } from './desktopProfilePersistence'
 export type UpdateStatus =
   | 'idle'
   | 'checking'
@@ -55,6 +59,13 @@ function writeDismissedUpdateVersion(version: string | null) {
       window.localStorage.setItem(DISMISSED_UPDATE_VERSION_KEY, version)
     } else {
       window.localStorage.removeItem(DISMISSED_UPDATE_VERSION_KEY)
+    }
+    if (useDesktopProfileStore.getState().loaded) {
+      scheduleDesktopProfilePatch({
+        profile: {
+          preferences: { updates: { dismissedVersion: version } },
+        },
+      })
     }
   } catch {
     // Ignore storage write failures.
@@ -264,6 +275,7 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
         }
       })
 
+      await flushDesktopStateWrites()
       await invoke('prepare_for_update_install')
       await update.install()
 

@@ -4,7 +4,7 @@ import { useUIStore } from '../../stores/uiStore'
 import { WindowControls } from './WindowControls'
 import {
   closeCurrentTabFromAppAction,
-  createSessionFromAppAction,
+  openNewSessionDraftFromAppAction,
   focusSidebarSearchFromAppAction,
   openSettingsFromAppAction,
   openExternalFromAppAction,
@@ -60,8 +60,7 @@ export function AppMenu() {
       </button>
       <MenuButton id="file" label={t('appMenu.file')} openMenu={openMenu} setOpenMenu={setOpenMenu}>
         <MenuItem icon="add" label={t('appMenu.file.newSession')} shortcut="Ctrl/Cmd+N" onSelect={() => {
-          useUIStore.getState().setActiveView('code')
-          void createSessionFromAppAction()
+          openNewSessionDraftFromAppAction(t('sidebar.newSession'))
         }} />
         <MenuItem icon="close" label={t('appMenu.file.close')} shortcut="Ctrl/Cmd+W" onSelect={closeCurrentTabFromAppAction} />
         <MenuSeparator />

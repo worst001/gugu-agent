@@ -4,6 +4,7 @@ import { sessionsApi } from '../api/sessions'
 import { useTeamStore } from './teamStore'
 import { useSessionStore } from './sessionStore'
 import { useCLITaskStore } from './cliTaskStore'
+import { useAgentTaskStore } from './agentTaskStore'
 import { useTabStore } from './tabStore'
 import { useBillingStore } from './billingStore'
 import { t } from '../i18n'
@@ -1251,6 +1252,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   respondToPermission: (sessionId, requestId, allowed, options) => {
+    if (!allowed) {
+      const pending = get().sessions[sessionId]?.pendingPermission
+      const agentTask = useAgentTaskStore.getState()
+      if (
+        agentTask.enabled &&
+        agentTask.sessionId === sessionId &&
+        agentTask.currentTask
+      ) {
+        void agentTask.blockCurrentTask(
+          `Permission denied: ${pending?.toolName ?? 'tool'}`,
+        )
+      }
+    }
     wsManager.send(sessionId, {
       type: 'permission_response',
       requestId,
@@ -1299,6 +1313,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   respondToComputerUsePermission: (sessionId, requestId, response) => {
+    if (response.userConsented === false) {
+      const agentTask = useAgentTaskStore.getState()
+      if (
+        agentTask.enabled &&
+        agentTask.sessionId === sessionId &&
+        agentTask.currentTask
+      ) {
+        void agentTask.blockCurrentTask('Computer use permission denied')
+      }
+    }
     wsManager.send(sessionId, {
       type: 'computer_use_permission_response',
       requestId,

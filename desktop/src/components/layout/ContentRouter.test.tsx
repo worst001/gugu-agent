@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -27,11 +27,57 @@ vi.mock('../../pages/TerminalSettings', () => ({
 }))
 
 import { ContentRouter } from './ContentRouter'
-import { useTabStore } from '../../stores/tabStore'
+import { DRAFT_TAB_ID, useTabStore } from '../../stores/tabStore'
 
 describe('ContentRouter terminal tabs', () => {
   afterEach(() => {
     useTabStore.setState({ tabs: [], activeTabId: null })
+  })
+
+  it('renders the new-session draft and promotes it in place', () => {
+    useTabStore.setState({
+      tabs: [{ sessionId: DRAFT_TAB_ID, title: 'New Session', type: 'draft', status: 'idle' }],
+      activeTabId: DRAFT_TAB_ID,
+    })
+
+    render(<ContentRouter />)
+
+    expect(screen.getByTestId('empty-session')).toBeInTheDocument()
+    expect(screen.queryByTestId('active-session')).not.toBeInTheDocument()
+
+    act(() => {
+      useTabStore.getState().replaceTabSession(DRAFT_TAB_ID, 'session-1', 'session')
+    })
+
+    expect(useTabStore.getState().tabs).toHaveLength(1)
+    expect(useTabStore.getState().activeTabId).toBe('session-1')
+    expect(screen.getByTestId('active-session')).toBeInTheDocument()
+  })
+
+  it('keeps the draft mounted while another tab is active', () => {
+    useTabStore.setState({
+      tabs: [
+        { sessionId: DRAFT_TAB_ID, title: 'New Session', type: 'draft', status: 'idle' },
+        { sessionId: 'session-1', title: 'Chat', type: 'session', status: 'idle' },
+      ],
+      activeTabId: DRAFT_TAB_ID,
+    })
+
+    render(<ContentRouter />)
+
+    const draft = screen.getByTestId('empty-session')
+    const panel = screen.getByTestId('new-session-draft-panel')
+
+    act(() => {
+      useTabStore.getState().setActiveTab('session-1')
+    })
+    expect(screen.getByTestId('empty-session')).toBe(draft)
+    expect(panel).toHaveAttribute('aria-hidden', 'true')
+
+    act(() => {
+      useTabStore.getState().setActiveTab(DRAFT_TAB_ID)
+    })
+    expect(panel).toHaveAttribute('aria-hidden', 'false')
   })
 
   it('renders the active terminal tab as main content', () => {

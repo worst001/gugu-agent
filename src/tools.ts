@@ -85,6 +85,7 @@ import { TaskCreateTool } from './tools/TaskCreateTool/TaskCreateTool.js'
 import { TaskGetTool } from './tools/TaskGetTool/TaskGetTool.js'
 import { TaskUpdateTool } from './tools/TaskUpdateTool/TaskUpdateTool.js'
 import { TaskListTool } from './tools/TaskListTool/TaskListTool.js'
+import { AgentTaskTool } from './tools/AgentTaskTool/AgentTaskTool.js'
 import uniqBy from 'lodash-es/uniqBy.js'
 import { isToolSearchEnabledOptimistic } from './utils/toolSearch.js'
 import { isTodoV2Enabled } from './utils/tasks.js'
@@ -209,6 +210,7 @@ export function getAllBaseTools(): Tools {
     NotebookEditTool,
     WebFetchTool,
     TodoWriteTool,
+    AgentTaskTool,
     WebSearchTool,
     TaskStopTool,
     AskUserQuestionTool,

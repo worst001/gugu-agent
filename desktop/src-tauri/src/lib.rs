@@ -2348,6 +2348,30 @@ fn pipe_sidecar_output(
     }
 }
 
+fn apply_desktop_storage_dirs(
+    app: &AppHandle,
+    env: &mut HashMap<String, String>,
+) -> Result<(), String> {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|err| format!("resolve desktop AppConfig directory: {err}"))?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| format!("resolve desktop AppData directory: {err}"))?;
+
+    env.insert(
+        "GUGU_DESKTOP_CONFIG_DIR".to_string(),
+        config_dir.to_string_lossy().to_string(),
+    );
+    env.insert(
+        "GUGU_DESKTOP_DATA_DIR".to_string(),
+        data_dir.to_string_lossy().to_string(),
+    );
+    Ok(())
+}
+
 fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let host = "127.0.0.1";
     let port = reserve_local_port()?;
@@ -2358,6 +2382,7 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     // 单一合并 sidecar：第一个参数选 server / cli / adapters 模式。
     let shell = default_shell();
     let mut env = terminal_environment(Some(app), &shell);
+    apply_desktop_storage_dirs(app, &mut env)?;
     log_rtk_status(Some(app));
     apply_default_gateway_url(&mut env, DEFAULT_GATEWAY_URL.or(Some(BUILTIN_GATEWAY_URL)));
     if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {

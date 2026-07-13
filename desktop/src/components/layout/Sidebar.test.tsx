@@ -79,7 +79,7 @@ vi.mock('../../i18n', () => ({
 import { Sidebar } from './Sidebar'
 import { useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
-import { useTabStore } from '../../stores/tabStore'
+import { DRAFT_TAB_ID, useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
 import { filesystemApi } from '../../api/filesystem'
 
@@ -163,28 +163,23 @@ describe('Sidebar', () => {
     useTabStore.setState({ tabs: [], activeTabId: null })
   })
 
-  it('opens a new tab when creating a session from the sidebar', async () => {
-    createSession.mockResolvedValue('session-new-1')
-
+  it('opens a local draft from the sidebar without creating a session', async () => {
     render(<Sidebar />)
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
     })
 
-    await waitFor(() => {
-      expect(createSession).toHaveBeenCalled()
-      expect(connectToSession).toHaveBeenCalledWith('session-new-1')
-    })
-
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).not.toHaveBeenCalled()
     expect(useTabStore.getState().tabs).toEqual([
-      { sessionId: 'session-new-1', title: 'New Session', type: 'session', status: 'idle' },
+      { sessionId: DRAFT_TAB_ID, title: 'New Session', type: 'draft', status: 'idle' },
     ])
-    expect(useTabStore.getState().activeTabId).toBe('session-new-1')
+    expect(useTabStore.getState().activeTabId).toBe(DRAFT_TAB_ID)
     expect(screen.getByRole('complementary')).not.toHaveAttribute('data-tauri-drag-region')
   })
 
-  it('creates a new session in the last selected project group directory', async () => {
+  it('opens a draft in the last selected project group directory', async () => {
     createSession.mockResolvedValue('session-new-1')
     useSessionStore.setState({
       sessions: [
@@ -208,10 +203,9 @@ describe('Sidebar', () => {
       fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
     })
 
-    await waitFor(() => {
-      expect(createSession).toHaveBeenCalledWith('/workspace/project-a')
-      expect(connectToSession).toHaveBeenCalledWith('session-new-1')
-    })
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/project-a')
   })
 
   it('updates the new session directory when selecting another project group', async () => {
@@ -248,13 +242,12 @@ describe('Sidebar', () => {
       fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
     })
 
-    await waitFor(() => {
-      expect(createSession).toHaveBeenCalledWith('/workspace/project-b')
-      expect(connectToSession).toHaveBeenCalledWith('session-new-1')
-    })
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/project-b')
   })
 
-  it('creates a new session in the last selected session directory', async () => {
+  it('opens a draft in the last selected session directory', async () => {
     createSession.mockResolvedValue('session-new-1')
     useSessionStore.setState({
       sessions: [
@@ -288,10 +281,9 @@ describe('Sidebar', () => {
       fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
     })
 
-    await waitFor(() => {
-      expect(createSession).toHaveBeenCalledWith('/workspace/project-b')
-      expect(connectToSession).toHaveBeenCalledWith('session-new-1')
-    })
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).toHaveBeenCalledWith('session-b')
+    expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/project-b')
   })
 
   it('does not render terminal in the sidebar navigation header', () => {
@@ -827,23 +819,21 @@ describe('Sidebar', () => {
     expect(screen.queryByRole('button', { name: /Investigate bug/ })).not.toBeInTheDocument()
   })
 
-  it('shows a toast when session creation fails', async () => {
-    createSession.mockRejectedValue(new Error('boom'))
+  it('reuses the existing draft instead of opening duplicates', () => {
+    useSessionStore.setState({ newSessionWorkDir: '/workspace/draft-project' })
+    useTabStore.setState({
+      tabs: [{ sessionId: DRAFT_TAB_ID, title: 'New Session', type: 'draft', status: 'idle' }],
+      activeTabId: DRAFT_TAB_ID,
+    })
 
     render(<Sidebar />)
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
 
-    await waitFor(() => {
-      expect(addToast).toHaveBeenCalledWith({
-        type: 'error',
-        message: 'boom',
-      })
-    })
-
-    expect(useTabStore.getState().tabs).toEqual([])
+    expect(useTabStore.getState().tabs).toHaveLength(1)
+    expect(useTabStore.getState().activeTabId).toBe(DRAFT_TAB_ID)
+    expect(createSession).not.toHaveBeenCalled()
+    expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/draft-project')
   })
 
   it('requires confirmation before deleting a session from the sidebar', async () => {

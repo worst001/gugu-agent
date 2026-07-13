@@ -7,7 +7,7 @@ import { useTranslation } from '../i18n'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { useUIStore } from '../stores/uiStore'
-import { SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
+import { DRAFT_TAB_ID, SETTINGS_TAB_ID, useTabStore } from '../stores/tabStore'
 import { DirectoryPicker } from '../components/shared/DirectoryPicker'
 import { OfficeToolboxMenuItems } from '../components/controls/OfficeToolboxControl'
 import { PermissionModeSelector } from '../components/controls/PermissionModeSelector'
@@ -55,7 +55,7 @@ type Attachment = {
   size?: number
 }
 
-export function EmptySession() {
+export function EmptySession({ active = true }: { active?: boolean } = {}) {
   const t = useTranslation()
   const [input, setInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -81,6 +81,7 @@ export function EmptySession() {
   const fileSearchRef = useRef<FileSearchMenuHandle>(null)
   const slashItemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const createSession = useSessionStore((state) => state.createSession)
+  const requestedWorkDir = useSessionStore((state) => state.newSessionWorkDir)
   const sendMessage = useChatStore((state) => state.sendMessage)
   const connectToSession = useChatStore((state) => state.connectToSession)
   const setActiveView = useUIStore((state) => state.setActiveView)
@@ -93,8 +94,8 @@ export function EmptySession() {
     : t('empty.placeholder')
 
   useEffect(() => {
-    textareaRef.current?.focus()
-  }, [])
+    if (active) textareaRef.current?.focus()
+  }, [active])
 
   useEffect(() => {
     let cancelled = false
@@ -111,7 +112,7 @@ export function EmptySession() {
           typeof import.meta.env.VITE_DEFAULT_SESSION_WORKDIR === 'string'
             ? import.meta.env.VITE_DEFAULT_SESSION_WORKDIR.trim()
             : ''
-        const initial = raw || env
+        const initial = useSessionStore.getState().newSessionWorkDir || raw || env
         if (initial) setWorkDir(initial)
       } catch {
         if (!cancelled) {
@@ -120,7 +121,8 @@ export function EmptySession() {
             typeof import.meta.env.VITE_DEFAULT_SESSION_WORKDIR === 'string'
               ? import.meta.env.VITE_DEFAULT_SESSION_WORKDIR.trim()
               : ''
-          if (env) setWorkDir(env)
+          const initial = useSessionStore.getState().newSessionWorkDir || env
+          if (initial) setWorkDir(initial)
         }
       }
     })()
@@ -128,6 +130,10 @@ export function EmptySession() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (requestedWorkDir) setWorkDir(requestedWorkDir)
+  }, [requestedWorkDir])
 
   useEffect(() => {
     if (!plusMenuOpen) return
@@ -322,7 +328,12 @@ export function EmptySession() {
       useCeWorkflowRoleStore.getState().setRole(sessionId, draftRole)
 
       setActiveView('code')
-      useTabStore.getState().openTab(sessionId, 'New Session')
+      const tabStore = useTabStore.getState()
+      if (tabStore.activeTabId === DRAFT_TAB_ID) {
+        tabStore.replaceTabSession(DRAFT_TAB_ID, sessionId, 'session')
+      } else {
+        tabStore.openTab(sessionId, 'New Session')
+      }
       connectToSession(sessionId)
       const attachmentPayload = attachments.map((attachment) => ({
         type: attachment.type,
@@ -669,7 +680,7 @@ export function EmptySession() {
   }
 
   useEffect(() => {
-    if (!canAcceptAttachments) {
+    if (!active || !canAcceptAttachments) {
       setIsDragActive(false)
       return
     }
@@ -695,7 +706,7 @@ export function EmptySession() {
       nativeFileDropAvailableRef.current = false
       unlisten?.()
     }
-  }, [addPathFiles, canAcceptAttachments])
+  }, [active, addPathFiles, canAcceptAttachments])
 
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((attachment) => attachment.id !== id))
@@ -878,6 +889,7 @@ export function EmptySession() {
             <div className="flex items-start gap-3">
               <textarea
                 ref={textareaRef}
+                data-new-session-composer
                 value={input}
                 onChange={(event) => handleInputChange(event.target.value, event.target.selectionStart ?? event.target.value.length)}
                 onKeyDown={handleKeyDown}

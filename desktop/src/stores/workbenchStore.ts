@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 
-export type WorkbenchTab = 'activity' | 'browser' | 'diff' | 'preview'
+export type WorkbenchTab =
+  | 'activity'
+  | 'browser'
+  | 'diff'
+  | 'preview'
+  | 'evidence'
 
 const WORKBENCH_WIDTH_STORAGE_KEY = 'gugu-agent-workbench-width-v1'
 const DEFAULT_WORKBENCH_WIDTH = 390
