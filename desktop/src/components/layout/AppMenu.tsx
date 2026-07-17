@@ -26,6 +26,7 @@ export function AppMenu() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const t = useTranslation()
+  const isMacOS = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
 
   useEffect(() => {
     if (!openMenu) return
@@ -44,7 +45,7 @@ export function AppMenu() {
   return (
     <div
       data-testid="app-menu"
-      className="flex h-8 flex-shrink-0 items-stretch gap-1 border-b border-[var(--color-border)]/70 bg-[var(--color-surface-container)]/92 pl-2 text-xs text-[var(--color-text-secondary)]"
+      className={`flex h-8 flex-shrink-0 items-stretch gap-1 border-b border-[var(--color-border)]/70 bg-[var(--color-surface-container)]/92 text-xs text-[var(--color-text-secondary)] ${isMacOS ? 'pl-[78px]' : 'pl-2'}`}
     >
       <button
         type="button"

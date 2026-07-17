@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { AppMenu } from './AppMenu'
@@ -15,6 +15,7 @@ vi.mock('./WindowControls', () => ({
 describe('AppMenu', () => {
   const createSession = vi.fn()
   const connectToSession = vi.fn()
+  const originalPlatform = navigator.platform
 
   beforeEach(() => {
     createSession.mockReset()
@@ -24,6 +25,13 @@ describe('AppMenu', () => {
     useChatStore.setState({ sessions: {}, connectToSession } as Partial<ReturnType<typeof useChatStore.getState>>)
     useTabStore.setState({ tabs: [], activeTabId: null })
     useUIStore.setState({ sidebarOpen: true, activeView: 'code', pendingSettingsTab: null, terminalDrawerOpen: false })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'platform', {
+      configurable: true,
+      value: originalPlatform,
+    })
   })
 
   it('opens a local draft from the File menu without creating a session', () => {
@@ -44,6 +52,17 @@ describe('AppMenu', () => {
     render(<AppMenu />)
 
     expect(screen.getByTestId('app-menu')).toContainElement(screen.getByTestId('window-controls'))
+  })
+
+  it('reserves space for native macOS traffic lights', () => {
+    Object.defineProperty(navigator, 'platform', {
+      configurable: true,
+      value: 'MacIntel',
+    })
+
+    render(<AppMenu />)
+
+    expect(screen.getByTestId('app-menu')).toHaveClass('pl-[78px]')
   })
 
   it('toggles the sidebar from the top menu', () => {
