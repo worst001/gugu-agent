@@ -112,8 +112,14 @@ function readLegacyTabs(): DesktopWorkspaceState['tabs'] {
       const tab = asRecord(item)
       if (typeof tab.sessionId !== 'string' || typeof tab.title !== 'string') return []
       const rawType = tab.type ?? 'session'
-      if (rawType !== 'session' && rawType !== 'settings' && rawType !== 'scheduled') return []
-      const type: 'session' | 'settings' | 'scheduled' = rawType
+      if (
+        rawType !== 'session' &&
+        rawType !== 'settings' &&
+        rawType !== 'scheduled' &&
+        rawType !== 'knowledge' &&
+        rawType !== 'team'
+      ) return []
+      const type: 'session' | 'settings' | 'scheduled' | 'knowledge' | 'team' = rawType
       return [{
         sessionId: tab.sessionId.slice(0, 500),
         title: tab.title.slice(0, 500),
@@ -192,6 +198,7 @@ function mergeProfile(profile: DesktopProfile, patch?: DesktopProfilePatch): Des
       appearance: { ...profile.preferences.appearance, ...patch.preferences?.appearance },
       layout: { ...profile.preferences.layout, ...patch.preferences?.layout },
       updates: { ...profile.preferences.updates, ...patch.preferences?.updates },
+      work: { ...profile.preferences.work, ...patch.preferences?.work },
     },
     migration: { ...profile.migration, ...patch.migration },
   }
@@ -207,6 +214,7 @@ function mergeWorkspaceState(
     projects: { ...state.projects, ...patch.projects },
     tabs: { ...state.tabs, ...patch.tabs },
     drafts: patch.drafts ?? state.drafts,
+    assistants: { ...state.assistants, ...patch.assistants },
     tools: { ...state.tools, ...patch.tools },
     migration: { ...state.migration, ...patch.migration },
   }
@@ -275,8 +283,11 @@ export const useDesktopProfileStore = create<DesktopProfileStore>((set, get) => 
       set({ bundle, lastError: null })
       return bundle
     } catch (error) {
-      set({ lastError: error instanceof Error ? error.message : String(error) })
-      return get().bundle
+      set({
+        bundle: current,
+        lastError: error instanceof Error ? error.message : String(error),
+      })
+      return current
     }
   },
 
@@ -315,6 +326,10 @@ function mergeQueuedPatch(
           ...current.profile?.preferences?.updates,
           ...next.profile.preferences?.updates,
         },
+        work: {
+          ...current.profile?.preferences?.work,
+          ...next.profile.preferences?.work,
+        },
       },
       migration: { ...current.profile?.migration, ...next.profile.migration },
     } : current.profile,
@@ -323,6 +338,10 @@ function mergeQueuedPatch(
       ...next.workspaceState,
       projects: { ...current.workspaceState?.projects, ...next.workspaceState.projects },
       tabs: { ...current.workspaceState?.tabs, ...next.workspaceState.tabs },
+      assistants: {
+        ...current.workspaceState?.assistants,
+        ...next.workspaceState.assistants,
+      },
       tools: { ...current.workspaceState?.tools, ...next.workspaceState.tools },
       migration: { ...current.workspaceState?.migration, ...next.workspaceState.migration },
     } : current.workspaceState,

@@ -6,6 +6,8 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
+import { sessionService } from '../services/sessionService.js'
+import { workspacePreviewService } from '../services/workspacePreviewService.js'
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
@@ -140,6 +142,10 @@ export async function handleFilesystemRoute(req: Request, pathname: string, url:
     return handleMetadata(req)
   }
 
+  if (pathname === '/api/filesystem/preview') {
+    return handlePrepareWorkspacePreview(req)
+  }
+
   return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
 }
 
@@ -208,6 +214,39 @@ async function handleReveal(req: Request): Promise<Response> {
   }
 
   return json({ ok: true, path: resolvedPath, isDirectory })
+}
+
+async function handlePrepareWorkspacePreview(req: Request): Promise<Response> {
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405)
+  }
+
+  let body: { sessionId?: unknown; path?: unknown }
+  try {
+    body = (await req.json()) as { sessionId?: unknown; path?: unknown }
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  if (typeof body.sessionId !== 'string' || !body.sessionId.trim()) {
+    return json({ error: 'Missing sessionId' }, 400)
+  }
+  if (typeof body.path !== 'string' || !body.path.trim()) {
+    return json({ error: 'Missing path' }, 400)
+  }
+
+  const workDir = await sessionService.getSessionWorkDir(body.sessionId.trim())
+  if (!workDir) return json({ error: 'Session workspace not found' }, 404)
+
+  try {
+    const url = await workspacePreviewService.prepare(workDir, body.path.trim())
+    return json({ url })
+  } catch (error) {
+    return json({
+      error: 'Cannot preview local HTML',
+      message: error instanceof Error ? error.message : String(error),
+    }, 400)
+  }
 }
 
 async function handleOpen(req: Request): Promise<Response> {

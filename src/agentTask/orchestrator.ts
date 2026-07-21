@@ -13,10 +13,12 @@ import type {
   AgentTaskPlan,
   AgentTaskReviewStatus,
   EvidencePack,
+  VerificationCheckSpec,
 } from './types.js'
 
 export type PlanAgentTaskInput = {
   plan?: AgentTaskPlan
+  requiredChecks?: VerificationCheckSpec[]
   useStageRouter?: boolean
 }
 
@@ -25,6 +27,14 @@ export type ReviewAgentTaskInput = {
   summary?: string
   findings?: string[]
   useStageRouter?: boolean
+}
+
+function assertStageRouterSupportsRole(task: AgentTask): void {
+  if (task.role !== 'software_engineer') {
+    throw new AgentTaskValidationError(
+      `Stage Router does not support AgentTask role: ${task.role}`,
+    )
+  }
 }
 
 export class AgentTaskOrchestrator {
@@ -47,6 +57,7 @@ export class AgentTaskOrchestrator {
     let plan = input.plan
 
     if (input.useStageRouter) {
+      assertStageRouterSupportsRole(detail.task)
       const settings = getStageRouterSettings()
       if (!settings.enabled) {
         throw new AgentTaskValidationError(
@@ -80,7 +91,11 @@ export class AgentTaskOrchestrator {
       throw new AgentTaskValidationError('plan is required')
     }
 
-    const task = await this.service.recordPlan(taskId, plan)
+    const task = await this.service.recordPlan(
+      taskId,
+      plan,
+      input.requiredChecks,
+    )
     return this.service.transitionTask(task.id, 'execute')
   }
 
@@ -109,6 +124,7 @@ export class AgentTaskOrchestrator {
     let findings = input.findings
 
     if (input.useStageRouter) {
+      assertStageRouterSupportsRole(detail.task)
       const settings = getStageRouterSettings()
       if (!settings.enabled || !detail.task.workspacePath) {
         status = 'unavailable'

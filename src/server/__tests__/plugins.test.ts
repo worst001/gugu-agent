@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { handlePluginsApi } from '../api/plugins.js'
+import { normalizeGitRepositoryUrl } from '../services/gitExtensionInstallService.js'
 
 let tmpDir: string
 let originalConfigDir: string | undefined
@@ -82,5 +83,43 @@ describe('Plugins API', () => {
     expect(typeof body.summary.enabled).toBe('number')
     expect(typeof body.summary.skills).toBe('number')
     expect(typeof body.summary.errors).toBe('number')
+  })
+
+  it('requires trust confirmation before installing a Git source', async () => {
+    const { req, url, segments } = makeRequest(
+      'POST',
+      '/api/plugins/install-source',
+      { source: 'https://github.com/heygen-com/hyperframes' },
+    )
+    const res = await handlePluginsApi(req, url, segments)
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects text/plain bodies for Git source installation', async () => {
+    const url = new URL('/api/plugins/install-source', 'http://localhost:3456')
+    const req = new Request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ source: 'https://github.com/example/repo', confirmed: true }),
+    })
+    const segments = url.pathname.split('/').filter(Boolean)
+    const res = await handlePluginsApi(req, url, segments)
+
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts supported HTTPS Git hosts and rejects unsafe sources', () => {
+    expect(normalizeGitRepositoryUrl(
+      'https://gitee.com/example/video-skills/?utm_source=test#readme',
+    )).toBe('https://gitee.com/example/video-skills')
+    expect(() => normalizeGitRepositoryUrl(
+      'http://github.com/example/repo',
+    )).toThrow('HTTPS')
+    expect(() => normalizeGitRepositoryUrl(
+      'https://user:secret@github.com/example/repo',
+    )).toThrow('credentials')
+    expect(() => normalizeGitRepositoryUrl(
+      'https://example.com/example/repo',
+    )).toThrow('Supported Git hosts')
   })
 })

@@ -113,6 +113,10 @@ export class DesktopProfileService {
             ...current.preferences.updates,
             ...patch.preferences?.updates,
           },
+          work: {
+            ...current.preferences.work,
+            ...patch.preferences?.work,
+          },
         },
         migration: { ...current.migration, ...patch.migration },
         updatedAt: new Date().toISOString(),
@@ -130,6 +134,7 @@ export class DesktopProfileService {
         projects: { ...current.projects, ...patch.projects },
         tabs: { ...current.tabs, ...patch.tabs },
         drafts: patch.drafts ?? current.drafts,
+        assistants: { ...current.assistants, ...patch.assistants },
         tools: { ...current.tools, ...patch.tools },
         migration: { ...current.migration, ...patch.migration },
         updatedAt: new Date().toISOString(),

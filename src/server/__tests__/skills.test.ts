@@ -122,4 +122,30 @@ describe('Skills API', () => {
       expect.objectContaining({ path: 'SKILL.md', body: 'child body' }),
     )
   })
+
+  it('reports installed HyperFrames skills through video health', async () => {
+    const userSkillsRoot = path.join(tmpHome, '.claude', 'skills')
+    await writeSkill(
+      userSkillsRoot,
+      'hyperframes',
+      ['---', 'description: Compose video', '---', '', '# HyperFrames'].join('\n'),
+    )
+    await writeSkill(
+      userSkillsRoot,
+      'hyperframes-cli',
+      ['---', 'description: Render video', '---', '', '# HyperFrames CLI'].join('\n'),
+    )
+
+    const { req, url, segments } = makeRequest('/api/skills/video-health')
+    const res = await handleSkillsApi(req, url, segments)
+    expect(res.status).toBe(200)
+    const body = await res.json() as {
+      health: { installed: boolean; skills: string[]; checks: unknown[] }
+    }
+    expect(body.health.installed).toBe(true)
+    expect(body.health.skills).toEqual(
+      expect.arrayContaining(['hyperframes', 'hyperframes-cli']),
+    )
+    expect(body.health.checks).toHaveLength(2)
+  })
 })

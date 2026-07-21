@@ -20,7 +20,14 @@ export type ToolActivity = {
   parentToolUseId?: string
 }
 
-export type FileChangeKind = 'created' | 'edited' | 'multi_edit' | 'notebook_edit' | 'read'
+export type FileChangeKind =
+  | 'created'
+  | 'edited'
+  | 'deleted'
+  | 'renamed'
+  | 'multi_edit'
+  | 'notebook_edit'
+  | 'read'
 
 export type WorkbenchFileChange = {
   id: string
@@ -31,6 +38,8 @@ export type WorkbenchFileChange = {
   summary: string
   oldText?: string
   newText?: string
+  binary?: boolean
+  truncated?: boolean
   timestamp: number
 }
 

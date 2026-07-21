@@ -23,6 +23,10 @@ import {
   previewSessionRewind,
   type RewindTargetSelector,
 } from '../services/sessionRewindService.js'
+import {
+  getGitInfoForWorkDir,
+  getGitReviewForWorkDir,
+} from '../services/gitReviewService.js'
 
 export async function handleSessionsApi(
   req: Request,
@@ -77,6 +81,16 @@ export async function handleSessionsApi(
         )
       }
       return await getGitInfo(sessionId)
+    }
+
+    if (subResource === 'git-review') {
+      if (req.method !== 'GET') {
+        return Response.json(
+          { error: 'METHOD_NOT_ALLOWED', message: `Method ${req.method} not allowed` },
+          { status: 405 }
+        )
+      }
+      return await getGitReview(sessionId, url.searchParams.get('path'))
     }
 
     if (subResource === 'rewind') {
@@ -409,59 +423,18 @@ async function getGitInfo(sessionId: string): Promise<Response> {
     throw ApiError.notFound(`Session not found: ${sessionId}`)
   }
 
-  try {
-    // Get branch name
-    const branchProc = Bun.spawn(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: workDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const branchText = await new Response(branchProc.stdout).text()
-    const branch = branchText.trim()
+  return Response.json(await getGitInfoForWorkDir(workDir))
+}
 
-    // Get repo name from remote or directory
-    let repoName = ''
-    try {
-      const remoteProc = Bun.spawn(['git', 'remote', 'get-url', 'origin'], {
-        cwd: workDir,
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      const remoteText = await new Response(remoteProc.stdout).text()
-      const remote = remoteText.trim()
-      // Extract repo name from URL: git@github.com:user/repo.git or https://...repo.git
-      const match = remote.match(/\/([^/]+?)(?:\.git)?$/) || remote.match(/:([^/]+\/[^/]+?)(?:\.git)?$/)
-      repoName = match ? match[1]! : ''
-    } catch {
-      // No remote, use directory name
-      const parts = workDir.split('/')
-      repoName = parts[parts.length - 1] || ''
-    }
-
-    // Get short status
-    const statusProc = Bun.spawn(['git', 'status', '--porcelain'], {
-      cwd: workDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const statusText = await new Response(statusProc.stdout).text()
-    const changedFiles = statusText.trim().split('\n').filter(Boolean).length
-
-    return Response.json({
-      branch,
-      repoName,
-      workDir,
-      changedFiles,
-    })
-  } catch {
-    // Not a git repo or git not available
-    return Response.json({
-      branch: null,
-      repoName: null,
-      workDir,
-      changedFiles: 0,
-    })
+async function getGitReview(sessionId: string, selectedPath?: string | null): Promise<Response> {
+  if (selectedPath && selectedPath.length > 4096) {
+    throw ApiError.badRequest('Git review path is too long')
   }
+  const workDir = await sessionService.getSessionWorkDir(sessionId)
+  if (!workDir) {
+    throw ApiError.notFound(`Session not found: ${sessionId}`)
+  }
+  return Response.json(await getGitReviewForWorkDir(workDir, selectedPath))
 }
 
 async function rewindSession(req: Request, sessionId: string): Promise<Response> {

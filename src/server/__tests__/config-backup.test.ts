@@ -143,6 +143,17 @@ describe('ConfigBackupService', () => {
       workspaceState: {
         projects: { pinned: ['D:/work'] },
         drafts: { session: { text: 'recover me', updatedAt: 10 } },
+        assistants: {
+          custom: [{
+            id: 'custom-ops',
+            name: 'Launch operator',
+            description: 'Launch-focused short video operator',
+            baseRole: 'short_video_operator',
+            instructions: 'Check the first three seconds before delivery.',
+            createdAt: '2026-07-13T00:00:00.000Z',
+            updatedAt: '2026-07-13T00:00:00.000Z',
+          }],
+        },
       },
     })
     const service = new ConfigBackupService()
@@ -176,6 +187,17 @@ describe('ConfigBackupService', () => {
       workspaceState: {
         projects: { pinned: ['D:/work'] },
         drafts: { session: { text: 'recover me', updatedAt: 10 } },
+        assistants: {
+          custom: [{
+            id: 'custom-ops',
+            name: 'Launch operator',
+            description: 'Launch-focused short video operator',
+            baseRole: 'short_video_operator',
+            instructions: 'Check the first three seconds before delivery.',
+            createdAt: '2026-07-13T00:00:00.000Z',
+            updatedAt: '2026-07-13T00:00:00.000Z',
+          }],
+        },
       },
     })
     const service = new ConfigBackupService()
@@ -191,8 +213,35 @@ describe('ConfigBackupService', () => {
     const restored = await profileService.getBundle()
     expect(restored.workspaceState.projects.pinned).toEqual(['D:/work'])
     expect(restored.workspaceState.drafts.session?.text).toBe('recover me')
+    expect(restored.workspaceState.assistants.custom[0]).toMatchObject({
+      id: 'custom-ops',
+      baseRole: 'short_video_operator',
+    })
   })
 
+  test('imports an older private workspace state without assistants', async () => {
+    const profileService = new DesktopProfileService()
+    await profileService.updateBundle({
+      workspaceState: { projects: { pinned: ['D:/legacy'] } },
+    })
+    const service = new ConfigBackupService()
+    const exported = await service.exportConfig({ includeSecrets: true })
+    const preferences = exported.sections.guiPreferences as {
+      desktop: {
+        workspaceState: {
+          assistants?: unknown
+        }
+      }
+    }
+    delete preferences.desktop.workspaceState.assistants
+
+    await profileService.reset()
+    await service.importConfig(exported)
+
+    const restored = await profileService.getBundle()
+    expect(restored.workspaceState.projects.pinned).toEqual(['D:/legacy'])
+    expect(restored.workspaceState.assistants.custom).toEqual([])
+  })
   test('migrates a version 1 backup theme into the desktop profile', async () => {
     const service = new ConfigBackupService()
     await service.importConfig({

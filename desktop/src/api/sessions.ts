@@ -60,6 +60,30 @@ export type RecentProject = {
   sessionCount: number
 }
 
+export type GitInfo = {
+  isGit: boolean
+  branch: string | null
+  repoName: string | null
+  repoRoot: string | null
+  workDir: string
+  changedFiles: number
+}
+
+export type GitReviewFile = {
+  path: string
+  oldPath?: string
+  status: string
+  kind: 'created' | 'edited' | 'deleted' | 'renamed'
+  oldText?: string
+  newText?: string
+  binary: boolean
+  truncated: boolean
+}
+
+export type GitReview = GitInfo & {
+  files: GitReviewFile[]
+}
+
 export type SessionUsageSnapshot = {
   source?: 'current_process' | 'transcript'
   totalCostUSD: number
@@ -201,7 +225,12 @@ export const sessionsApi = {
   },
 
   getGitInfo(sessionId: string) {
-    return api.get<{ branch: string | null; repoName: string | null; workDir: string; changedFiles: number }>(`/api/sessions/${sessionId}/git-info`)
+    return api.get<GitInfo>(`/api/sessions/${sessionId}/git-info`)
+  },
+
+  getGitReview(sessionId: string, selectedPath?: string | null) {
+    const query = selectedPath ? `?path=${encodeURIComponent(selectedPath)}` : ''
+    return api.get<GitReview>(`/api/sessions/${sessionId}/git-review${query}`)
   },
 
   getSlashCommands(sessionId: string) {

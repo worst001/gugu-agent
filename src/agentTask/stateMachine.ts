@@ -1,13 +1,7 @@
 import type { AgentTaskStatus } from './types.js'
+import { VERIFIED_DELIVERY_WORKFLOW_PACK } from './workflowPacks.js'
 
-const WORKFLOW_STATUSES = [
-  'intake',
-  'scout',
-  'plan',
-  'execute',
-  'verify',
-  'review',
-] as const
+const WORKFLOW_STATUSES = VERIFIED_DELIVERY_WORKFLOW_PACK.stages
 
 const ALLOWED_TRANSITIONS: Record<
   AgentTaskStatus,

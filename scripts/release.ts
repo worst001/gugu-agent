@@ -122,6 +122,23 @@ if (!existsSync(releaseNotesPath)) {
   console.error(`Create it before releasing so GitHub Release can use it automatically.`)
   process.exit(1)
 }
+const releaseNotesRelativePath = path.relative(root, releaseNotesPath).split(path.sep).join('/')
+const dirtyWorktree = await run([
+  'git',
+  'status',
+  '--porcelain=v1',
+  '--untracked-files=all',
+  '--',
+  '.',
+  ':(exclude)' + releaseNotesRelativePath,
+])
+if (dirtyWorktree) {
+  console.error('Release aborted: commit all product changes before cutting a release.')
+  console.error('Only the matching release notes file may be dirty:')
+  console.error(dirtyWorktree)
+  process.exit(1)
+}
+
 
 // Update version in all files
 for (const file of VERSION_FILES) {

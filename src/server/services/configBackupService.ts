@@ -554,8 +554,21 @@ export class ConfigBackupService {
       },
     }
     if (desktopRecord.workspaceState !== undefined) {
+      const rawWorkspaceState = desktopRecord.workspaceState
+      const workspaceStateRecord = rawWorkspaceState &&
+        typeof rawWorkspaceState === 'object' &&
+        !Array.isArray(rawWorkspaceState)
+        ? rawWorkspaceState as Record<string, unknown>
+        : rawWorkspaceState
       const workspaceState = desktopWorkspaceStateSchema.safeParse(
-        desktopRecord.workspaceState,
+        workspaceStateRecord &&
+          typeof workspaceStateRecord === 'object' &&
+          !Array.isArray(workspaceStateRecord)
+          ? {
+              ...workspaceStateRecord,
+              assistants: workspaceStateRecord.assistants ?? { custom: [] },
+            }
+          : workspaceStateRecord,
       )
       if (!workspaceState.success) {
         throw ApiError.badRequest('Invalid desktop profile in config package')
@@ -564,6 +577,7 @@ export class ConfigBackupService {
         projects: workspaceState.data.projects,
         tabs: workspaceState.data.tabs,
         drafts: workspaceState.data.drafts,
+        assistants: workspaceState.data.assistants,
         tools: workspaceState.data.tools,
         migration: workspaceState.data.migration,
       }

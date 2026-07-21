@@ -769,8 +769,9 @@ export const handleWebSocket = {
 
     if (channel === 'sdk') {
       console.log(`[WS] SDK disconnected from session: ${sessionId} (${code}: ${reason})`)
-      conversationService.detachSdkConnection(sessionId)
-      noteSdkDisconnected(sessionId)
+      if (conversationService.detachSdkConnection(sessionId, ws)) {
+        noteSdkDisconnected(sessionId)
+      }
       return
     }
 
@@ -1430,10 +1431,12 @@ function getSnapshotDelta(previous: string, next: string): string {
 function resetAssistantSnapshots(streamState: SessionStreamState) {
   streamState.assistantTextSnapshot = ''
   streamState.assistantThinkingSnapshot = ''
-  streamState.emittedAssistantToolUseIds.clear()
 }
 
-function resetStreamStateForTurn(streamState: SessionStreamState) {
+function resetStreamStateForTurn(
+  streamState: SessionStreamState,
+  preserveToolUseIds = false,
+) {
   streamState.hasReceivedStreamEvents = false
   streamState.receivedThinkingDelta = false
   streamState.activeBlockTypes.clear()
@@ -1444,6 +1447,7 @@ function resetStreamStateForTurn(streamState: SessionStreamState) {
   streamState.completedFromMessageStop = false
   streamState.latestUsage = { input_tokens: 0, output_tokens: 0 }
   resetAssistantSnapshots(streamState)
+  if (!preserveToolUseIds) streamState.emittedAssistantToolUseIds.clear()
 }
 
 function sanitizeInternalDiagnosticError(message: string): string | null {
@@ -1822,9 +1826,6 @@ export function translateCliMessage(
           }
         }
 
-        if (streamState.hasReceivedStreamEvents) {
-          resetStreamStateForTurn(streamState)
-        }
         return messages
       }
       return []
@@ -1870,7 +1871,7 @@ export function translateCliMessage(
 
       switch (event.type) {
         case 'message_start': {
-          resetStreamStateForTurn(streamState)
+          resetStreamStateForTurn(streamState, true)
           streamState.hasReceivedStreamEvents = true
           streamState.receivedThinkingDelta = false
           streamState.latestUsage = normalizeStreamUsage(event.message?.usage)
@@ -1953,6 +1954,9 @@ export function translateCliMessage(
               try { parsedInput = JSON.parse(toolBlock.inputJson) } catch {}
 
               if (parsedInput !== null) {
+                if (streamState.emittedAssistantToolUseIds.has(toolBlock.toolUseId)) {
+                  return []
+                }
                 streamState.emittedAssistantToolUseIds.add(toolBlock.toolUseId)
                 return [{
                   type: 'tool_use_complete',
@@ -2027,12 +2031,15 @@ export function translateCliMessage(
       return []
 
     case 'result': {
+      const completedFromMessageStop = streamState.completedFromMessageStop
       resetStreamStateForTurn(streamState)
       // 对话结果（成功或错误）
       const usage = {
         input_tokens: cliMsg.usage?.input_tokens || 0,
         output_tokens: cliMsg.usage?.output_tokens || 0,
       }
+
+      if (completedFromMessageStop && !cliMsg.is_error) return []
 
       if (cliMsg.is_error) {
         // If the user requested stop, this "error" is just the interrupt

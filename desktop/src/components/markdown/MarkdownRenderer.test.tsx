@@ -5,7 +5,13 @@ import '@testing-library/jest-dom'
 vi.mock('../../api/filesystem', () => ({
   filesystemApi: {
     reveal: vi.fn(),
+    prepareWorkspacePreview: vi.fn(),
   },
+}))
+
+vi.mock('../../utils/appActions', () => ({
+  openLocalHtmlFromAppAction: vi.fn(),
+  openWebUrlFromAppAction: vi.fn(),
 }))
 
 vi.mock('../chat/CodeViewer', () => ({
@@ -24,10 +30,16 @@ vi.mock('../chat/MermaidRenderer', () => ({
 
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { filesystemApi } from '../../api/filesystem'
+import {
+  openLocalHtmlFromAppAction,
+  openWebUrlFromAppAction,
+} from '../../utils/appActions'
 
 describe('MarkdownRenderer', () => {
   beforeEach(() => {
     vi.mocked(filesystemApi.reveal).mockReset()
+    vi.mocked(openLocalHtmlFromAppAction).mockReset()
+    vi.mocked(openWebUrlFromAppAction).mockReset()
     vi.mocked(filesystemApi.reveal).mockResolvedValue({ ok: true, path: 'D:\\work\\example.ts', isDirectory: false })
   })
 
@@ -126,6 +138,14 @@ describe('MarkdownRenderer', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
   })
 
+  it('opens links in the current session browser when a session is available', () => {
+    render(<MarkdownRenderer content={'[OpenAI](https://openai.com)'} sessionId="session-1" />)
+
+    fireEvent.click(screen.getByRole('link', { name: 'OpenAI' }))
+
+    expect(openWebUrlFromAppAction).toHaveBeenCalledWith('session-1', 'https://openai.com/')
+  })
+
   it('turns inline local paths into file browser buttons', () => {
     render(<MarkdownRenderer content={'Updated `D:\\work\\example.ts`.'} />)
 
@@ -147,6 +167,21 @@ describe('MarkdownRenderer', () => {
     fireEvent.click(pathButton)
 
     expect(filesystemApi.reveal).toHaveBeenCalledWith('D:\\Cursor\\Test\\tetris.html')
+  })
+
+  it('opens local HTML in the workspace browser preview', () => {
+    render(
+      <MarkdownRenderer
+        content={'Ready: `index.html`.'}
+        localPathBase="D:\\work"
+        sessionId="session-1"
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'index.html' }))
+
+    expect(openLocalHtmlFromAppAction).toHaveBeenCalledWith('session-1', 'D:\\work\\index.html')
+    expect(filesystemApi.reveal).not.toHaveBeenCalled()
   })
 
   it('keeps relative-looking inline code plain when no workspace is available', () => {

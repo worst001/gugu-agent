@@ -3,12 +3,16 @@
  */
 
 const ALLOWED_ORIGIN_RE =
-  /^(?:https?:\/\/(?:localhost|127\.0\.0\.1|tauri\.localhost)(?::\d+)?|tauri:\/\/localhost|asset:\/\/localhost)$/
+  /^(?:http:\/\/(?:localhost|127\.0\.0\.1):1420|https?:\/\/tauri\.localhost|tauri:\/\/localhost|asset:\/\/localhost)$/
+
+export function isTrustedOrigin(origin?: string | null): boolean {
+  return !origin || ALLOWED_ORIGIN_RE.test(origin)
+}
 
 export function corsHeaders(origin?: string | null): Record<string, string> {
-  // Allow localhost origins (http/https) and Tauri WebView origins
+  // Allow the desktop dev server and Tauri WebView origins.
   const allowedOrigin =
-    origin && ALLOWED_ORIGIN_RE.test(origin) ? origin : 'http://localhost:3000'
+    origin && ALLOWED_ORIGIN_RE.test(origin) ? origin : 'http://localhost:1420'
   return {
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',

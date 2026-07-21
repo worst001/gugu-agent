@@ -248,8 +248,18 @@ describe('translateCliMessage thinking bridge', () => {
       },
       sessionId,
     )
+    const duplicate = translateCliMessage(
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'Final text only.' }],
+        },
+      },
+      sessionId,
+    )
 
     expect(out.filter((message) => message.type === 'content_delta')).toHaveLength(0)
+    expect(duplicate.filter((message) => message.type === 'content_delta')).toHaveLength(0)
   })
 
   it('treats text message_stop as a completed turn when result is delayed or missing', () => {
@@ -300,6 +310,13 @@ describe('translateCliMessage thinking bridge', () => {
         usage: { input_tokens: 7, output_tokens: 11 },
       },
     ])
+
+    expect(
+      translateCliMessage(
+        { type: 'result', usage: { input_tokens: 7, output_tokens: 11 } },
+        sessionId,
+      ),
+    ).toEqual([])
   })
 
   it('does not complete the turn on tool-use message_stop', () => {
@@ -376,6 +393,51 @@ describe('translateCliMessage thinking bridge', () => {
       sessionId,
     )
     expect(nextTurn).toContainEqual({ type: 'content_delta', text: 'Configured API key auth.' })
+  })
+
+  it('deduplicates tool use across assistant snapshots and stream events', () => {
+    const sessionId = sid()
+    const assistant = {
+      type: 'assistant',
+      message: {
+        content: [{
+          type: 'tool_use',
+          id: 'toolu-read-once',
+          name: 'Read',
+          input: { file_path: 'SKILL.md' },
+        }],
+      },
+    }
+
+    expect(translateCliMessage(assistant, sessionId)).toHaveLength(1)
+    expect(translateCliMessage(assistant, sessionId)).toEqual([])
+
+    const stream = (event: Record<string, unknown>) =>
+      translateCliMessage({ type: 'stream_event', event }, sessionId)
+    stream({ type: 'message_start' })
+    stream({
+      type: 'content_block_start',
+      index: 0,
+      content_block: {
+        type: 'tool_use',
+        id: 'toolu-read-once',
+        name: 'Read',
+      },
+    })
+    stream({
+      type: 'content_block_delta',
+      index: 0,
+      delta: {
+        type: 'input_json_delta',
+        partial_json: '{}',
+      },
+    })
+    expect(
+      stream({
+        type: 'content_block_stop',
+        index: 0,
+      }),
+    ).toEqual([])
   })
 
   it('suppresses stop-triggered diagnostic errors when stream key differs from session id', () => {

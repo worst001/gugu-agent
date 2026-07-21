@@ -50,12 +50,18 @@ describe('desktop profile persistence', () => {
   it('returns defaults without creating files on first read', async () => {
     const response = await callApi()
     const body = await response.json() as {
-      profile: { preferences: { appearance: { theme: string } } }
+      profile: {
+        preferences: {
+          appearance: { theme: string }
+          work: { newSessionDefault: string }
+        }
+      }
       workspaceState: { drafts: Record<string, unknown> }
     }
 
     expect(response.status).toBe(200)
     expect(body.profile.preferences.appearance.theme).toBe('dark')
+    expect(body.profile.preferences.work.newSessionDefault).toBe('smart')
     expect(body.workspaceState.drafts).toEqual({})
     expect(await readdir(tempDir)).toEqual([])
   })
@@ -70,6 +76,9 @@ describe('desktop profile persistence', () => {
         profile: { preferences: { layout: { sidebarWidth: 336 } } },
       }),
       service.updateBundle({
+        profile: { preferences: { work: { newSessionDefault: 'knowledge_delivery' } } },
+      }),
+      service.updateBundle({
         workspaceState: { projects: { pinned: ['D:/work'] } },
       }),
     ])
@@ -77,6 +86,7 @@ describe('desktop profile persistence', () => {
     const bundle = await service.getBundle()
     expect(bundle.profile.preferences.appearance.theme).toBe('gray-dark')
     expect(bundle.profile.preferences.layout.sidebarWidth).toBe(336)
+    expect(bundle.profile.preferences.work.newSessionDefault).toBe('knowledge_delivery')
     expect(bundle.workspaceState.projects.pinned).toEqual(['D:/work'])
     expect(JSON.parse(await readFile(join(configDir, 'profile.json'), 'utf-8'))).toMatchObject({
       schemaVersion: 1,
@@ -148,8 +158,38 @@ describe('desktop profile normalization', () => {
       workbenchWidth: 444,
       capabilityPanelCollapsed: true,
     })
+    expect(profile.preferences.work.newSessionDefault).toBe('smart')
   })
 
+  it('normalizes custom assistants against built-in Role Packs', () => {
+    const state = normalizeDesktopWorkspaceState({
+      assistants: {
+        custom: [
+          {
+            id: 'custom-ops',
+            name: 'Launch operator',
+            description: '',
+            baseRole: 'short_video_operator',
+            instructions: 'Review hook and pacing.',
+            createdAt: '2026-07-13T00:00:00.000Z',
+            updatedAt: '2026-07-13T00:00:00.000Z',
+          },
+          {
+            id: 'invalid',
+            name: 'Invalid role',
+            description: '',
+            baseRole: 'invented_role',
+            instructions: 'Ignore',
+            createdAt: '2026-07-13T00:00:00.000Z',
+            updatedAt: '2026-07-13T00:00:00.000Z',
+          },
+        ],
+      },
+    })
+
+    expect(state.assistants.custom).toHaveLength(1)
+    expect(state.assistants.custom[0]?.baseRole).toBe('short_video_operator')
+  })
   it('prunes invalid, oversized, and excess drafts', () => {
     const drafts = Object.fromEntries(Array.from({ length: MAX_DESKTOP_DRAFTS + 5 }, (_, index) => [
       `session-${index}`,

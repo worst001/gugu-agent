@@ -10,7 +10,11 @@ import { WorkbenchPanel } from './WorkbenchPanel'
 import { filesystemApi } from '../../api/filesystem'
 import { nativeBrowserApi } from '../../api/nativeBrowser'
 import type { NativeBrowserEvent } from '../../api/nativeBrowser'
-import { openExternalFromAppAction } from '../../utils/appActions'
+import {
+  openExternalFromAppAction,
+  openWebUrlFromAppAction,
+} from '../../utils/appActions'
+import { sessionsApi } from '../../api/sessions'
 
 vi.mock('../chat/DiffViewer', () => ({
   DiffViewer: ({ filePath, oldString, newString }: {
@@ -40,6 +44,7 @@ vi.mock('../../api/filesystem', () => ({
   filesystemApi: {
     listWorkspaceDir: vi.fn(),
     readWorkspaceTextFile: vi.fn(),
+    prepareWorkspacePreview: vi.fn(),
     open: vi.fn(),
     reveal: vi.fn(),
   },
@@ -47,6 +52,7 @@ vi.mock('../../api/filesystem', () => ({
 
 vi.mock('../../utils/appActions', () => ({
   openExternalFromAppAction: vi.fn(),
+  openWebUrlFromAppAction: vi.fn(),
 }))
 
 vi.mock('../../api/nativeBrowser', () => ({
@@ -63,6 +69,12 @@ vi.mock('../../api/nativeBrowser', () => ({
     hide: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     listen: vi.fn(async () => vi.fn()),
+  },
+}))
+
+vi.mock('../../api/sessions', () => ({
+  sessionsApi: {
+    getGitReview: vi.fn(),
   },
 }))
 
@@ -109,9 +121,11 @@ describe('WorkbenchPanel', () => {
     useWorkbenchStore.setState({ sessions: {}, panelWidth: 390 })
     vi.mocked(filesystemApi.listWorkspaceDir).mockReset()
     vi.mocked(filesystemApi.readWorkspaceTextFile).mockReset()
+    vi.mocked(filesystemApi.prepareWorkspacePreview).mockReset()
     vi.mocked(filesystemApi.open).mockReset()
     vi.mocked(filesystemApi.reveal).mockReset()
     vi.mocked(openExternalFromAppAction).mockReset()
+    vi.mocked(openWebUrlFromAppAction).mockReset()
     vi.mocked(nativeBrowserApi.isAvailable).mockReturnValue(true)
     vi.mocked(nativeBrowserApi.create).mockClear()
     vi.mocked(nativeBrowserApi.navigate).mockClear()
@@ -123,9 +137,27 @@ describe('WorkbenchPanel', () => {
     vi.mocked(nativeBrowserApi.close).mockClear()
     vi.mocked(nativeBrowserApi.hide).mockClear()
     vi.mocked(nativeBrowserApi.listen).mockClear()
+    vi.mocked(sessionsApi.getGitReview).mockReset()
+    vi.mocked(sessionsApi.getGitReview).mockResolvedValue({
+      isGit: true,
+      branch: 'main',
+      repoName: 'project',
+      repoRoot: 'D:/Project',
+      workDir: 'D:/Project',
+      changedFiles: 1,
+      files: [{
+        path: 'src/App.tsx',
+        status: ' M',
+        kind: 'edited',
+        oldText: 'export const title = "Old"',
+        newText: 'export const title = "GuGu"',
+        binary: false,
+        truncated: false,
+      }],
+    })
   })
 
-  it('hides the workbench when closed and opens from the floating control', () => {
+  it('hides the workbench when closed and opens from the floating control', async () => {
     render(<WorkbenchPanel sessionId="session-1" messages={messages} />)
 
     const collapsedPanel = screen.getByTestId('workbench-collapsed')
@@ -139,12 +171,16 @@ describe('WorkbenchPanel', () => {
     expect(openButton).toHaveClass('h-7', 'w-7', 'bg-transparent')
     expect(openButton).not.toHaveClass('border', 'shadow-sm')
 
+    expect(sessionsApi.getGitReview).not.toHaveBeenCalled()
     fireEvent.click(openButton)
     expect(screen.getByTestId('workbench-panel')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(sessionsApi.getGitReview).toHaveBeenCalledWith('session-1', null)
+    })
     expect(screen.getByText('Agent Workbench')).toBeInTheDocument()
     expect(screen.getByLabelText('Collapse workbench').className).toContain('absolute right-3 top-2')
 
-    fireEvent.click(screen.getByRole('tab', { name: /review/i }))
+    fireEvent.click(await screen.findByRole('tab', { name: /review/i }))
 
     expect(screen.getByTestId('workbench-panel')).toBeInTheDocument()
     expect(screen.getByTestId('diff-preview')).toHaveTextContent('src/App.tsx')
@@ -163,7 +199,7 @@ describe('WorkbenchPanel', () => {
     expect(useUIStore.getState().terminalDrawerOpen).toBe(false)
   })
 
-  it('renders review, browser, files, and activity tabs when open', () => {
+  it('renders review, browser, files, and activity tabs when open', async () => {
     useWorkbenchStore.getState().openWorkbench('session-1')
     render(<WorkbenchPanel sessionId="session-1" messages={messages} />)
 
@@ -173,12 +209,30 @@ describe('WorkbenchPanel', () => {
     expect(screen.getByText('Write')).toBeInTheDocument()
     expect(screen.getByText('Bash')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: /review/i }))
+    fireEvent.click(await screen.findByRole('tab', { name: /review/i }))
     expect(screen.getByTestId('diff-preview')).toHaveTextContent('src/App.tsx')
     expect(screen.getByTestId('diff-preview')).toHaveTextContent('export const title')
 
     fireEvent.click(screen.getByRole('tab', { name: /files/i }))
     expect(screen.getByTestId('code-preview')).toHaveTextContent('export const title')
+  })
+
+  it('hides Review for a non-Git workspace', async () => {
+    vi.mocked(sessionsApi.getGitReview).mockResolvedValueOnce({
+      isGit: false,
+      branch: null,
+      repoName: null,
+      repoRoot: null,
+      workDir: 'D:/Notes',
+      changedFiles: 0,
+      files: [],
+    })
+    useWorkbenchStore.getState().openWorkbench('session-1')
+    render(<WorkbenchPanel sessionId="session-1" messages={messages} />)
+
+    await waitFor(() => expect(sessionsApi.getGitReview).toHaveBeenCalledWith('session-1', null))
+    expect(screen.queryByRole('tab', { name: /review/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /activity/i })).toBeInTheDocument()
   })
 
   it('creates the native browser from the browser workbench tab and navigates from the address bar', async () => {
@@ -215,6 +269,49 @@ describe('WorkbenchPanel', () => {
     })
     expect(nativeBrowserApi.close).not.toHaveBeenCalled()
     expect(nativeBrowserApi.navigate).not.toHaveBeenCalled()
+
+    rectSpy.mockRestore()
+  })
+
+  it('repairs legacy file URLs and opens local HTML through the workspace preview', async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 10,
+      y: 20,
+      left: 10,
+      top: 20,
+      right: 410,
+      bottom: 320,
+      width: 400,
+      height: 300,
+      toJSON: () => ({}),
+    } as DOMRect)
+    vi.mocked(filesystemApi.prepareWorkspacePreview).mockResolvedValue({
+      url: 'http://127.0.0.1:4567/preview/token/snake.html',
+    })
+
+    useWorkbenchStore.getState().openWorkbench('session-1', { activeTab: 'browser' })
+    render(<WorkbenchPanel sessionId="session-1" messages={messages} />)
+
+    const address = screen.getByLabelText('Enter URL or search')
+    fireEvent.change(address, {
+      target: { value: 'https://file:///D:/Cursor/Test/snake.html' },
+    })
+    fireEvent.submit(address.closest('form') as HTMLFormElement)
+
+    await waitFor(() => {
+      expect(filesystemApi.prepareWorkspacePreview).toHaveBeenCalledWith(
+        'session-1',
+        'D:\\Cursor\\Test\\snake.html',
+      )
+      expect(nativeBrowserApi.create).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        url: 'http://127.0.0.1:4567/preview/token/snake.html',
+        bounds: { x: 10, y: 20, width: 400, height: 300 },
+      })
+    })
+    expect(screen.getByRole('button', { name: 'Open in external browser' }))
+      .toBeDisabled()
+
 
     rectSpy.mockRestore()
   })
@@ -488,8 +585,8 @@ describe('WorkbenchPanel', () => {
 
     expect(screen.getByText('WebFetch')).toBeInTheDocument()
     expect(screen.getByText('Example Domain summary')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /open in external browser/i }))
-    expect(openExternalFromAppAction).toHaveBeenCalledWith('https://example.com')
+    fireEvent.click(screen.getByRole('button', { name: /open in browser/i }))
+    expect(openWebUrlFromAppAction).toHaveBeenCalledWith('session-1', 'https://example.com')
   })
 
   it('renders attachment previews with parsed Markdown and sent prompt text', () => {

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Mic, WandSparkles } from 'lucide-react'
+import {
+  BookOpenText,
+  Clapperboard,
+  Code2,
+  Mic,
+  WandSparkles,
+} from 'lucide-react'
 import { settingsApi } from '../api/settings'
 import { skillsApi } from '../api/skills'
 import { filesystemApi } from '../api/filesystem'
+import { agentTasksApi } from '../api/agentTasks'
 import { useTranslation } from '../i18n'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
@@ -15,6 +22,15 @@ import { ModelSelector } from '../components/controls/ModelSelector'
 import { CE_WORKFLOW_DEFAULT_ROLE_ID } from '../constants/ceWorkflowRoles'
 import { AGENT_RUN_MODE_DEFAULT, buildAgentRunModeMessage, type AgentRunMode } from '../constants/agentRunModes'
 import {
+  AGENT_TASK_ROLE_PRESENTATION,
+  AGENT_TASK_TEAM_PRESENTATION,
+  AGENT_TASK_TEMPLATE_PRESENTATION,
+  buildAgentTaskLaunchRequest,
+  recommendAgentTaskRole,
+  resolveAgentTaskTeamForWorkType,
+  recommendAgentTaskTemplate,
+} from '../constants/agentTaskProduct'
+import {
   buildOfficeToolMessage,
   getOfficeToolOption,
   getOfficeToolPlaceholderKey,
@@ -24,6 +40,7 @@ import {
 import { buildTaskContextMessage, buildTaskContextNotice } from '../constants/taskContextGraph'
 import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../stores/agentRunModeStore'
 import { DRAFT_CE_WORKFLOW_KEY, useCeWorkflowRoleStore } from '../stores/ceWorkflowRoleStore'
+import { useAgentTaskStore } from '../stores/agentTaskStore'
 import { AttachmentGallery } from '../components/chat/AttachmentGallery'
 import { EmptySessionWelcome } from '../components/chat/EmptySessionWelcome'
 import { FileSearchMenu, type FileSearchMenuHandle } from '../components/chat/FileSearchMenu'
@@ -43,6 +60,7 @@ import {
 } from '../utils/attachmentLimits'
 import { listenForTauriFileDrop } from '../utils/tauriFileDrop'
 import { chooseLocalFilePaths } from '../utils/localFileSelection'
+import { sanitizeSessionTitle } from '../utils/sessionTitle'
 
 type Attachment = {
   id: string
@@ -72,6 +90,9 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashCommands, setSlashCommands] = useState<SlashCommandOption[]>([])
   const [selectedOfficeTool, setSelectedOfficeTool] = useState<OfficeToolId | null>(null)
+  const [selectedTaskTeamId, setSelectedTaskTeamId] = useState<string | null>(null)
+  const [selectedTaskTemplateId, setSelectedTaskTemplateId] = useState<string | null>(null)
+  const [taskPlanExpanded, setTaskPlanExpanded] = useState(false)
   const [isDragActive, setIsDragActive] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -82,16 +103,107 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
   const slashItemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const createSession = useSessionStore((state) => state.createSession)
   const requestedWorkDir = useSessionStore((state) => state.newSessionWorkDir)
+  const newSessionWorkType = useSessionStore((state) => state.newSessionWorkType)
   const sendMessage = useChatStore((state) => state.sendMessage)
   const connectToSession = useChatStore((state) => state.connectToSession)
   const setActiveView = useUIStore((state) => state.setActiveView)
   const addToast = useUIStore((state) => state.addToast)
   const selectedDraftRunMode = useAgentRunModeStore((state) => state.selections[DRAFT_AGENT_RUN_MODE_KEY] ?? AGENT_RUN_MODE_DEFAULT)
+  const agentTaskCapabilityLoaded = useAgentTaskStore((state) => state.capabilityLoaded)
+  const agentTaskEnabled = useAgentTaskStore((state) => state.enabled)
+  const availableTaskRoles = useAgentTaskStore((state) => state.roles)
+  const availableTaskTeams = useAgentTaskStore((state) => state.teams)
+  const loadAgentTaskCapabilities = useAgentTaskStore((state) => state.loadCapabilities)
   const canAcceptAttachments = !isSubmitting
   const showStarterTasks = !input.trim() && attachments.length === 0 && !isSubmitting
   const composerPlaceholder = selectedOfficeTool
     ? t(getOfficeToolPlaceholderKey(selectedOfficeTool))
     : t('empty.placeholder')
+  const recommendedTaskTeam = useMemo(
+    () => resolveAgentTaskTeamForWorkType(
+      newSessionWorkType,
+      input,
+      availableTaskTeams,
+      selectedOfficeTool,
+    ),
+    [availableTaskTeams, input, newSessionWorkType, selectedOfficeTool],
+  )
+  const selectedTaskTeam = selectedTaskTeamId
+    ? availableTaskTeams.find((team) => team.id === selectedTaskTeamId)
+    : undefined
+  const effectiveTaskTeam = selectedTaskTeam ?? recommendedTaskTeam
+  const recommendedTaskTemplate = useMemo(
+    () => recommendAgentTaskTemplate(
+      input,
+      effectiveTaskTeam,
+      selectedOfficeTool,
+    ),
+    [effectiveTaskTeam, input, selectedOfficeTool],
+  )
+  const selectedTaskTemplate = selectedTaskTemplateId
+    ? effectiveTaskTeam?.taskTemplates.find(
+        (template) => template.id === selectedTaskTemplateId,
+      )
+    : undefined
+  const effectiveTaskTemplate =
+    selectedTaskTemplate ?? recommendedTaskTemplate
+  const recommendedTaskRole = useMemo(
+    () => recommendAgentTaskRole(
+      input,
+      availableTaskRoles,
+      selectedOfficeTool,
+    ),
+    [availableTaskRoles, input, selectedOfficeTool],
+  )
+  const effectiveTaskRole =
+    effectiveTaskTeam?.primaryRole ?? recommendedTaskRole
+  const effectiveTaskPresentation =
+    AGENT_TASK_ROLE_PRESENTATION[effectiveTaskRole]
+  const effectiveTaskTeamPresentation = effectiveTaskTeam
+    ? AGENT_TASK_TEAM_PRESENTATION[effectiveTaskTeam.id]
+    : undefined
+  const effectiveTaskTeamName = effectiveTaskTeam
+    ? effectiveTaskTeamPresentation
+      ? t(effectiveTaskTeamPresentation.labelKey)
+      : effectiveTaskTeam.displayName
+    : ''
+  const effectiveTaskTemplatePresentation = effectiveTaskTemplate
+    ? AGENT_TASK_TEMPLATE_PRESENTATION[effectiveTaskTemplate.id]
+    : undefined
+  const effectiveTaskTemplateName = effectiveTaskTemplate
+    ? effectiveTaskTemplatePresentation
+      ? t(effectiveTaskTemplatePresentation)
+      : effectiveTaskTemplate.displayName
+    : ''
+  const effectiveTaskRoleName = t(effectiveTaskPresentation.labelKey)
+  const EffectiveTaskRoleIcon = effectiveTaskRole === 'short_video_operator'
+    ? Clapperboard
+    : effectiveTaskRole === 'knowledge_worker'
+      ? BookOpenText
+      : Code2
+  const showTaskMode =
+    agentTaskCapabilityLoaded &&
+    agentTaskEnabled &&
+    (availableTaskTeams.length > 0 || availableTaskRoles.length > 0)
+  const taskSelectionValue =
+    selectedTaskTeam && selectedTaskTemplate
+      ? selectedTaskTeam.id + ':' + selectedTaskTemplate.id
+      : 'auto'
+  const welcomeSubtitle = effectiveTaskTeamPresentation
+    ? t(effectiveTaskTeamPresentation.welcomeKey)
+    : newSessionWorkType === 'chat'
+      ? t('empty.subtitle')
+      : t('empty.task.welcome.default')
+
+  useEffect(() => {
+    if (!agentTaskCapabilityLoaded) void loadAgentTaskCapabilities()
+  }, [agentTaskCapabilityLoaded, loadAgentTaskCapabilities])
+
+  useEffect(() => {
+    setSelectedTaskTeamId(null)
+    setSelectedTaskTemplateId(null)
+    setTaskPlanExpanded(false)
+  }, [newSessionWorkType])
 
   useEffect(() => {
     if (active) textareaRef.current?.focus()
@@ -318,23 +430,30 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
     }
 
     setIsSubmitting(true)
+    const previousActiveSessionId = useSessionStore.getState().activeSessionId
+    let createdSessionId: string | null = null
+    let shouldDiscardCreatedSession = false
     try {
       const sessionId = await createSession(workDir || undefined)
+      createdSessionId = sessionId
+      shouldDiscardCreatedSession = true
       const draftRole =
         useCeWorkflowRoleStore.getState().selections[DRAFT_CE_WORKFLOW_KEY] ?? CE_WORKFLOW_DEFAULT_ROLE_ID
       const draftMode =
         useAgentRunModeStore.getState().selections[DRAFT_AGENT_RUN_MODE_KEY] ?? AGENT_RUN_MODE_DEFAULT
-      useAgentRunModeStore.getState().setMode(sessionId, draftMode)
-      useCeWorkflowRoleStore.getState().setRole(sessionId, draftRole)
+      const activateCreatedSession = () => {
+        useAgentRunModeStore.getState().setMode(sessionId, draftMode)
+        useCeWorkflowRoleStore.getState().setRole(sessionId, draftRole)
 
-      setActiveView('code')
-      const tabStore = useTabStore.getState()
-      if (tabStore.activeTabId === DRAFT_TAB_ID) {
-        tabStore.replaceTabSession(DRAFT_TAB_ID, sessionId, 'session')
-      } else {
-        tabStore.openTab(sessionId, 'New Session')
+        setActiveView('code')
+        const tabStore = useTabStore.getState()
+        if (tabStore.activeTabId === DRAFT_TAB_ID) {
+          tabStore.replaceTabSession(DRAFT_TAB_ID, sessionId, 'session')
+        } else {
+          tabStore.openTab(sessionId, 'New Session')
+        }
+        connectToSession(sessionId)
       }
-      connectToSession(sessionId)
       const attachmentPayload = attachments.map((attachment) => ({
         type: attachment.type,
         name: attachment.name,
@@ -348,10 +467,43 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
       const officeMessage = officeTool
         ? buildOfficeToolMessage(officeTool, text, { hasAttachments: attachmentPayload.length > 0 })
         : null
+      const shouldLaunchAgentTask = Boolean(
+        showTaskMode && effectiveTaskTeam && effectiveTaskTemplate,
+      )
+      const agentTaskGoal =
+        officeMessage?.display.trim() ||
+        text ||
+        attachmentPayload.map((attachment) => attachment.name).join(', ')
+      const sessionWorkDir = useSessionStore.getState().sessions
+        .find((session) => session.id === sessionId)?.workDir?.trim()
+      const createdAgentTask = shouldLaunchAgentTask
+        ? (await agentTasksApi.create({
+            title: sanitizeSessionTitle(agentTaskGoal),
+            goal: agentTaskGoal,
+            sessionId,
+            workspacePath: sessionWorkDir || workDir.trim(),
+            ...(effectiveTaskTeam
+              ? {
+                  teamId: effectiveTaskTeam.id,
+                  taskTemplateId: effectiveTaskTemplate?.id,
+                }
+              : {}),
+            role: effectiveTaskRole,
+          })).task
+        : null
+      shouldDiscardCreatedSession = false
+      activateCreatedSession()
+      const agentTaskLaunch = createdAgentTask
+        ? buildAgentTaskLaunchRequest(
+            createdAgentTask,
+            officeMessage?.wire ?? text,
+          )
+        : null
+      const taskRequest = agentTaskLaunch?.wire ?? officeMessage?.wire ?? text
       const { wire, display, modelPreference } = buildAgentRunModeMessage(
         draftMode,
         draftRole,
-        officeMessage?.wire ?? text,
+        taskRequest,
         availableSkillNames,
       )
       const taskContextMessage = buildTaskContextMessage(wire, {
@@ -370,7 +522,7 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
             ? t(getOfficeToolOption(officeTool).shortLabelKey)
             : officeMessage.display
         )
-        : display
+        : agentTaskLaunch?.display ?? display
       const nextModelPreference = modelPreference ?? taskContextMessage?.modelPreference
       const taskContextNotice = taskContextMessage
         ? buildTaskContextNotice(taskContextMessage.classification, nextModelPreference)
@@ -390,6 +542,23 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
       setAttachments([])
       setSelectedOfficeTool(null)
     } catch (error) {
+      if (createdSessionId && shouldDiscardCreatedSession) {
+        try {
+          await useSessionStore.getState().deleteSession(createdSessionId)
+        } catch {
+          useSessionStore.setState((state) => ({
+            sessions: state.sessions.filter((session) => session.id !== createdSessionId),
+            activeSessionId: state.activeSessionId === createdSessionId
+              ? previousActiveSessionId
+              : state.activeSessionId,
+          }))
+        }
+        useSessionStore.setState((state) => ({
+          activeSessionId: state.activeSessionId === null
+            ? previousActiveSessionId
+            : state.activeSessionId,
+        }))
+      }
       addToast({
         type: 'error',
         message: error instanceof Error ? error.message : t('empty.failedToCreate'),
@@ -746,7 +915,8 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
   }
 
   const selectOfficeTool = (tool: OfficeToolId | 'normal') => {
-    setSelectedOfficeTool(tool === 'normal' ? null : tool)
+    const nextTool = tool === 'normal' ? null : tool
+    setSelectedOfficeTool(nextTool)
     setPlusMenuOpen(false)
   }
 
@@ -762,6 +932,7 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
     <div className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-surface)]">
       <div className="flex flex-1 flex-col items-center justify-center p-8 pb-32">
         <EmptySessionWelcome
+          subtitle={welcomeSubtitle}
           showStarterTasks={showStarterTasks}
           onSelectPrompt={selectStarterTask}
         />
@@ -769,6 +940,92 @@ export function EmptySession({ active = true }: { active?: boolean } = {}) {
 
       <div className="absolute bottom-4 left-0 right-0 flex justify-center px-8">
         <div className="flex w-full max-w-3xl flex-col gap-2">
+          {showTaskMode && effectiveTaskTeam && effectiveTaskTemplate && (
+            <div className="flex min-w-0 flex-col gap-1 px-1">
+              <div className="flex min-h-8 min-w-0 items-center gap-2 text-[11px] text-[var(--color-text-secondary)]">
+                <EffectiveTaskRoleIcon
+                  size={14}
+                  strokeWidth={1.2}
+                  className="shrink-0 text-[var(--color-brand)]"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 truncate">
+                  {t('empty.task.willRunAs', {
+                    team: effectiveTaskTeamName,
+                    task: effectiveTaskTemplateName,
+                  })}
+                  <span className="text-[var(--color-text-tertiary)]">
+                    {' / ' + t('empty.task.ownerSummary', {
+                      owner: effectiveTaskRoleName,
+                    })}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTaskPlanExpanded((value) => !value)}
+                  aria-expanded={taskPlanExpanded}
+                  className="shrink-0 rounded-md px-2 py-1 font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                >
+                  {t(taskPlanExpanded
+                    ? 'empty.task.hideOptions'
+                    : 'empty.task.changePlan')}
+                </button>
+              </div>
+
+              {taskPlanExpanded && (
+                <select
+                  aria-label={t('empty.task.selection')}
+                  value={taskSelectionValue}
+                  onChange={(event) => {
+                    if (event.target.value === 'auto') {
+                      setSelectedTaskTeamId(null)
+                      setSelectedTaskTemplateId(null)
+                      return
+                    }
+                    const [teamId, templateId] = event.target.value.split(':')
+                    setSelectedTaskTeamId(teamId ?? null)
+                    setSelectedTaskTemplateId(templateId ?? null)
+                  }}
+                  className="h-8 min-w-0 max-w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-2 text-xs font-semibold text-[var(--color-text-primary)] outline-none focus:border-[var(--color-border-focus)] sm:max-w-[360px]"
+                >
+                  <option value="auto">
+                    {t('empty.task.automaticSelection', {
+                      selection: effectiveTaskTeamName + ' / ' +
+                        effectiveTaskTemplateName,
+                    })}
+                  </option>
+                  {availableTaskTeams.map((team) => {
+                    const teamPresentation =
+                      AGENT_TASK_TEAM_PRESENTATION[team.id]
+                    const teamName = teamPresentation
+                      ? t(teamPresentation.labelKey)
+                      : team.displayName
+                    return (
+                      <optgroup key={team.id} label={teamName}>
+                        {team.taskTemplates
+                          .filter((template) => template.kind === 'delivery')
+                          .map((template) => {
+                            const templatePresentation =
+                              AGENT_TASK_TEMPLATE_PRESENTATION[template.id]
+                            const templateName = templatePresentation
+                              ? t(templatePresentation)
+                              : template.displayName
+                            return (
+                              <option
+                                key={template.id}
+                                value={team.id + ':' + template.id}
+                              >
+                                {teamName + ' / ' + templateName}
+                              </option>
+                            )
+                          })}
+                      </optgroup>
+                    )
+                  })}
+                </select>
+              )}
+            </div>
+          )}
           <div
             className="glass-panel relative flex flex-col gap-3 rounded-xl p-4"
             onDragEnter={handleDragEnter}

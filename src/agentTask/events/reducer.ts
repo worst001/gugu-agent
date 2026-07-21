@@ -5,6 +5,7 @@ import type {
   AgentTaskPlan,
   AgentTaskReview,
   AgentTaskStatus,
+  VerificationCheckSpec,
 } from '../types.js'
 
 function readString(
@@ -52,6 +53,9 @@ export function reduceAgentTaskEvents(events: AgentTaskEvent[]): AgentTask {
   }
 
   let task = created as AgentTask
+  if (!task.roleVersion) {
+    task = { ...task, roleVersion: task.role }
+  }
   if (
     task.id !== first.taskId ||
     task.runId !== first.runId ||
@@ -95,6 +99,9 @@ export function reduceAgentTaskEvents(events: AgentTaskEvent[]): AgentTask {
         task = {
           ...task,
           plan: event.payload.plan as AgentTaskPlan,
+          requiredChecks:
+            event.payload.requiredChecks as VerificationCheckSpec[] ??
+            task.requiredChecks,
         }
         break
 

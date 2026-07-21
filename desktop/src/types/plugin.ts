@@ -99,3 +99,22 @@ export type PluginReloadSummary = {
   lspServers: number
   errors: number
 }
+
+export type GitExtensionInstallResult =
+  | {
+      kind: 'marketplace'
+      source: string
+      marketplace: string
+      plugins: Array<{
+        id: string
+        name: string
+        description?: string
+        version?: string
+      }>
+    }
+  | {
+      kind: 'skills'
+      source: string
+      installedSkills: string[]
+      message: string
+    }

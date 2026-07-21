@@ -1,6 +1,6 @@
 import { useTranslation, type TranslationKey } from '../../i18n'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
-import { openExternalFromAppAction } from '../../utils/appActions'
+import { openWebUrlFromAppAction } from '../../utils/appActions'
 import type { ToolActivity, WorkbenchFileChange } from './workbenchModel'
 
 type Props = {
@@ -66,12 +66,12 @@ export function ToolActivityList({
                 <button
                   type="button"
                   className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
-                  aria-label={t('workbench.activity.openExternal')}
-                  title={t('workbench.activity.openExternal')}
-                  onClick={() => void openExternalFromAppAction(externalUrl)}
+                  aria-label={t('workbench.activity.openBrowser')}
+                  title={t('workbench.activity.openBrowser')}
+                  onClick={() => openWebUrlFromAppAction(sessionId, externalUrl)}
                 >
                   <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
-                    open_in_new
+                    public
                   </span>
                 </button>
               )}

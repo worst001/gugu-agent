@@ -3,6 +3,8 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useUIStore, type SettingsTab } from '../stores/uiStore'
 import { flushDesktopStateWrites } from '../stores/desktopProfilePersistence'
+import { useWorkbenchStore } from '../stores/workbenchStore'
+import { filesystemApi } from '../api/filesystem'
 import { resolveNewSessionWorkDir } from './newSessionWorkDir'
 
 export function openNewSessionDraftFromAppAction(title = 'New Session') {
@@ -94,6 +96,21 @@ export async function openExternalFromAppAction(url: string) {
   } catch {
     window.open(url, '_blank')
   }
+}
+
+export function openWebUrlFromAppAction(sessionId: string, url: string) {
+  const target = url.trim()
+  if (!/^https?:\/\//i.test(target)) return false
+
+  const workbench = useWorkbenchStore.getState()
+  workbench.setBrowserUrl(sessionId, target)
+  workbench.openWorkbench(sessionId, { activeTab: 'browser' })
+  return true
+}
+
+export async function openLocalHtmlFromAppAction(sessionId: string, path: string) {
+  const result = await filesystemApi.prepareWorkspacePreview(sessionId, path)
+  openWebUrlFromAppAction(sessionId, result.url)
 }
 
 export async function quitAppFromAppAction() {

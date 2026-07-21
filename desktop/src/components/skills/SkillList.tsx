@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSkillStore } from '../../stores/skillStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTranslation } from '../../i18n'
-import type { SkillMeta, SkillSource } from '../../types/skill'
+import { skillsApi } from '../../api/skills'
+import type { SkillMeta, SkillSource, VideoCapabilityHealth } from '../../types/skill'
 
 const SOURCE_ORDER: SkillSource[] = ['user', 'project', 'plugin', 'mcp', 'bundled']
 
@@ -34,9 +35,13 @@ export function SkillList() {
   const t = useTranslation()
   const activeSession = sessions.find((session) => session.id === activeSessionId)
   const currentWorkDir = activeSession?.workDir || undefined
+  const [videoHealth, setVideoHealth] = useState<VideoCapabilityHealth | null>(null)
 
   useEffect(() => {
-    fetchSkills(currentWorkDir)
+    void fetchSkills(currentWorkDir)
+    void skillsApi.videoHealth(currentWorkDir)
+      .then(({ health }) => setVideoHealth(health))
+      .catch(() => setVideoHealth(null))
   }, [fetchSkills, currentWorkDir])
 
   const grouped = useMemo(() => {
@@ -130,6 +135,64 @@ export function SkillList() {
           </div>
         </div>
       </section>
+
+      {videoHealth && (
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px] text-[var(--color-brand)]">
+                  movie
+                </span>
+                <h4 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  {t('settings.skills.video.title')}
+                </h4>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  videoHealth.ready
+                    ? 'bg-[var(--color-success-container)] text-[var(--color-success)]'
+                    : videoHealth.installed
+                      ? 'bg-[var(--color-warning-container)] text-[var(--color-warning)]'
+                      : 'bg-[var(--color-surface-container-high)] text-[var(--color-text-tertiary)]'
+                }`}>
+                  {videoHealth.ready
+                    ? t('settings.skills.video.ready')
+                    : videoHealth.installed
+                      ? t('settings.skills.video.needsSetup')
+                      : t('settings.skills.video.notInstalled')}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
+                {t('settings.skills.video.description')}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {videoHealth.checks.map((check) => (
+                <span
+                  key={check.id}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] ${
+                    check.ready
+                      ? 'border-[var(--color-success)]/30 text-[var(--color-success)]'
+                      : 'border-[var(--color-warning)]/30 text-[var(--color-warning)]'
+                  }`}
+                  title={check.value || check.requirement}
+                >
+                  <span className="material-symbols-outlined text-[13px]">
+                    {check.ready ? 'check_circle' : 'error'}
+                  </span>
+                  {check.requirement}
+                </span>
+              ))}
+            </div>
+          </div>
+          {videoHealth.missing.length > 0 && (
+            <p className="mt-3 text-xs text-[var(--color-text-secondary)]">
+              {t('settings.skills.video.missing', {
+                value: videoHealth.missing.join(', '),
+              })}
+            </p>
+          )}
+        </section>
+      )}
 
       <div className={`grid gap-4 ${visibleGroupCount >= 2 ? 'xl:grid-cols-2' : ''}`}>
         {SOURCE_ORDER.map((source) => {

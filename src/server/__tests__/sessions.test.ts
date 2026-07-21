@@ -328,6 +328,91 @@ describe('SessionService', () => {
     expect(messages).toHaveLength(2)
   })
 
+  it('coalesces repeated SDK snapshots for one assistant message', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const userId = crypto.randomUUID()
+    const thinkingId = crypto.randomUUID()
+    const repeatedThinkingId = crypto.randomUUID()
+    const textId = crypto.randomUUID()
+    const repeatedTextId = crypto.randomUUID()
+    const toolId = crypto.randomUUID()
+    const messageId = 'msg_snapshot_sequence'
+
+    await writeSessionFile('-tmp-project', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry('Inspect the project', userId),
+      {
+        type: 'assistant',
+        parentUuid: userId,
+        uuid: thinkingId,
+        timestamp: '2026-01-01T00:02:00.000Z',
+        message: {
+          id: messageId,
+          role: 'assistant',
+          content: [{ type: 'thinking', thinking: 'Checking the project files.' }],
+        },
+      },
+      {
+        type: 'assistant',
+        parentUuid: thinkingId,
+        uuid: repeatedThinkingId,
+        timestamp: '2026-01-01T00:02:01.000Z',
+        message: {
+          id: messageId,
+          role: 'assistant',
+          content: [{ type: 'thinking', thinking: 'Checking the project files.' }],
+        },
+      },
+      {
+        type: 'assistant',
+        parentUuid: repeatedThinkingId,
+        uuid: textId,
+        timestamp: '2026-01-01T00:02:02.000Z',
+        message: {
+          id: messageId,
+          role: 'assistant',
+          content: [{ type: 'text', text: 'The configuration is valid.' }],
+        },
+      },
+      {
+        type: 'assistant',
+        parentUuid: textId,
+        uuid: repeatedTextId,
+        timestamp: '2026-01-01T00:02:03.000Z',
+        message: {
+          id: messageId,
+          role: 'assistant',
+          content: [{ type: 'text', text: 'The configuration is valid.' }],
+        },
+      },
+      {
+        type: 'assistant',
+        parentUuid: repeatedTextId,
+        uuid: toolId,
+        timestamp: '2026-01-01T00:02:04.000Z',
+        message: {
+          id: messageId,
+          role: 'assistant',
+          stop_reason: 'tool_use',
+          content: [{ type: 'tool_use', id: 'tool-read', name: 'Read', input: { file_path: 'config.json' } }],
+        },
+      },
+    ])
+
+    const messages = await service.getSessionMessages(sessionId)
+
+    expect(messages).toHaveLength(2)
+    expect(messages[1]).toMatchObject({
+      id: toolId,
+      type: 'tool_use',
+      content: [
+        { type: 'thinking', thinking: 'Checking the project files.' },
+        { type: 'text', text: 'The configuration is valid.' },
+        { type: 'tool_use', id: 'tool-read', name: 'Read', input: { file_path: 'config.json' } },
+      ],
+    })
+  })
+
   it('should append subagent tool calls under their parent agent tool result', async () => {
     const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
     const projectDir = '-tmp-project'

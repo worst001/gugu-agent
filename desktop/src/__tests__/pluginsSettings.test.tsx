@@ -181,6 +181,13 @@ describe('Settings > Plugins tab', () => {
       disablePlugin: vi.fn().mockResolvedValue('disabled'),
       updatePlugin: vi.fn().mockResolvedValue('updated'),
       uninstallPlugin: vi.fn().mockResolvedValue('uninstalled'),
+      installSource: vi.fn().mockResolvedValue({
+        kind: 'skills',
+        source: 'https://github.com/heygen-com/hyperframes',
+        installedSkills: ['hyperframes'],
+        message: 'Installed 1 skill',
+      }),
+      installPlugin: vi.fn().mockResolvedValue('installed'),
       clearSelection: vi.fn(),
     })
   })
@@ -249,6 +256,34 @@ describe('Settings > Plugins tab', () => {
     expect(screen.getByText('github')).toBeInTheDocument()
     expect(screen.getByText('Python language tooling')).toBeInTheDocument()
     expect(screen.getByText('Known marketplaces')).toBeInTheDocument()
+  })
+
+  it('requires repository trust confirmation before installing a Git source', async () => {
+    const installSource = vi.fn().mockResolvedValue({
+      kind: 'skills',
+      source: 'https://github.com/heygen-com/hyperframes',
+      installedSkills: ['hyperframes'],
+      message: 'Installed 1 skill',
+    })
+    usePluginStore.setState({ installSource })
+
+    render(<Settings />)
+    switchToPluginsTab()
+
+    fireEvent.change(screen.getByPlaceholderText('https://github.com/owner/repository'), {
+      target: { value: 'https://github.com/heygen-com/hyperframes' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Add source/ }))
+    expect(installSource).not.toHaveBeenCalled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Trust and inspect' }))
+    })
+    expect(installSource).toHaveBeenCalledWith(
+      'https://github.com/heygen-com/hyperframes',
+      '/workspace/project',
+    )
+    expect(screen.getByText('Installed 1 skill')).toBeInTheDocument()
   })
 
   it('renders plugin detail with bundled capability sections', () => {

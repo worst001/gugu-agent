@@ -6,6 +6,7 @@ import { skillsApi } from '../api/skills'
 import { mcpApi } from '../api/mcp'
 import { promptOptimizeApi } from '../api/promptOptimize'
 import { audioTranscriptionApi } from '../api/audioTranscription'
+import { agentTasksApi } from '../api/agentTasks'
 import { useUIStore } from '../stores/uiStore'
 
 vi.mock('../api/skills', () => ({
@@ -69,9 +70,22 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTabStore } from '../stores/tabStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useAgentTaskStore } from '../stores/agentTaskStore'
+import { useDesktopProfileStore } from '../stores/desktopProfileStore'
+import type { AgentTask } from '../types/agentTask'
+import type { DesktopProfileBundle } from '../types/desktopProfile'
 
 beforeEach(() => {
   useSettingsStore.setState({ locale: 'en' })
+  useAgentTaskStore.setState({
+    capabilityLoaded: true,
+    enabled: false,
+    roles: [],
+    rolePacks: [],
+    teams: [],
+  })
+  useDesktopProfileStore.setState({ bundle: null, lastError: null })
+  useSessionStore.setState({ newSessionWorkType: 'smart' })
   localStorage.removeItem(COMPOSER_DRAFTS_STORAGE_KEY)
 })
 
@@ -146,7 +160,79 @@ describe('Content-only pages render without errors', () => {
       'placeholder',
       'Say what data or metrics should be analyzed...',
     )
-    expect(screen.getByRole('button', { name: 'Clear office tool' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear quick action' })).toBeInTheDocument()
+  })
+
+  it('uses a quick action to recommend a task without overriding a manual choice', () => {
+    useAgentTaskStore.setState({
+      capabilityLoaded: true,
+      enabled: true,
+      roles: ['knowledge_worker', 'short_video_operator'],
+      teams: [
+        {
+          id: 'knowledge_delivery',
+          version: '1.0.0',
+          displayName: 'Knowledge delivery team',
+          mission: '',
+          primaryRole: 'knowledge_worker',
+          taskTemplates: [{
+            id: 'analysis_report',
+            version: '1.0.0',
+            displayName: 'Analysis report',
+            description: '',
+            kind: 'delivery',
+            primaryRole: 'knowledge_worker',
+          }],
+        },
+        {
+          id: 'short_video_production',
+          version: '1.0.0',
+          displayName: 'Short-video production team',
+          mission: '',
+          primaryRole: 'short_video_operator',
+          taskTemplates: [{
+            id: 'script_storyboard',
+            version: '1.0.0',
+            displayName: 'Script and storyboard',
+            description: '',
+            kind: 'delivery',
+            primaryRole: 'short_video_operator',
+          }],
+        },
+      ],
+    })
+
+    render(<EmptySession />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
+
+    expect(screen.getByText(
+      /Will run as Knowledge delivery team \/ Analysis report/,
+    )).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', {
+      name: 'Professional team and quick task',
+    })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    const selection = screen.getByRole('combobox', {
+      name: 'Professional team and quick task',
+    })
+    expect(selection).toHaveValue('auto')
+    expect(screen.getByRole('option', {
+      name: 'Automatic: Knowledge delivery team / Analysis report',
+    })).toBeInTheDocument()
+
+    fireEvent.change(selection, {
+      target: { value: 'short_video_production:script_storyboard' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create presentation' }))
+
+    expect(selection).toHaveValue(
+      'short_video_production:script_storyboard',
+    )
+
   })
 
   it('EmptySession starter tasks fill the composer without auto-running', () => {
@@ -165,6 +251,268 @@ describe('Content-only pages render without errors', () => {
       'Help me analyze this spreadsheet. First inspect fields, missing values, duplicates, and outliers, then give conclusions.',
     )
     expect(screen.queryByText('Analyze sheet')).not.toBeInTheDocument()
+  })
+
+  it('uses one combined task selector and never exposes legacy assistants', () => {
+    useAgentTaskStore.setState({
+      capabilityLoaded: true,
+      enabled: true,
+      roles: ['software_engineer', 'short_video_operator'],
+      teams: [
+        {
+          id: 'software_delivery',
+          version: '1.0.0',
+          displayName: 'Software delivery team',
+          mission: 'Deliver software.',
+          primaryRole: 'software_engineer',
+          taskTemplates: [{
+            id: 'feature_delivery',
+            version: '1.0.0',
+            displayName: 'Build a feature',
+            description: '',
+            kind: 'delivery',
+            primaryRole: 'software_engineer',
+          }],
+        },
+        {
+          id: 'short_video_production',
+          version: '1.0.0',
+          displayName: 'Short-video production team',
+          mission: 'Deliver short videos.',
+          primaryRole: 'short_video_operator',
+          taskTemplates: [{
+            id: 'script_storyboard',
+            version: '1.0.0',
+            displayName: 'Script and storyboard',
+            description: '',
+            kind: 'delivery',
+            primaryRole: 'short_video_operator',
+          }],
+        },
+      ],
+    })
+    useDesktopProfileStore.setState({
+      bundle: {
+        workspaceState: {
+          assistants: {
+            custom: [{
+              id: 'custom-launch',
+              name: 'Launch operator',
+              description: '',
+              baseRole: 'short_video_operator',
+              instructions: 'Check hooks and pacing.',
+              createdAt: '2026-07-13T00:00:00.000Z',
+              updatedAt: '2026-07-13T00:00:00.000Z',
+            }],
+          },
+        },
+      } as DesktopProfileBundle,
+    })
+
+    render(<EmptySession />)
+
+    const request = 'Create three Douyin short-video scripts and storyboards'
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: request, selectionStart: request.length },
+    })
+
+    expect(screen.getByText(
+      /Will run as Short-video production team \/ Script and storyboard/,
+    )).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', {
+      name: 'Professional team and quick task',
+    })).not.toBeInTheDocument()
+    expect(screen.getByText(/Owned by Short Video Operator/)).toBeInTheDocument()
+    expect(screen.getByText(
+      'Share the product, audience, and platform; the team will create topics, scripts, and storyboards.',
+    )).toBeInTheDocument()
+    expect(screen.queryByText('Launch operator')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    const selection = screen.getByRole('combobox', {
+      name: 'Professional team and quick task',
+    })
+    expect(selection).toHaveValue('auto')
+
+    fireEvent.change(selection, {
+      target: { value: 'software_delivery:feature_delivery' },
+    })
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: {
+        value: 'Create another short-video script',
+        selectionStart: 33,
+      },
+    })
+
+    expect(selection).toHaveValue('software_delivery:feature_delivery')
+    expect(screen.getByText(/Owned by Software Engineer/)).toBeInTheDocument()
+
+    fireEvent.change(selection, { target: { value: 'auto' } })
+    expect(screen.getByText(/Owned by Short Video Operator/)).toBeInTheDocument()
+
+  })
+
+  it('creates the durable task before activation and restores the draft when creation fails', async () => {
+    const originalCreateSession = useSessionStore.getState().createSession
+    const originalConnectToSession = useChatStore.getState().connectToSession
+    const originalSendMessage = useChatStore.getState().sendMessage
+    const originalDeleteSession = useSessionStore.getState().deleteSession
+    const createSession = vi.fn(async () => 'smart-session')
+    const connectToSession = vi.fn()
+    const sendMessage = vi.fn()
+    const now = '2026-07-19T00:00:00.000Z'
+    const task = {
+      schemaVersion: 1,
+      id: 'task-created-before-send',
+      runId: 'run-created-before-send',
+      attempt: 1,
+      sessionId: 'smart-session',
+      role: 'knowledge_worker',
+      roleVersion: '1.0.0',
+      title: 'Prepare a verified report',
+      goal: 'Prepare a verified report',
+      constraints: [],
+      workspacePath: 'D:/workspace',
+      status: 'intake',
+      requiredChecks: [],
+      warnings: [],
+      recoverable: false,
+      createdAt: now,
+      updatedAt: now,
+      revision: 1,
+    } as AgentTask
+    const createTask = vi.spyOn(agentTasksApi, 'create')
+      .mockResolvedValueOnce({ task })
+
+    useAgentTaskStore.setState({
+      capabilityLoaded: true,
+      enabled: true,
+      roles: ['software_engineer', 'knowledge_worker'],
+      teams: [{
+        id: 'knowledge_delivery',
+        version: '1.0.0',
+        displayName: 'Knowledge delivery team',
+        mission: 'Deliver source-backed work.',
+        primaryRole: 'knowledge_worker',
+        taskTemplates: [{
+          id: 'analysis_report',
+          version: '1.0.0',
+          displayName: 'Analysis report',
+          description: 'Prepare a verified report.',
+          kind: 'delivery',
+          primaryRole: 'knowledge_worker',
+        }],
+      }],
+    })
+    useSessionStore.setState({
+      sessions: [{
+        id: 'smart-session',
+        title: 'New Session',
+        createdAt: now,
+        modifiedAt: now,
+        messageCount: 0,
+        projectPath: 'D:/workspace',
+        workDir: 'D:/workspace',
+        workDirExists: true,
+      }],
+      activeSessionId: null,
+      createSession,
+    })
+    useChatStore.setState({ connectToSession, sendMessage })
+    useTabStore.setState({ tabs: [], activeTabId: null })
+
+    const { container } = render(<EmptySession />)
+    useSessionStore.getState().setNewSessionWorkType('knowledge_delivery')
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: {
+        value: 'Prepare a verified report',
+        selectionStart: 25,
+      },
+    })
+
+    fireEvent.click(
+      container.querySelector('[data-chat-submit-button="true"]') as HTMLButtonElement,
+    )
+
+    expect(createSession).toHaveBeenCalled()
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(createTask).toHaveBeenCalled()
+    expect(sendMessage).toHaveBeenCalled()
+    expect(createTask).toHaveBeenCalledWith({
+      title: 'Prepare a verified report',
+      goal: 'Prepare a verified report',
+      sessionId: 'smart-session',
+      workspacePath: 'D:/workspace',
+      teamId: 'knowledge_delivery',
+      taskTemplateId: 'analysis_report',
+      role: 'knowledge_worker',
+    })
+    expect(createTask.mock.invocationCallOrder[0])
+      .toBeLessThan(sendMessage.mock.invocationCallOrder[0]!)
+    expect(sendMessage.mock.calls[0]?.[1]).toContain('task-created-before-send')
+    expect(sendMessage.mock.calls[0]?.[1]).toContain('Do not create another task')
+    const failedCreateSession = vi.fn(async () => {
+      useSessionStore.setState((state) => ({
+        sessions: [
+          {
+            id: 'failed-session',
+            title: 'New Session',
+            createdAt: now,
+            modifiedAt: now,
+            messageCount: 0,
+            projectPath: 'D:/workspace',
+            workDir: 'D:/workspace',
+            workDirExists: true,
+          },
+          ...state.sessions,
+        ],
+        activeSessionId: 'failed-session',
+      }))
+      return 'failed-session'
+    })
+    const deleteSession = vi.fn(async (sessionId: string) => {
+      useSessionStore.setState((state) => ({
+        sessions: state.sessions.filter((session) => session.id !== sessionId),
+        activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
+      }))
+    })
+    useSessionStore.setState({
+      activeSessionId: 'smart-session',
+      createSession: failedCreateSession,
+      deleteSession,
+    })
+    createTask.mockRejectedValueOnce(new Error('task creation failed'))
+    const retryPrompt = 'Prepare another verified report'
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: {
+        value: retryPrompt,
+        selectionStart: retryPrompt.length,
+      },
+    })
+    const submitButton = container.querySelector('[data-chat-submit-button="true"]') as HTMLButtonElement
+    await waitFor(() => expect(submitButton).not.toBeDisabled())
+    fireEvent.click(submitButton)
+    await waitFor(() => expect(deleteSession).toHaveBeenCalledWith('failed-session'))
+    expect(useSessionStore.getState().activeSessionId).toBe('smart-session')
+    expect(screen.getByRole('textbox')).toHaveValue(retryPrompt)
+    expect(connectToSession).toHaveBeenCalledTimes(1)
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+
+    createTask.mockRestore()
+    useSessionStore.setState({
+      sessions: [],
+      activeSessionId: null,
+      createSession: originalCreateSession,
+      deleteSession: originalDeleteSession,
+    })
+    useChatStore.setState({
+      sessions: {},
+      connectToSession: originalConnectToSession,
+      sendMessage: originalSendMessage,
+    })
+    useTabStore.setState({ tabs: [], activeTabId: null })
   })
 
   it('EmptySession plus menu exposes uploads and slash commands before chat starts', () => {
@@ -608,11 +956,33 @@ describe('Content-only pages render without errors', () => {
     useChatStore.setState({ sessions: {} })
   })
 
-  it('AgentTeams renders team strip and members', () => {
-    const { container } = render(<AgentTeams />)
-    expect(container.innerHTML).toContain('Architect')
-    expect(container.innerHTML).toContain('session-dev')
-    expect(container.innerHTML).toContain('groups')
+  it('AgentTeams renders real system Role Packs', () => {
+    useAgentTaskStore.setState({
+      roles: ['software_engineer', 'knowledge_worker'],
+      rolePacks: [
+        {
+          id: 'software_engineer',
+          version: '1.0.0',
+          displayName: 'Software Engineer',
+          mission: 'Deliver verified software changes.',
+          responsibilities: ['Inspect', 'Implement', 'Verify'],
+        },
+        {
+          id: 'knowledge_worker',
+          version: '1.0.0',
+          displayName: 'Knowledge Worker',
+          mission: 'Deliver source-backed documents.',
+          responsibilities: ['Research', 'Draft', 'Verify'],
+        },
+      ],
+    })
+
+    render(<AgentTeams />)
+
+    expect(screen.getByText('Professional standards')).toBeInTheDocument()
+    expect(screen.getByText('Software Engineer')).toBeInTheDocument()
+    expect(screen.getByText('Knowledge work: collect sources, create artifacts, and validate')).toBeInTheDocument()
+    expect(screen.queryByText('session-dev')).not.toBeInTheDocument()
   })
 
   it('ScheduledTasks renders (store-connected)', async () => {
@@ -1288,12 +1658,44 @@ describe('Design system compliance', () => {
   })
 })
 
-describe('Mock data integration', () => {
-  it('AgentTeams shows team members from mock data', () => {
-    const { container } = render(<AgentTeams />)
-    expect(container.innerHTML).toContain('Architect')
-    expect(container.innerHTML).toContain('Frontend Dev')
-    expect(container.innerHTML).toContain('Backend Dev')
-    expect(container.innerHTML).toContain('Tester')
+describe('Legacy assistant compatibility', () => {
+  it('keeps legacy profile data without exposing assistant creation or selection', () => {
+    useAgentTaskStore.setState({
+      roles: ['short_video_operator'],
+      rolePacks: [{
+        id: 'short_video_operator',
+        version: '1.0.0',
+        displayName: 'Short Video Operator',
+        mission: 'Deliver source-backed short-video packages.',
+        responsibilities: ['Research', 'Script', 'Review'],
+      }],
+    })
+    useDesktopProfileStore.setState({
+      bundle: {
+        workspaceState: {
+          assistants: {
+            custom: [{
+              id: 'custom-launch',
+              name: 'Launch operator',
+              description: 'Checks hooks and pacing.',
+              baseRole: 'short_video_operator',
+              instructions: 'Check the first three seconds.',
+              createdAt: '2026-07-13T00:00:00.000Z',
+              updatedAt: '2026-07-13T00:00:00.000Z',
+            }],
+          },
+        },
+      } as DesktopProfileBundle,
+    })
+
+    render(<AgentTeams />)
+
+    expect(screen.queryByText('Launch operator')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create assistant' }))
+      .not.toBeInTheDocument()
+    expect(
+      useDesktopProfileStore.getState()
+        .bundle?.workspaceState.assistants.custom[0]?.name,
+    ).toBe('Launch operator')
   })
 })

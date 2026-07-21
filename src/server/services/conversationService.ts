@@ -489,11 +489,14 @@ export class ConversationService {
     return true
   }
 
-  detachSdkConnection(sessionId: string): void {
+  detachSdkConnection(
+    sessionId: string,
+    socket?: { send(data: string): void },
+  ): boolean {
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.sdkSocket = null
-    }
+    if (!session || (socket && session.sdkSocket !== socket)) return false
+    session.sdkSocket = null
+    return true
   }
 
   handleSdkPayload(sessionId: string, rawPayload: string): void {
@@ -562,7 +565,7 @@ export class ConversationService {
     const plan = pid ? this.buildProcessTreeKillPlan(pid, platform) : null
 
     for (const command of plan?.immediate ?? []) {
-      this.spawnKillHelper(command)
+      this.spawnKillHelper(command, platform === 'win32')
     }
 
     this.killProcess(session, platform === 'win32' ? undefined : 'SIGTERM')
@@ -610,8 +613,22 @@ export class ConversationService {
     }
   }
 
-  private spawnKillHelper(command: string[]): void {
+  private spawnKillHelper(command: string[], waitForExit = false): void {
     try {
+      if (waitForExit) {
+        const result = Bun.spawnSync(command, {
+          stdin: 'ignore',
+          stdout: 'ignore',
+          stderr: 'ignore',
+        })
+        if (result.exitCode !== 0) {
+          console.warn(
+            `[ConversationService] Process-tree killer exited with code ${result.exitCode}`,
+          )
+        }
+        return
+      }
+
       const proc = Bun.spawn(command, {
         stdin: 'ignore',
         stdout: 'ignore',

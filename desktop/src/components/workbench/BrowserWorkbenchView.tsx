@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { nativeBrowserApi, type NativeBrowserBounds } from '../../api/nativeBrowser'
+import { filesystemApi } from '../../api/filesystem'
 import { useTranslation } from '../../i18n'
 import { useWorkbenchStore } from '../../stores/workbenchStore'
 import { openExternalFromAppAction } from '../../utils/appActions'
@@ -27,6 +28,48 @@ function normalizeBrowserTarget(raw: string): string | null {
   }
 
   return `https://www.baidu.com/s?wd=${encodeURIComponent(trimmed)}`
+}
+
+function getLocalHtmlPath(raw: string): string | null {
+  return resolveLocalHtmlPath(raw)
+}
+function isLocalPreviewUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === 'http:' &&
+      (url.hostname === '127.0.0.1' || url.hostname === 'localhost') &&
+      url.pathname.startsWith('/preview/')
+    )
+  } catch {
+    return false
+  }
+}
+function resolveLocalHtmlPath(raw: string): string | null {
+
+  const trimmed = raw.trim().replace(/^https?:\/\/(file:\/\/)/i, '$1')
+  if (!trimmed) return null
+
+  if (/^file:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed)
+      if (url.protocol !== 'file:') return null
+      let pathname = decodeURIComponent(url.pathname)
+      if (/^\/[a-z]:\//i.test(pathname)) pathname = pathname.slice(1)
+      const localPath = /^[a-z]:\//i.test(pathname)
+        ? pathname.replace(/\//g, '\\')
+        : pathname
+      return /\.html?$/i.test(localPath) ? localPath : null
+    } catch {
+      return null
+    }
+  }
+
+  const isWindowsPath = /^[a-z]:[\\/]/i.test(trimmed)
+  const isPosixPath = trimmed.startsWith('/')
+  return (isWindowsPath || isPosixPath) && /\.html?$/i.test(trimmed)
+    ? trimmed
+    : null
 }
 
 function boundsFromElement(element: HTMLElement): NativeBrowserBounds | null {
@@ -60,10 +103,12 @@ export function BrowserWorkbenchView({ sessionId }: Props) {
     [sessionId],
   )
   const setBrowserUrl = useWorkbenchStore((state) => state.setBrowserUrl)
+  const requestedUrl = useWorkbenchStore((state) => state.sessions[sessionId]?.browserUrl ?? null)
   const surfaceRef = useRef<HTMLDivElement | null>(null)
   const createdRef = useRef(false)
   const lastBoundsRef = useRef<NativeBrowserBounds | null>(null)
   const currentUrlRef = useRef(initialUrl)
+  const handledRequestRef = useRef(initialUrl)
   const [urlInput, setUrlInput] = useState(initialUrl)
   const [currentUrl, setCurrentUrl] = useState(initialUrl)
   const [hasBrowser, setHasBrowser] = useState(false)
@@ -79,9 +124,11 @@ export function BrowserWorkbenchView({ sessionId }: Props) {
   }, [currentUrl, isLoading, notice, t, title])
   const externalTarget = suggestedExternalUrl ?? currentUrl
   const hasExternalTarget = externalTarget.trim().length > 0
+  const canOpenExternal = hasExternalTarget && !isLocalPreviewUrl(externalTarget)
 
   useEffect(() => {
     currentUrlRef.current = currentUrl
+    handledRequestRef.current = currentUrl
     setBrowserUrl(sessionId, currentUrl || null)
   }, [currentUrl, sessionId, setBrowserUrl])
 
@@ -119,7 +166,22 @@ export function BrowserWorkbenchView({ sessionId }: Props) {
   }, [isNativeAvailable, sessionId])
 
   const navigate = useCallback(async (raw: string) => {
-    const nextUrl = normalizeBrowserTarget(raw)
+    const localHtmlPath = getLocalHtmlPath(raw)
+    if (localHtmlPath && !isNativeAvailable) {
+      setNotice(t('workbench.browser.desktopOnly'))
+      return
+    }
+    let nextUrl: string | null
+    if (localHtmlPath) {
+      try {
+        nextUrl = (await filesystemApi.prepareWorkspacePreview(sessionId, localHtmlPath)).url
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error))
+        return
+      }
+    } else {
+      nextUrl = normalizeBrowserTarget(raw)
+    }
     if (!nextUrl) return
 
     setUrlInput(nextUrl)
@@ -146,7 +208,13 @@ export function BrowserWorkbenchView({ sessionId }: Props) {
     }
 
     await ensureBrowser(nextUrl)
-  }, [ensureBrowser, isNativeAvailable, sessionId])
+  }, [ensureBrowser, isNativeAvailable, sessionId, t])
+
+  useEffect(() => {
+    if (!requestedUrl || requestedUrl === handledRequestRef.current) return
+    handledRequestRef.current = requestedUrl
+    void navigate(requestedUrl)
+  }, [navigate, requestedUrl])
 
   const runBrowserAction = useCallback(async (action: 'back' | 'forward' | 'reload' | 'stop') => {
     if (!isNativeAvailable || !createdRef.current) return
@@ -331,12 +399,12 @@ export function BrowserWorkbenchView({ sessionId }: Props) {
         <button
           type="button"
           onClick={() => {
-            if (hasExternalTarget) void openExternalFromAppAction(externalTarget)
+            if (canOpenExternal) void openExternalFromAppAction(externalTarget)
           }}
           className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
           title={t('workbench.browser.external')}
           aria-label={t('workbench.browser.external')}
-          disabled={!hasExternalTarget}
+          disabled={!canOpenExternal}
         >
           <span className="material-symbols-outlined text-[17px]" aria-hidden="true">open_in_new</span>
         </button>
@@ -364,10 +432,10 @@ export function BrowserWorkbenchView({ sessionId }: Props) {
             <button
               type="button"
               onClick={() => {
-                if (hasExternalTarget) void openExternalFromAppAction(externalTarget)
+                if (canOpenExternal) void openExternalFromAppAction(externalTarget)
               }}
               className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-40"
-              disabled={!hasExternalTarget}
+              disabled={!canOpenExternal}
             >
               {t('workbench.browser.external')}
             </button>

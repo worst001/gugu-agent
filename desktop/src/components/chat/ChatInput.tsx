@@ -57,7 +57,14 @@ import {
 import { listenForTauriFileDrop } from '../../utils/tauriFileDrop'
 import { chooseLocalFilePaths } from '../../utils/localFileSelection'
 
-type GitInfo = { branch: string | null; repoName: string | null; workDir: string; changedFiles: number }
+type GitInfo = {
+  isGit: boolean
+  branch: string | null
+  repoName: string | null
+  repoRoot: string | null
+  workDir: string
+  changedFiles: number
+}
 
 type Attachment = {
   id: string

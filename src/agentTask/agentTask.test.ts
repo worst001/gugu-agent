@@ -9,10 +9,23 @@ import {
 } from './events/jsonlEventLog.js'
 import { reduceAgentTaskEvents } from './events/reducer.js'
 import {
+  AGENT_TASK_ROLE_PACKS,
+  buildAgentTaskRoleContext,
+  KNOWLEDGE_WORKER_ROLE_PACK,
+  resolveAgentTaskRolePack,
+  SHORT_VIDEO_OPERATOR_ROLE_PACK,
+  SOFTWARE_ENGINEER_ROLE_PACK,
+} from './rolePacks.js'
+import {
   assertAgentTaskTransition,
   canTransitionAgentTask,
 } from './stateMachine.js'
 import type { AgentTask } from './types.js'
+import { resolveAgentTaskCapabilities } from './capabilities.js'
+import {
+  resolveAgentTaskWorkflowPack,
+  VERIFIED_DELIVERY_WORKFLOW_PACK,
+} from './workflowPacks.js'
 
 const tempDirs: string[] = []
 
@@ -30,6 +43,7 @@ function createTask(taskId: string, runId = 'run-1'): AgentTask {
     runId,
     attempt: 1,
     role: 'software_engineer',
+    roleVersion: SOFTWARE_ENGINEER_ROLE_PACK.version,
     title: 'Fix a regression',
     goal: 'Make the failing behavior pass',
     constraints: [],
@@ -89,7 +103,161 @@ describe('AgentTask state machine', () => {
   })
 })
 
+describe('AgentTask Role Packs', () => {
+  it('resolves semantic capabilities from the supplied runtime inventory', () => {
+    const resolution = resolveAgentTaskCapabilities(
+      ['repository_read'],
+      ['external_connectors', 'browser'],
+      {
+        tools: [
+          { name: 'Read' },
+          { name: 'mcp__drive__search', isMcp: true },
+        ],
+        skills: [],
+      },
+    )
+
+    expect(resolution.missingRequired).toEqual([])
+    expect(resolution.unavailableOptional).toEqual(['browser'])
+    expect(
+      resolution.capabilities.find(
+        (capability) => capability.id === 'external_connectors',
+      )?.providers,
+    ).toEqual([
+      { kind: 'mcp', name: 'mcp__drive__search' },
+    ])
+  })
+
+  it('resolves HyperFrames video capabilities from user or plugin skills', () => {
+    const resolution = resolveAgentTaskCapabilities(
+      ['video_composition', 'video_rendering'],
+      [],
+      {
+        tools: [],
+        skills: ['hyperframes', 'video-pack:hyperframes-cli'],
+      },
+    )
+
+    expect(resolution.missingRequired).toEqual([])
+    expect(
+      resolution.capabilities.find(
+        (capability) => capability.id === 'video_rendering',
+      )?.providers,
+    ).toEqual([
+      { kind: 'skill', name: 'video-pack:hyperframes-cli' },
+    ])
+  })
+
+  it('resolves the exact shared workflow version', () => {
+    expect(
+      resolveAgentTaskWorkflowPack('verified_delivery', '1.0.0'),
+    ).toBe(VERIFIED_DELIVERY_WORKFLOW_PACK)
+    expect(
+      resolveAgentTaskWorkflowPack('verified_delivery', '0.9.0'),
+    ).toBeNull()
+  })
+
+  it('resolves the versioned built-in role and rejects unknown roles', () => {
+    expect(resolveAgentTaskRolePack(undefined)).toBe(
+      SOFTWARE_ENGINEER_ROLE_PACK,
+    )
+    expect(resolveAgentTaskRolePack('software_engineer', '1.0.0')).toBe(
+      SOFTWARE_ENGINEER_ROLE_PACK,
+    )
+    expect(resolveAgentTaskRolePack('software_engineer', '0.9.0')).toBeNull()
+    expect(resolveAgentTaskRolePack('unknown')).toBeNull()
+  })
+
+  it('assembles the paused workflow stage from the legacy role marker', () => {
+    const task = createTask('task-role-context')
+    task.roleVersion = 'software_engineer'
+    task.status = 'blocked'
+    task.resumeStatus = 'execute'
+
+    const context = buildAgentTaskRoleContext(task)
+
+    expect(context?.roleVersion).toBe('1.0.0')
+    expect(context?.currentStage?.status).toBe('execute')
+    expect(context?.currentStage?.instructions[0]).toContain('planned change')
+    expect(context?.permissionProfile).toBe('existing_tool_boundary')
+  })
+
+  it('assembles a distinct knowledge-worker workflow contract', () => {
+    const context = buildAgentTaskRoleContext({
+      role: 'knowledge_worker',
+      roleVersion: KNOWLEDGE_WORKER_ROLE_PACK.version,
+      status: 'scout',
+    })
+
+    expect(resolveAgentTaskRolePack('knowledge_worker')).toBe(
+      KNOWLEDGE_WORKER_ROLE_PACK,
+    )
+    expect(context?.currentStage?.instructions[0]).toContain(
+      'authoritative sources',
+    )
+    expect(context?.definitionOfDone).toContain(
+      'Sources are traceable and assumptions are labeled.',
+    )
+    expect(context?.outputContracts).toContain('deliverable_artifact')
+  })
+
+  it('assembles a source-backed short-video workflow contract', () => {
+    const context = buildAgentTaskRoleContext({
+      role: 'short_video_operator',
+      roleVersion: SHORT_VIDEO_OPERATOR_ROLE_PACK.version,
+      status: 'execute',
+    })
+
+    expect(resolveAgentTaskRolePack('short_video_operator')).toBe(
+      SHORT_VIDEO_OPERATOR_ROLE_PACK,
+    )
+    expect(context?.currentStage?.instructions[0]).toContain('storyboard')
+    expect(context?.outputContracts).toContain('short_video_deliverable')
+  })
+  it('keeps every built-in role version and workflow contract complete', () => {
+    const versions = AGENT_TASK_ROLE_PACKS.map(
+      (pack) => `${pack.id}@${pack.version}`,
+    )
+    expect(new Set(versions).size).toBe(versions.length)
+
+    for (const pack of AGENT_TASK_ROLE_PACKS) {
+      const workflow = resolveAgentTaskWorkflowPack(
+        pack.workflow.id,
+        pack.workflow.version,
+      )
+      expect(workflow).not.toBeNull()
+      if (!workflow) throw new Error(`Missing workflow for ${pack.id}`)
+      for (const status of workflow.stages) {
+        expect(pack.stageInstructions[status]?.length).toBeGreaterThan(0)
+      }
+      expect(pack.capabilities.required.length).toBeGreaterThan(0)
+      expect(pack.definitionOfDone.length).toBeGreaterThan(0)
+      expect(pack.outputContracts.length).toBeGreaterThan(0)
+    }
+  })
+})
+
 describe('JsonlAgentTaskEventLog', () => {
+  it('backfills the legacy role version during replay', () => {
+    const task = createTask('task-legacy')
+    const { roleVersion: _roleVersion, ...legacyTask } = task
+
+    const reduced = reduceAgentTaskEvents([{
+      schemaVersion: 1,
+      eventId: 'event-1',
+      sequence: 1,
+      taskId: task.id,
+      runId: task.runId,
+      attempt: task.attempt,
+      type: 'task_created',
+      timestamp: task.createdAt,
+      payload: { task: legacyTask },
+    }])
+
+    expect(reduced.roleVersion).toBe('software_engineer')
+    expect(reduced.definitionSnapshot).toBeUndefined()
+  })
+
   it('serializes concurrent appends with contiguous sequences', async () => {
     const log = new JsonlAgentTaskEventLog(await createTempDir())
     const task = createTask('task-1')

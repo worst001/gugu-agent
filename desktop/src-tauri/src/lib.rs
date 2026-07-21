@@ -886,6 +886,7 @@ async fn browser_create(
     let session_id = normalize_browser_session_id(&input.session_id)?;
     let url = parse_browser_url(&input.url)?;
     let url_string = url.to_string();
+    let preview_origin = local_preview_origin(&url);
     let window = app
         .get_window(MAIN_WINDOW_LABEL)
         .ok_or_else(|| "main window is unavailable".to_string())?;
@@ -930,7 +931,7 @@ async fn browser_create(
     let builder = WebviewBuilder::new(label, WebviewUrl::External(url.clone()))
         .initialization_script_for_all_frames(BROWSER_LINK_INTERCEPT_SCRIPT)
         .on_navigation(move |next_url| {
-            let allowed = matches!(next_url.scheme(), "http" | "https");
+            let allowed = browser_navigation_allowed(preview_origin.as_ref(), next_url);
             if allowed {
                 remember_browser_url(
                     &navigation_app,
@@ -948,7 +949,7 @@ async fn browser_create(
                     message: if allowed {
                         None
                     } else {
-                        Some("only http and https URLs are supported".to_string())
+                        Some("navigation blocked by browser policy".to_string())
                     },
                 },
             );
@@ -1294,6 +1295,37 @@ fn parse_browser_url(raw: &str) -> Result<tauri::Url, String> {
     }
     Ok(url)
 }
+fn browser_origin_key(url: &tauri::Url) -> Option<(String, String, u16)> {
+    Some((
+        url.scheme().to_string(),
+        url.host_str()?.to_ascii_lowercase(),
+        url.port_or_known_default()?,
+    ))
+}
+
+fn local_preview_origin(url: &tauri::Url) -> Option<(String, String, u16)> {
+    let host = url.host_str()?;
+    if url.scheme() != "http"
+        || !matches!(host, "127.0.0.1" | "localhost")
+        || !url.path().starts_with("/preview/")
+    {
+        return None;
+    }
+    browser_origin_key(url)
+}
+
+fn browser_navigation_allowed(
+    preview_origin: Option<&(String, String, u16)>,
+    next_url: &tauri::Url,
+) -> bool {
+    if !matches!(next_url.scheme(), "http" | "https") {
+        return false;
+    }
+    preview_origin
+        .map(|origin| browser_origin_key(next_url).as_ref() == Some(origin))
+        .unwrap_or(true)
+}
+
 
 fn browser_webview_label(session_id: &str) -> String {
     let compact: String = session_id
@@ -2372,6 +2404,12 @@ fn apply_desktop_storage_dirs(
     Ok(())
 }
 
+fn apply_desktop_agent_task_runtime(env: &mut HashMap<String, String>) {
+    if !has_non_empty_env(env, "CC_GUGU_AGENT_TASK_RUNTIME") {
+        env.insert("CC_GUGU_AGENT_TASK_RUNTIME".to_string(), "1".to_string());
+    }
+}
+
 fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let host = "127.0.0.1";
     let port = reserve_local_port()?;
@@ -2383,6 +2421,7 @@ fn start_server_sidecar(app: &AppHandle) -> Result<ServerRuntime, String> {
     let shell = default_shell();
     let mut env = terminal_environment(Some(app), &shell);
     apply_desktop_storage_dirs(app, &mut env)?;
+    apply_desktop_agent_task_runtime(&mut env);
     log_rtk_status(Some(app));
     apply_default_gateway_url(&mut env, DEFAULT_GATEWAY_URL.or(Some(BUILTIN_GATEWAY_URL)));
     if let Some(pack_dir) = resolve_bundled_agent_pack_dir(app) {
@@ -2624,11 +2663,33 @@ fn kill_windows_sidecars() {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_default_gateway_url, decode_terminal_output, default_utf8_locale, ensure_utf8_locale,
+        browser_navigation_allowed, local_preview_origin,
+        apply_default_gateway_url, apply_desktop_agent_task_runtime, decode_terminal_output,
+        default_utf8_locale, ensure_utf8_locale,
         parse_env_block, parse_rtk_version, prepend_path_value,
     };
     use std::collections::HashMap;
 
+
+    #[test]
+    fn local_preview_navigation_stays_on_preview_origin() {
+        let preview =
+            tauri::Url::parse("http://127.0.0.1:43123/preview/token/index.html").unwrap();
+        let origin = local_preview_origin(&preview).unwrap();
+        let asset =
+            tauri::Url::parse("http://127.0.0.1:43123/preview/token/assets/app.js").unwrap();
+        let external = tauri::Url::parse("https://attacker.example/collect").unwrap();
+
+        assert!(browser_navigation_allowed(Some(&origin), &asset));
+        assert!(!browser_navigation_allowed(Some(&origin), &external));
+    }
+
+    #[test]
+    fn normal_browser_navigation_allows_https_urls() {
+        let external = tauri::Url::parse("https://example.com").unwrap();
+
+        assert!(browser_navigation_allowed(None, &external));
+    }
     #[test]
     fn terminal_output_decoder_preserves_split_chinese_characters() {
         let mut pending = Vec::new();
@@ -2733,6 +2794,33 @@ mod tests {
         assert_eq!(env.get("LANG").map(String::as_str), Some("zh_CN.UTF-8"));
         assert_eq!(env.get("LC_CTYPE").map(String::as_str), Some("en_US.UTF8"));
         assert_eq!(env.get("LC_ALL").map(String::as_str), Some("C.UTF-8"));
+    }
+
+    #[test]
+    fn desktop_agent_task_runtime_is_enabled_by_default() {
+        let mut env = HashMap::new();
+
+        apply_desktop_agent_task_runtime(&mut env);
+
+        assert_eq!(
+            env.get("CC_GUGU_AGENT_TASK_RUNTIME").map(String::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn desktop_agent_task_runtime_keeps_explicit_override() {
+        let mut env = HashMap::from([(
+            "CC_GUGU_AGENT_TASK_RUNTIME".to_string(),
+            "0".to_string(),
+        )]);
+
+        apply_desktop_agent_task_runtime(&mut env);
+
+        assert_eq!(
+            env.get("CC_GUGU_AGENT_TASK_RUNTIME").map(String::as_str),
+            Some("0")
+        );
     }
 
     #[test]

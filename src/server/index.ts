@@ -7,7 +7,7 @@
 
 import { handleApiRequest } from './router.js'
 import { handleWebSocket, type WebSocketData } from './ws/handler.js'
-import { corsHeaders } from './middleware/cors.js'
+import { corsHeaders, isTrustedOrigin } from './middleware/cors.js'
 import { requireAuth } from './middleware/auth.js'
 import { teamWatcher } from './services/teamWatcher.js'
 import { cronScheduler } from './services/cronScheduler.js'
@@ -79,6 +79,10 @@ export function startServer(port = PORT, host = HOST) {
       const url = new URL(req.url)
 
       const origin = req.headers.get('Origin')
+
+      if (!isTrustedOrigin(origin)) {
+        return new Response('Forbidden origin', { status: 403 })
+      }
 
       // Handle CORS preflight
       if (req.method === 'OPTIONS') {

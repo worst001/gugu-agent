@@ -399,6 +399,12 @@ const TabItem = forwardRef<HTMLDivElement, {
       {tab.type === 'scheduled' && (
         <span className="material-symbols-outlined text-[14px] flex-shrink-0 text-[var(--color-text-tertiary)]">schedule</span>
       )}
+      {tab.type === 'knowledge' && (
+        <span className="material-symbols-outlined text-[14px] flex-shrink-0 text-[var(--color-text-tertiary)]">account_tree</span>
+      )}
+      {tab.type === 'team' && (
+        <span className="material-symbols-outlined text-[14px] flex-shrink-0 text-[var(--color-text-tertiary)]">groups</span>
+      )}
       {tab.type === 'terminal' && (
         <span className="material-symbols-outlined text-[14px] flex-shrink-0 text-[var(--color-text-tertiary)]">terminal</span>
       )}

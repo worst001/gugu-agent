@@ -3,6 +3,7 @@ import { sessionsApi, type SessionUiMetaPatch } from '../api/sessions'
 import { useSessionRuntimeStore } from './sessionRuntimeStore'
 import { useTabStore } from './tabStore'
 import type { SessionListItem } from '../types/session'
+import type { NewSessionWorkType } from '../types/desktopProfile'
 import { resolveDefaultSessionWorkDir } from '../utils/defaultSessionWorkDir'
 import { sanitizeSessionTitle } from '../utils/sessionTitle'
 import { expandProjectKeys, isProjectInSet, projectMatchesKey } from '../utils/projectKeys'
@@ -20,6 +21,7 @@ type SessionStore = {
   removedProjects: string[]
   pinnedProjects: string[]
   newSessionWorkDir: string | null
+  newSessionWorkType: NewSessionWorkType
 
   fetchSessions: (project?: string) => Promise<void>
   createSession: (workDir?: string) => Promise<string>
@@ -38,6 +40,7 @@ type SessionStore = {
   setActiveSession: (id: string | null) => void
   setSelectedProjects: (projects: string[]) => void
   setNewSessionWorkDir: (workDir: string | null) => void
+  setNewSessionWorkType: (workType: NewSessionWorkType) => void
   removeProjects: (projects: string[]) => void
   restoreProject: (project: string) => void
   setProjectPinned: (projects: string[], pinned: boolean) => void
@@ -106,6 +109,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   removedProjects: loadProjectList(REMOVED_PROJECTS_STORAGE_KEY),
   pinnedProjects: loadProjectList(PINNED_PROJECTS_STORAGE_KEY),
   newSessionWorkDir: null,
+  newSessionWorkType: 'smart',
 
   fetchSessions: async (project?: string) => {
     set({ isLoading: true, error: null })
@@ -242,6 +246,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   setActiveSession: (id) => set({ activeSessionId: id }),
   setNewSessionWorkDir: (workDir) => set({ newSessionWorkDir: workDir && workDir.trim() ? workDir : null }),
+  setNewSessionWorkType: (workType) => set({ newSessionWorkType: workType }),
   setSelectedProjects: (projects) => set((state) => {
     const removedProjectSet = new Set(state.removedProjects)
     return {

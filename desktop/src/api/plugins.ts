@@ -4,6 +4,7 @@ import type {
   PluginListResponse,
   PluginReloadSummary,
   PluginScope,
+  GitExtensionInstallResult,
 } from '../types/plugin'
 
 type PluginActionPayload = {
@@ -26,6 +27,16 @@ export const pluginsApi = {
 
   enable: (payload: PluginActionPayload) =>
     api.post<{ ok: true; message: string }>('/api/plugins/enable', payload),
+
+  install: (payload: PluginActionPayload) =>
+    api.post<{ ok: true; message: string }>('/api/plugins/install', payload),
+
+  installSource: (source: string) =>
+    api.post<GitExtensionInstallResult>(
+      '/api/plugins/install-source',
+      { source, confirmed: true },
+      { timeout: 10 * 60_000 },
+    ),
 
   disable: (payload: PluginActionPayload) =>
     api.post<{ ok: true; message: string }>('/api/plugins/disable', payload),

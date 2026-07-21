@@ -1,4 +1,5 @@
 import { z } from 'zod/v4'
+import { AGENT_TASK_ROLES } from '../../agentTask/types.js'
 
 export const DESKTOP_PROFILE_SCHEMA_VERSION = 1 as const
 export const MAX_DESKTOP_DRAFTS = 50
@@ -19,7 +20,31 @@ export const desktopThemeSchema = z.enum([
 
 export const desktopLocaleSchema = z.enum(['zh', 'en'])
 export const desktopAgentRunModeSchema = z.enum(['normal', 'plan', 'ce'])
-export const desktopTabTypeSchema = z.enum(['session', 'settings', 'scheduled'])
+export const desktopAgentTaskRoleSchema = z.enum(AGENT_TASK_ROLES)
+export const desktopNewSessionWorkTypeSchema = z.enum([
+  'smart',
+  'chat',
+  'software_delivery',
+  'knowledge_delivery',
+  'short_video_production',
+])
+export const desktopTabTypeSchema = z.enum([
+  'session',
+  'settings',
+  'scheduled',
+  'knowledge',
+  'team',
+])
+
+const desktopCustomAssistantSchema = z.strictObject({
+  id: z.string().min(1).max(100),
+  name: z.string().min(1).max(80),
+  description: z.string().max(280),
+  baseRole: desktopAgentTaskRoleSchema,
+  instructions: z.string().min(1).max(4_000),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
 
 const appearanceSchema = z.strictObject({
   theme: desktopThemeSchema,
@@ -36,6 +61,10 @@ const updatePreferencesSchema = z.strictObject({
   dismissedVersion: z.string().max(100).nullable(),
 })
 
+const workPreferencesSchema = z.strictObject({
+  newSessionDefault: desktopNewSessionWorkTypeSchema,
+})
+
 const migrationSchema = z.strictObject({
   legacyLocalStorageV1: z.boolean(),
 })
@@ -46,6 +75,7 @@ export const desktopProfileSchema = z.strictObject({
     appearance: appearanceSchema,
     layout: layoutSchema,
     updates: updatePreferencesSchema,
+    work: workPreferencesSchema,
   }),
   migration: migrationSchema,
   updatedAt: z.string().datetime(),
@@ -82,6 +112,9 @@ export const desktopWorkspaceStateSchema = z.strictObject({
     activeTabId: z.string().max(500).nullable(),
   }),
   drafts: boundedStringRecord(composerDraftSchema),
+  assistants: z.strictObject({
+    custom: z.array(desktopCustomAssistantSchema).max(50),
+  }),
   tools: z.strictObject({
     agentRunModes: boundedStringRecord(desktopAgentRunModeSchema),
     ceWorkflowRoles: boundedStringRecord(z.string().min(1).max(500)),
@@ -96,6 +129,7 @@ export const desktopProfilePatchSchema = z.strictObject({
     appearance: appearanceSchema.partial().optional(),
     layout: layoutSchema.partial().optional(),
     updates: updatePreferencesSchema.partial().optional(),
+    work: workPreferencesSchema.partial().optional(),
   }).partial().optional(),
   migration: migrationSchema.partial().optional(),
 })
@@ -104,6 +138,7 @@ export const desktopWorkspaceStatePatchSchema = z.strictObject({
   projects: desktopWorkspaceStateSchema.shape.projects.partial().optional(),
   tabs: desktopWorkspaceStateSchema.shape.tabs.partial().optional(),
   drafts: desktopWorkspaceStateSchema.shape.drafts.optional(),
+  assistants: desktopWorkspaceStateSchema.shape.assistants.partial().optional(),
   tools: desktopWorkspaceStateSchema.shape.tools.partial().optional(),
   migration: migrationSchema.partial().optional(),
 })
@@ -133,6 +168,7 @@ export function createDefaultDesktopProfile(): DesktopProfile {
         capabilityPanelCollapsed: false,
       },
       updates: { dismissedVersion: null },
+      work: { newSessionDefault: 'smart' },
     },
     migration: { legacyLocalStorageV1: false },
     updatedAt: now(),
@@ -145,6 +181,7 @@ export function createDefaultDesktopWorkspaceState(): DesktopWorkspaceState {
     projects: { pinned: [], removed: [] },
     tabs: { openTabs: [], activeTabId: null },
     drafts: {},
+    assistants: { custom: [] },
     tools: {
       agentRunModes: {},
       ceWorkflowRoles: {},
@@ -194,6 +231,7 @@ export function normalizeDesktopProfile(value: unknown): DesktopProfile {
   const appearance = asRecord(preferences.appearance)
   const layout = asRecord(preferences.layout)
   const updates = asRecord(preferences.updates)
+  const work = asRecord(preferences.work)
   const migration = asRecord(root.migration)
 
   return {
@@ -211,6 +249,13 @@ export function normalizeDesktopProfile(value: unknown): DesktopProfile {
       updates: {
         dismissedVersion: parseOr(updatePreferencesSchema.shape.dismissedVersion, updates.dismissedVersion, null),
       },
+      work: {
+        newSessionDefault: parseOr(
+          desktopNewSessionWorkTypeSchema,
+          work.newSessionDefault,
+          defaults.preferences.work.newSessionDefault,
+        ),
+      },
     },
     migration: {
       legacyLocalStorageV1: parseOr(z.boolean(), migration.legacyLocalStorageV1, false),
@@ -225,6 +270,7 @@ export function normalizeDesktopWorkspaceState(value: unknown): DesktopWorkspace
   const projects = asRecord(root.projects)
   const tabs = asRecord(root.tabs)
   const tools = asRecord(root.tools)
+  const assistants = asRecord(root.assistants)
   const migration = asRecord(root.migration)
   const drafts = Object.entries(normalizeRecord(root.drafts, composerDraftSchema))
     .filter(([, draft]) => draft.text.trim().length > 0)
@@ -252,6 +298,16 @@ export function normalizeDesktopWorkspaceState(value: unknown): DesktopWorkspace
         : (openTabs[0]?.sessionId ?? null),
     },
     drafts: Object.fromEntries(drafts),
+    assistants: {
+      custom: Array.isArray(assistants.custom)
+        ? assistants.custom.flatMap((assistant) => {
+          const parsed = desktopCustomAssistantSchema.safeParse(assistant)
+          return parsed.success ? [parsed.data] : []
+        }).filter((assistant, index, items) =>
+          items.findIndex((item) => item.id === assistant.id) === index
+        ).slice(0, 50)
+        : defaults.assistants.custom,
+    },
     tools: {
       agentRunModes: normalizeRecord(tools.agentRunModes, desktopAgentRunModeSchema),
       ceWorkflowRoles: normalizeRecord(tools.ceWorkflowRoles, z.string().min(1).max(500)),

@@ -50,6 +50,7 @@ import { sessionsApi } from '../../api/sessions'
 import { wsManager } from '../../api/websocket'
 import { ActiveSession } from '../../pages/ActiveSession'
 import { DRAFT_AGENT_RUN_MODE_KEY, useAgentRunModeStore } from '../../stores/agentRunModeStore'
+import { useAgentTaskStore } from '../../stores/agentTaskStore'
 import { useChatStore, type PerSessionState } from '../../stores/chatStore'
 import { useCeWorkflowRoleStore } from '../../stores/ceWorkflowRoleStore'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -122,6 +123,13 @@ describe('ChatInput submit', () => {
     localStorage.clear()
     vi.clearAllMocks()
     useAgentRunModeStore.setState({ selections: {} })
+    useAgentTaskStore.setState({
+      capabilityLoaded: true,
+      enabled: false,
+      roles: [],
+      rolePacks: [],
+      teams: [],
+    })
     useCeWorkflowRoleStore.setState({ selections: {} })
     useSessionRuntimeStore.setState({ selections: {} })
     useUIStore.setState({ toasts: [] })
@@ -286,32 +294,33 @@ describe('ChatInput submit', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
 
     expect(screen.getByRole('button', { name: 'Normal chat' })).toBeInTheDocument()
-    expect(screen.getByText('Everyday questions, coding, and explanations.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Coding' })).toBeInTheDocument()
+    expect(screen.getByText('Describe the task without a preset action.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Modify code' })).toBeInTheDocument()
     expect(screen.getByText(/Code, logs, errors, project folders/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Summarize document' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Organize document' })).toBeInTheDocument()
     expect(screen.getByText('Turn chats, notes, or material into a summary document; suitable for PDF, Word, Markdown, TXT.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Analyze spreadsheet' })).toBeInTheDocument()
     expect(screen.getByText('Turn data, metrics, or table content into spreadsheet-style analysis; suitable for Excel, CSV.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Draft PPT' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create presentation' })).toBeInTheDocument()
     expect(screen.getByText('Turn a topic, notes, or chat content into a PPT outline and speaker notes.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Write email' })).toBeInTheDocument()
-    expect(screen.getByText('Turn background, goal, and tone into an email draft. No auto-send.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Turn background, goal, and tone into an email draft. No auto-send.').closest('button'),
+    ).toHaveAccessibleName('Write email')
     expect(screen.getByRole('button', { name: 'Handle file' })).toBeInTheDocument()
     expect(screen.getByText('Upload PDF, Word, Excel, PPT, CSV, TXT, images; identify type and next step.')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Office toolbox' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Quick actions' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Analyze spreadsheet' }))
 
-    expect(screen.getByRole('button', { name: 'Clear office tool' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear quick action' })).toBeInTheDocument()
     expect(screen.getByRole('textbox')).toHaveAttribute(
       'placeholder',
       'Say what data or metrics should be analyzed...',
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear office tool' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear quick action' }))
 
-    expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear quick action' })).not.toBeInTheDocument()
     expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'Ask anything...')
     expect(screen.getByRole('button', { name: 'Open composer tools' })).toBeInTheDocument()
   })
@@ -320,8 +329,8 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-ppt-session')
     render(<ActiveSession />)
 
-    chooseOfficeTool('Draft PPT')
-    expect(screen.getByRole('button', { name: 'Clear office tool' })).toBeInTheDocument()
+    chooseOfficeTool('Create presentation')
+    expect(screen.getByRole('button', { name: 'Clear quick action' })).toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'make a launch deck', selectionStart: 18 },
     })
@@ -338,7 +347,7 @@ describe('ChatInput submit', () => {
     expect(payload?.content).toContain('Never ship rough slide mockups')
     expect(payload?.content).toContain('User request:\nmake a launch deck')
     expect(screen.queryByText(/\[Office toolbox: ppt-draft\]/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear quick action' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open composer tools' })).toBeInTheDocument()
   })
 
@@ -346,7 +355,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-routing-precedence-session')
     render(<ActiveSession />)
 
-    chooseOfficeTool('Summarize document')
+    chooseOfficeTool('Organize document')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'turn this PDF into a PPT deck', selectionStart: 29 },
     })
@@ -368,7 +377,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-coding-session')
     render(<ActiveSession />)
 
-    chooseOfficeTool('Coding')
+    chooseOfficeTool('Modify code')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'fix this TypeScript error', selectionStart: 25 },
     })
@@ -413,7 +422,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-plan-session')
     render(<ActiveSession />)
 
-    chooseOfficeTool('Draft PPT')
+    chooseOfficeTool('Create presentation')
     fireEvent.click(screen.getByRole('button', { name: 'Open composer tools' }))
     fireEvent.click(screen.getByRole('button', { name: 'Plan' }))
     fireEvent.change(screen.getByRole('textbox'), {
@@ -438,7 +447,7 @@ describe('ChatInput submit', () => {
     seedEmptySession('office-toolbox-document-summary-session')
     render(<ActiveSession />)
 
-    chooseOfficeTool('Summarize document')
+    chooseOfficeTool('Organize document')
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'summarize this chat into a doc', selectionStart: 30 },
     })
@@ -550,7 +559,7 @@ describe('ChatInput submit', () => {
     expect(getLastUserMessagePayload()?.content).toContain('safer next step')
     expect(screen.getByText('File')).toBeInTheDocument()
     expect(screen.queryByText(/The user sent attachments only/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Clear office tool' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear quick action' })).not.toBeInTheDocument()
   })
 
   it('uses a matching CE pre-route in default mode when a relevant skill is available', async () => {

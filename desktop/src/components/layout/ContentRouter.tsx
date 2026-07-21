@@ -5,6 +5,8 @@ import { ActiveSession } from '../../pages/ActiveSession'
 import { ScheduledTasks } from '../../pages/ScheduledTasks'
 import { Settings } from '../../pages/Settings'
 import { TerminalSettings } from '../../pages/TerminalSettings'
+import { ProjectKnowledge } from '../../pages/ProjectKnowledge'
+import { AgentTeams } from '../../pages/AgentTeams'
 
 export function ContentRouter() {
   const activeTabId = useTabStore((s) => s.activeTabId)
@@ -19,6 +21,10 @@ export function ContentRouter() {
     page = <Settings />
   } else if (activeTabType === 'scheduled') {
     page = <ScheduledTasks />
+  } else if (activeTabType === 'knowledge') {
+    page = <ProjectKnowledge />
+  } else if (activeTabType === 'team') {
+    page = <AgentTeams />
   } else if (!showDraft && activeTabType !== 'terminal') {
     page = <ActiveSession />
   }

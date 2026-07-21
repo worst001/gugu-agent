@@ -47,6 +47,7 @@ function createBundle(migrated = false): DesktopProfileBundle {
           capabilityPanelCollapsed: false,
         },
         updates: { dismissedVersion: null },
+        work: { newSessionDefault: 'smart' },
       },
       migration: { legacyLocalStorageV1: migrated },
       updatedAt: '2026-07-13T00:00:00.000Z',
@@ -56,6 +57,7 @@ function createBundle(migrated = false): DesktopProfileBundle {
       projects: { pinned: [], removed: [] },
       tabs: { openTabs: [], activeTabId: null },
       drafts: {},
+      assistants: { custom: [] },
       tools: { agentRunModes: {}, ceWorkflowRoles: {}, sessionRuntimes: {} },
       migration: { legacyLocalStorageV1: migrated },
       updatedAt: '2026-07-13T00:00:00.000Z',
@@ -72,7 +74,11 @@ beforeEach(() => {
   useUIStore.setState({ theme: 'dark', sidebarWidth: 280, capabilityPanelCollapsed: false })
   useSettingsStore.setState({ theme: 'dark', locale: 'zh' })
   useWorkbenchStore.setState({ panelWidth: 390 })
-  useSessionStore.setState({ pinnedProjects: [], removedProjects: [] })
+  useSessionStore.setState({
+    pinnedProjects: [],
+    removedProjects: [],
+    newSessionWorkType: 'smart',
+  })
   useTabStore.setState({ tabs: [], activeTabId: null })
 })
 
@@ -146,6 +152,7 @@ describe('desktop profile hydration and autosave', () => {
       workbenchWidth: 456,
       capabilityPanelCollapsed: true,
     }
+    bundle.profile.preferences.work.newSessionDefault = 'short_video_production'
     bundle.workspaceState.projects = { pinned: ['D:/pinned'], removed: ['D:/hidden'] }
 
     hydrateDesktopProfile(bundle)
@@ -160,8 +167,20 @@ describe('desktop profile hydration and autosave', () => {
     expect(useSessionStore.getState()).toMatchObject({
       pinnedProjects: ['D:/pinned'],
       removedProjects: ['D:/hidden'],
+      newSessionWorkType: 'short_video_production',
     })
     expect(localStorage.getItem('cc-haha-theme')).toBe('blue-dark')
+  })
+
+  it('falls back to smart routing when a running legacy backend omits work preferences', () => {
+    const legacyBundle = createBundle(true)
+    delete (legacyBundle.profile.preferences as Partial<
+      DesktopProfileBundle['profile']['preferences']
+    >).work
+
+    hydrateDesktopProfile(legacyBundle)
+
+    expect(useSessionStore.getState().newSessionWorkType).toBe('smart')
   })
 
   it('replaces live tabs with the imported profile tabs on reload', async () => {
@@ -209,6 +228,31 @@ describe('desktop profile hydration and autosave', () => {
     })
   })
 
+  it('rolls back an optimistic profile patch when persistence fails', async () => {
+    const bundle = createBundle(true)
+    useDesktopProfileStore.setState({ bundle, loaded: true, lastError: null })
+    mockedApi.patch.mockRejectedValue(new Error('disk unavailable'))
+
+    const result = await useDesktopProfileStore.getState().patch({
+      workspaceState: {
+        assistants: {
+          custom: [{
+            id: 'custom-1',
+            name: 'Temporary assistant',
+            description: '',
+            baseRole: 'knowledge_worker',
+            instructions: 'Draft a report.',
+            createdAt: '2026-07-13T00:00:00.000Z',
+            updatedAt: '2026-07-13T00:00:00.000Z',
+          }],
+        },
+      },
+    })
+
+    expect(result).toBe(bundle)
+    expect(useDesktopProfileStore.getState().bundle).toBe(bundle)
+    expect(useDesktopProfileStore.getState().lastError).toBe('disk unavailable')
+  })
   it('coalesces UI changes into the profile after initialization', async () => {
     vi.useFakeTimers()
     const bundle = createBundle(true)
@@ -218,6 +262,7 @@ describe('desktop profile hydration and autosave', () => {
 
     useUIStore.getState().setTheme('green-dark')
     useUIStore.getState().setSidebarWidth(318)
+    useSessionStore.getState().setNewSessionWorkType('knowledge_delivery')
     await vi.advanceTimersByTimeAsync(350)
     await flushDesktopProfileWrites()
 
@@ -226,6 +271,7 @@ describe('desktop profile hydration and autosave', () => {
         preferences: expect.objectContaining({
           appearance: { theme: 'green-dark' },
           layout: expect.objectContaining({ sidebarWidth: 318 }),
+          work: { newSessionDefault: 'knowledge_delivery' },
         }),
       }),
     }))

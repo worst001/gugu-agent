@@ -466,6 +466,23 @@ function coalesceWebSearchGroups(items: RenderItem[]): RenderItem[] {
   return merged
 }
 
+function isStageResult(items: RenderItem[], index: number): boolean {
+  const current = items[index]
+  if (current?.kind !== 'message' || current.message.type !== 'assistant_text') {
+    return false
+  }
+
+  for (let nextIndex = index + 1; nextIndex < items.length; nextIndex += 1) {
+    const next = items[nextIndex]
+    if (!next) continue
+    if (next.kind === 'tool_group') return true
+    if (next.message.type === 'thinking' || next.message.type === 'system') continue
+    return next.message.type === 'tool_use'
+  }
+
+  return false
+}
+
 type MessageListProps = {
   sessionId?: string | null
 }
@@ -1000,7 +1017,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
       className="flex-1 overflow-y-auto px-4 py-4"
     >
       <div className="mx-auto max-w-[860px]">
-        {renderItems.map((item) => {
+        {renderItems.map((item, itemIndex) => {
           if (item.kind === 'tool_group') {
             return (
               <ToolCallGroup
@@ -1043,6 +1060,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
                 sessionId={resolvedSessionId ?? undefined}
                 localPathBase={sessionWorkDir}
                 message={msg}
+                isStageResult={isStageResult(renderItems, itemIndex)}
                 activeThinkingId={activeThinkingId}
                 agentTaskNotifications={agentTaskNotifications}
                 toolResult={
@@ -1188,6 +1206,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
             content={streamingText}
             isStreaming={chatState === 'streaming'}
             localPathBase={sessionWorkDir}
+            sessionId={resolvedSessionId ?? undefined}
           />
         )}
 
@@ -1543,6 +1562,7 @@ export const MessageBlock = memo(function MessageBlock({
   sessionId,
   localPathBase,
   message,
+  isStageResult = false,
   activeThinkingId,
   agentTaskNotifications,
   toolResult,
@@ -1553,6 +1573,7 @@ export const MessageBlock = memo(function MessageBlock({
   sessionId?: string
   localPathBase?: string | null
   message: UIMessage
+  isStageResult?: boolean
   activeThinkingId: string | null
   agentTaskNotifications: Record<string, AgentTaskNotification>
   toolResult?: { content: unknown; isError: boolean } | null
@@ -1603,7 +1624,9 @@ export const MessageBlock = memo(function MessageBlock({
               ? t('chat.unsupportedAttachmentInput')
               : message.content
           }
+          isStageResult={isStageResult}
           localPathBase={localPathBase}
+          sessionId={sessionId}
           onRewind={undefined}
           onFork={
             actionTarget && onRequestFork
@@ -1657,7 +1680,13 @@ export const MessageBlock = memo(function MessageBlock({
       )
     case 'error': {
       if (isUnsupportedAttachmentInputError(message.message)) {
-        return <AssistantMessage content={t('chat.unsupportedAttachmentInput')} localPathBase={localPathBase} />
+        return (
+          <AssistantMessage
+            content={t('chat.unsupportedAttachmentInput')}
+            localPathBase={localPathBase}
+            sessionId={sessionId}
+          />
+        )
       }
       if (isGuguQuotaError(message)) {
         return <GuguQuotaCard code={message.code} message={message.message} />

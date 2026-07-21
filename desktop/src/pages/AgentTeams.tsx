@@ -1,200 +1,154 @@
-import { useState } from 'react'
-import { mockTeam, mockTeamMessages } from '../mocks/data'
-
-// ─── Inline keyframes for pulse-subtle animation ─────────────────
-const pulseSubtleStyle = `
-@keyframes pulse-subtle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; transform: scale(0.98); }
-}
-.animate-pulse-subtle {
-  animation: pulse-subtle 2s ease-in-out infinite;
-}
-`
+import { useEffect, type ReactNode } from 'react'
+import {
+  BriefcaseBusiness,
+  UsersRound,
+  Workflow,
+} from 'lucide-react'
+import {
+  AGENT_TASK_ROLE_PRESENTATION,
+  AGENT_TASK_TEAM_PRESENTATION,
+  AGENT_TASK_TEMPLATE_PRESENTATION,
+} from '../constants/agentTaskProduct'
+import { useTranslation } from '../i18n'
+import { useAgentTaskStore } from '../stores/agentTaskStore'
 
 export function AgentTeams() {
-  const [inputValue, setInputValue] = useState('')
+  const t = useTranslation()
+  const rolePacks = useAgentTaskStore((state) => state.rolePacks)
+  const teams = useAgentTaskStore((state) => state.teams)
+  const capabilityLoaded = useAgentTaskStore((state) => state.capabilityLoaded)
+  const loadCapabilities = useAgentTaskStore((state) => state.loadCapabilities)
+
+  useEffect(() => {
+    if (!capabilityLoaded) void loadCapabilities()
+  }, [capabilityLoaded, loadCapabilities])
 
   return (
-    <>
-      <style>{pulseSubtleStyle}</style>
-
-      <div className="flex-1 flex flex-col relative overflow-hidden bg-[var(--color-surface)] text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-body)' }}>
-        {/* Code Content Area */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 max-w-5xl mx-auto w-full">
-          <div className="space-y-8">
-            {/* ─── Message Thread ─── */}
-            <div className="space-y-6">
-              {/* USER message */}
-              <div className="flex gap-4 group">
-                <div className="w-8 h-8 rounded-full bg-[var(--color-primary-fixed)] flex-shrink-0 flex items-center justify-center text-[var(--color-on-primary)] font-bold text-xs">
-                  U
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-widest">
-                    User
-                  </p>
-                  <p className="text-[var(--color-text-primary)] leading-relaxed">
-                    {mockTeamMessages.userMessage}
-                  </p>
-                </div>
-              </div>
-
-              {/* Gugu Companion response */}
-              <div className="flex gap-4 group">
-                <div className="w-8 h-8 rounded-full bg-[var(--color-tertiary-container)] flex-shrink-0 flex items-center justify-center text-[var(--color-tertiary)]">
-                  <span
-                    className="material-symbols-outlined text-sm"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
-                  >
-                    smart_toy
-                  </span>
-                </div>
-                <div className="space-y-4 flex-1">
-                  <p className="text-xs font-semibold text-[var(--color-text-tertiary)] uppercase tracking-widest">
-                    Gugu Companion
-                  </p>
-                  <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-5 shadow-[var(--shadow-dropdown)]">
-                    <p className="mb-4 text-[var(--color-text-primary)]">
-                      {mockTeamMessages.assistantMessage}
-                    </p>
-                    <div className="rounded-lg bg-[var(--color-surface-container-high)] p-4 font-[var(--font-mono)] text-[13px] text-[var(--color-text-secondary)] overflow-x-auto">
-                      <span className="text-[var(--color-brand)]">info:</span> spawning child_processes for parallel development
-                      <br />
-                      <span className="text-[var(--color-secondary)]">active:</span> session-dev cluster initiated
-                      <br />
-                      <span className="text-[var(--color-tertiary)]">ready:</span> 4 agents assigned
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ─── TEAM STRIP ─── */}
-            <div className="relative py-8">
-              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-[var(--color-border-separator)]" />
-
-              <div className="relative glass-panel p-4 rounded-2xl flex flex-col md:flex-row md:items-center gap-4 overflow-hidden">
-                {/* Team label */}
-                <div className="flex items-center gap-3 pr-4 md:border-r border-[var(--color-border-separator)]">
-                  <div className="p-2 bg-[var(--color-primary-fixed)]/20 rounded-lg">
-                    <span className="material-symbols-outlined text-[var(--color-brand)] text-xl">
-                      groups
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-headline)' }}>
-                      Team: {mockTeam.name}
-                    </h3>
-                    <p className="text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-tighter">
-                      {mockTeam.memberCount} members
-                    </p>
-                  </div>
-                </div>
-
-                {/* Agent Chips */}
-                <div className="flex flex-wrap gap-2 items-center flex-1">
-                  {mockTeam.members.map((member) => {
-                    if (member.status === 'completed') {
-                      return (
-                        <div
-                          key={member.id}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-[var(--color-surface-container-high)] rounded-full border border-[var(--color-success)]/20 group hover:border-[var(--color-success)]/50 transition-all cursor-pointer"
-                        >
-                          <div className="w-2 h-2 rounded-full bg-[var(--color-success)] shadow-[0_0_8px_rgba(126,219,139,0.4)]" />
-                          <span className="text-xs font-semibold text-[var(--color-text-primary)]">
-                            {member.role}
-                          </span>
-                          <span
-                            className="material-symbols-outlined text-[14px] text-[var(--color-success)]"
-                            style={{ fontVariationSettings: "'FILL' 1" }}
-                          >
-                            check_circle
-                          </span>
-                        </div>
-                      )
-                    }
-
-                    if (member.status === 'running') {
-                      return (
-                        <div
-                          key={member.id}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-[var(--color-surface-container-high)] rounded-full border border-[var(--color-brand)]/20 animate-pulse-subtle group hover:border-[var(--color-brand)]/50 transition-all cursor-pointer"
-                        >
-                          <div className="w-2 h-2 rounded-full bg-[var(--color-warning)] shadow-[0_0_8px_rgba(247,196,108,0.4)]" />
-                          <span className="text-xs font-semibold text-[var(--color-text-primary)]">
-                            {member.role}
-                          </span>
-                          <span
-                            className="material-symbols-outlined text-[14px] text-[var(--color-warning)]"
-                            style={{ fontVariationSettings: "'FILL' 1" }}
-                          >
-                            sync
-                          </span>
-                        </div>
-                      )
-                    }
-
-                    return (
-                      <div
-                        key={member.id}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-[var(--color-surface-container-low)] rounded-full border border-[var(--color-border)] grayscale group hover:grayscale-0 hover:border-[var(--color-secondary)]/50 transition-all cursor-pointer"
-                      >
-                        <div className="w-2 h-2 rounded-full bg-[var(--color-text-tertiary)] shadow-[0_0_8px_rgba(135,115,109,0.2)]" />
-                        <span className="text-xs font-semibold text-[var(--color-text-tertiary)] group-hover:text-[var(--color-text-primary)]">
-                          {member.role}
-                        </span>
-                        <span className="material-symbols-outlined text-[14px] text-[var(--color-text-tertiary)]">
-                          {member.role === 'Tester' ? 'schedule' : 'pause_circle'}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Expand button */}
-                <button className="ml-auto p-2 hover:bg-[var(--color-surface-hover)] rounded-full transition-colors text-[var(--color-text-tertiary)]">
-                  <span className="material-symbols-outlined text-sm">expand_more</span>
-                </button>
-              </div>
-            </div>
-
-            {/* ─── Chat Composer ─── */}
-            <div className="max-w-3xl mx-auto w-full mt-auto">
-              <div className="glass-panel relative rounded-xl p-1.5 flex items-center gap-2 transition-all">
-                <div className="p-2 text-[var(--color-text-secondary)]">
-                  <span className="material-symbols-outlined">attach_file</span>
-                </div>
-                <input
-                  className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-[var(--color-text-primary)] py-2"
-                  placeholder="Type a command or ask Gugu..."
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                />
-                <button className="bg-[image:var(--gradient-btn-primary)] text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)] w-9 h-9 rounded-lg flex items-center justify-center transition-all hover:brightness-105 active:scale-95">
-                  <span
-                    className="material-symbols-outlined text-lg"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
-                  >
-                    send
-                  </span>
-                </button>
-              </div>
-              <div className="mt-3 flex justify-center gap-4">
-                <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-tertiary)] font-semibold uppercase tracking-widest">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]" />
-                  Auto-run enabled
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-tertiary)] font-semibold uppercase tracking-widest">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-secondary)]" />
-                  Local LLM
-                </div>
-              </div>
-            </div>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-surface)] text-[var(--color-text-primary)]">
+      <header className="flex shrink-0 items-center border-b border-[var(--color-border)] px-6 py-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <UsersRound size={19} strokeWidth={1.2} aria-hidden="true" />
+            <h1 className="text-base font-semibold">{t('team.title')}</h1>
+          </div>
+          <div className="mt-1 flex gap-4 text-xs text-[var(--color-text-tertiary)]">
+            <span>{t('team.teamCount', { count: teams.length })}</span>
+            <span>{t('team.standardCount', { count: rolePacks.length })}</span>
           </div>
         </div>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="mx-auto max-w-5xl space-y-7">
+          {teams.length > 0 && (
+            <section aria-labelledby="professional-teams-heading">
+              <SectionHeading
+                icon={<Workflow size={16} strokeWidth={1.2} aria-hidden="true" />}
+                id="professional-teams-heading"
+              >
+                {t('team.professionalTeams')}
+              </SectionHeading>
+              <div className="grid gap-3 lg:grid-cols-3">
+                {teams.map((team) => {
+                  const presentation = AGENT_TASK_TEAM_PRESENTATION[team.id]
+                  return (
+                    <article
+                      key={team.id}
+                      className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-semibold">
+                            {presentation
+                              ? t(presentation.labelKey)
+                              : team.displayName}
+                          </h3>
+                          <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">
+                            {presentation
+                              ? t(presentation.missionKey)
+                              : team.mission}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-[10px] text-[var(--color-text-tertiary)]">
+                          v{team.version}
+                        </span>
+                      </div>
+                      <div className="mt-3 border-t border-[var(--color-border-separator)] pt-3">
+                        <div className="text-[10px] font-medium text-[var(--color-text-tertiary)]">
+                          {t('team.taskTemplates')}
+                        </div>
+                        <ul className="mt-1.5 space-y-1 text-xs text-[var(--color-text-secondary)]">
+                          {team.taskTemplates.map((template) => {
+                            const label =
+                              AGENT_TASK_TEMPLATE_PRESENTATION[template.id]
+                            return (
+                              <li key={template.id} className="truncate">
+                                {label ? t(label) : template.displayName}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          <section aria-labelledby="professional-standards-heading">
+            <SectionHeading
+              icon={<BriefcaseBusiness size={16} strokeWidth={1.2} aria-hidden="true" />}
+              id="professional-standards-heading"
+            >
+              {t('team.professionalStandards')}
+            </SectionHeading>
+            <p className="mb-3 text-xs leading-5 text-[var(--color-text-tertiary)]">
+              {t('team.professionalStandardsDescription')}
+            </p>
+            <div className="divide-y divide-[var(--color-border-separator)] border-y border-[var(--color-border-separator)]">
+              {rolePacks.map((rolePack) => {
+                const presentation = AGENT_TASK_ROLE_PRESENTATION[rolePack.id]
+                return (
+                  <article
+                    key={rolePack.id}
+                    className="flex min-w-0 items-start justify-between gap-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold">
+                        {t(presentation.labelKey)}
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-[var(--color-text-secondary)]">
+                        {t(presentation.descriptionKey)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[10px] text-[var(--color-text-tertiary)]">
+                      v{rolePack.version}
+                    </span>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+        </div>
       </div>
-    </>
+    </div>
+  )
+}
+
+function SectionHeading({
+  icon,
+  id,
+  children,
+}: {
+  icon: ReactNode
+  id: string
+  children: ReactNode
+}) {
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      {icon}
+      <h2 id={id} className="text-sm font-semibold">{children}</h2>
+    </div>
   )
 }

@@ -20,10 +20,23 @@ vi.mock('../../i18n', () => ({
   useTranslation: () => (key: string, params?: Record<string, string | number>) => {
     const translations: Record<string, string> = {
       'sidebar.newSession': 'New Session',
+      'sidebar.workType.label': 'Choose new-session work type',
+      'sidebar.workType.newSessionDefault': 'Default for new sessions',
+      'sidebar.workType.smart': 'Smart recommendation',
+      'sidebar.workType.smartDescription': 'Choose a professional team from your request.',
+      'sidebar.workType.chat': 'General chat',
+      'sidebar.workType.chatDescription': 'Talk freely without creating a professional task.',
+      'sidebar.workType.software': 'Software delivery',
+      'sidebar.workType.softwareDescription': 'Fix, build, test, and review software.',
+      'sidebar.workType.knowledge': 'Knowledge delivery',
+      'sidebar.workType.knowledgeDescription': 'Research, organize, analyze, and deliver verified work.',
+      'sidebar.workType.shortVideo': 'Short-video production',
+      'sidebar.workType.shortVideoDescription': 'Topics, scripts, storyboards, and platform adaptation.',
       'sidebar.scheduled': 'Scheduled',
       'sidebar.terminal': 'Terminal',
       'sidebar.archivedSessions': 'Archived conversations',
       'sidebar.settings': 'Settings',
+      'sidebar.aiTeam': 'AI Team',
       'sidebar.searchPlaceholder': 'Search sessions',
       'sidebar.noSessions': 'No sessions',
       'sidebar.noArchivedSessions': 'No archived conversations',
@@ -46,6 +59,8 @@ vi.mock('../../i18n', () => ({
       'sidebar.pinned': 'Pinned',
       'sidebar.pinnedConversations': 'Pinned conversations',
       'sidebar.projects': 'Projects',
+      'sidebar.projectKnowledge': 'View project knowledge',
+      'projectKnowledge.title': 'Project Knowledge',
       'sidebar.projectGroup.ungrouped': 'Uncategorized sessions',
       'sidebar.projectGroup.openInFolder': 'Open in folder',
       'sidebar.projectGroup.openFailed': 'Could not open this project folder.',
@@ -97,7 +112,10 @@ function queryProjectGroupButton(name: RegExp): HTMLElement | null {
 
 function getProjectGroupTitles(): string[] {
   return screen.getAllByRole('button')
-    .filter((element) => element.hasAttribute('aria-expanded'))
+    .filter((element) => (
+      element.hasAttribute('aria-expanded') &&
+      !element.hasAttribute('aria-haspopup')
+    ))
     .map((element) => element.textContent ?? '')
 }
 
@@ -144,6 +162,7 @@ describe('Sidebar', () => {
       removedProjects: [],
       pinnedProjects: [],
       newSessionWorkDir: null,
+      newSessionWorkType: 'smart',
       fetchSessions,
       createSession,
       deleteSession,
@@ -179,6 +198,32 @@ describe('Sidebar', () => {
     expect(screen.getByRole('complementary')).not.toHaveAttribute('data-tauri-drag-region')
   })
 
+  it('changes only the new-session default and opens a draft from an active session', () => {
+    useTabStore.setState({
+      tabs: [{
+        sessionId: 'session-existing',
+        title: 'Existing task',
+        type: 'session',
+        status: 'idle',
+      }],
+      activeTabId: 'session-existing',
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose new-session work type' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Knowledge delivery/ }))
+
+    expect(useSessionStore.getState().newSessionWorkType).toBe('knowledge_delivery')
+    expect(useTabStore.getState().activeTabId).toBe(DRAFT_TAB_ID)
+    expect(useTabStore.getState().tabs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sessionId: 'session-existing', type: 'session' }),
+      expect.objectContaining({ sessionId: DRAFT_TAB_ID, type: 'draft' }),
+    ]))
+    expect(createSession).not.toHaveBeenCalled()
+    expect(connectToSession).not.toHaveBeenCalled()
+  })
+
   it('opens a draft in the last selected project group directory', async () => {
     createSession.mockResolvedValue('session-new-1')
     useSessionStore.setState({
@@ -208,6 +253,32 @@ describe('Sidebar', () => {
     expect(useSessionStore.getState().newSessionWorkDir).toBe('/workspace/project-a')
   })
 
+  it('opens project knowledge from the project group header', () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/project-a',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+    fireEvent.click(screen.getByRole('button', { name: 'View project knowledge' }))
+
+    const activeTab = useTabStore.getState().tabs[0]
+    expect(activeTab).toMatchObject({
+      title: 'project-a · Project Knowledge',
+      type: 'knowledge',
+    })
+    expect(decodeURIComponent(activeTab!.sessionId)).toContain('/workspace/project-a')
+  })
   it('updates the new session directory when selecting another project group', async () => {
     createSession.mockResolvedValue('session-new-1')
     useSessionStore.setState({

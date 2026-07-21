@@ -9,6 +9,7 @@ import { PermissionDialog } from './PermissionDialog'
 import { StreamingIndicator } from './StreamingIndicator'
 import { AgentActivityPanel } from './AgentActivityPanel'
 import { UserMessage } from './UserMessage'
+import { AssistantMessage } from './AssistantMessage'
 import { useChatStore } from '../../stores/chatStore'
 import type { PerSessionState } from '../../stores/chatStore'
 import type { UIMessage } from '../../types/chat'
@@ -111,6 +112,26 @@ describe('chat blocks', () => {
     const { container } = render(<ThinkingBlock content="old reasoning" isActive={false} />)
 
     expect(container.querySelector('.thinking-inline-cursor')).toBeNull()
+  })
+
+  it('collapses runaway repeated prose while keeping the first section visible', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    const repeated = 'The CSS looks correct. '.repeat(8)
+
+    const { container } = render(<AssistantMessage content={repeated} />)
+
+    expect(container.textContent?.match(/The CSS looks correct\./g)).toHaveLength(1)
+    expect(screen.getByText('7 repeated sections collapsed')).toBeTruthy()
+  })
+
+  it('does not collapse repeated content inside fenced code blocks', () => {
+    useSettingsStore.setState({ locale: 'en' })
+    const code = '```js\n' + 'console.log(1);'.repeat(4) + '\n```'
+
+    const { container } = render(<AssistantMessage content={code} />)
+
+    expect(container.textContent?.match(/console\.log\(1\);/g)).toHaveLength(4)
+    expect(screen.queryByText(/repeated sections collapsed/)).toBeNull()
   })
 
   it('shows collapsible live activity for the running turn', () => {

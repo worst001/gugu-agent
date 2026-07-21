@@ -134,9 +134,9 @@ describe('ConversationService', () => {
   test('stopSession kills the CLI process tree for long-running child commands', () => {
     const service = new ConversationService() as any
     const kill = mock((_signal?: NodeJS.Signals) => {})
-    const spawnedKillCommands: string[][] = []
-    service.spawnKillHelper = (command: string[]) => {
-      spawnedKillCommands.push(command)
+    const spawnedKillCommands: Array<{ command: string[]; waitForExit: boolean }> = []
+    service.spawnKillHelper = (command: string[], waitForExit = false) => {
+      spawnedKillCommands.push({ command, waitForExit })
     }
     service.sessions.set('session-process-tree', {
       proc: { pid: 4242, kill },
@@ -158,11 +158,20 @@ describe('ConversationService', () => {
     expect(kill).toHaveBeenCalled()
     expect(service.hasSession('session-process-tree')).toBe(false)
     if (process.platform === 'win32') {
-      expect(spawnedKillCommands[0]).toEqual(['taskkill', '/PID', '4242', '/T', '/F'])
+      expect(spawnedKillCommands[0]).toEqual({
+        command: ['taskkill', '/PID', '4242', '/T', '/F'],
+        waitForExit: true,
+      })
       expect(kill).toHaveBeenCalledWith(undefined)
     } else {
-      expect(spawnedKillCommands[0]).toEqual(['kill', '-TERM', '-4242'])
-      expect(spawnedKillCommands[1]).toEqual(['pkill', '-TERM', '-P', '4242'])
+      expect(spawnedKillCommands[0]).toEqual({
+        command: ['kill', '-TERM', '-4242'],
+        waitForExit: false,
+      })
+      expect(spawnedKillCommands[1]).toEqual({
+        command: ['pkill', '-TERM', '-P', '4242'],
+        waitForExit: false,
+      })
       expect(kill).toHaveBeenCalledWith('SIGTERM')
     }
   })

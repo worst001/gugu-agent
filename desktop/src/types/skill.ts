@@ -36,3 +36,17 @@ export type SkillDetail = {
   files: SkillFile[]
   skillRoot: string
 }
+
+export type VideoCapabilityHealth = {
+  provider: 'hyperframes'
+  installed: boolean
+  ready: boolean
+  skills: string[]
+  checks: Array<{
+    id: 'node' | 'ffmpeg'
+    ready: boolean
+    value?: string
+    requirement: string
+  }>
+  missing: string[]
+}

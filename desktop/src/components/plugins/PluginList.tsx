@@ -1,10 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePluginStore } from '../../stores/pluginStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTranslation } from '../../i18n'
 import { useUIStore } from '../../stores/uiStore'
 import { Button } from '../shared/Button'
-import type { PluginSummary } from '../../types/plugin'
+import { ConfirmDialog } from '../shared/ConfirmDialog'
+import type { GitExtensionInstallResult, PluginSummary } from '../../types/plugin'
 
 type PluginBucket = 'attention' | 'enabled' | 'disabled'
 
@@ -20,6 +21,8 @@ export function PluginList() {
     fetchPlugins,
     fetchPluginDetail,
     reloadPlugins,
+    installSource,
+    installPlugin,
   } = usePluginStore()
   const sessions = useSessionStore((s) => s.sessions)
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
@@ -27,6 +30,11 @@ export function PluginList() {
   const t = useTranslation()
   const activeSession = sessions.find((session) => session.id === activeSessionId)
   const currentWorkDir = activeSession?.workDir || undefined
+  const [sourceInput, setSourceInput] = useState('')
+  const [showSourceConfirm, setShowSourceConfirm] = useState(false)
+  const [sourceResult, setSourceResult] =
+    useState<GitExtensionInstallResult | null>(null)
+  const [installingPluginId, setInstallingPluginId] = useState<string | null>(null)
 
   useEffect(() => {
     void fetchPlugins(currentWorkDir)
@@ -71,6 +79,53 @@ export function PluginList() {
     }
   }
 
+  const handleInstallSource = async () => {
+    const source = sourceInput.trim()
+    if (!source) return
+    try {
+      const result = await installSource(source, currentWorkDir)
+      setSourceResult(result)
+      setShowSourceConfirm(false)
+      addToast({
+        type: 'success',
+        message: result.kind === 'skills'
+          ? result.message
+          : t('settings.plugins.source.marketplaceAdded', {
+              name: result.marketplace,
+              count: String(result.plugins.length),
+            }),
+      })
+    } catch (err) {
+      addToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  const handleInstallPlugin = async (pluginId: string) => {
+    setInstallingPluginId(pluginId)
+    try {
+      const message = await installPlugin(pluginId, 'user', currentWorkDir)
+      addToast({ type: 'success', message })
+      setSourceResult((current) =>
+        current?.kind === 'marketplace'
+          ? {
+              ...current,
+              plugins: current.plugins.filter((plugin) => plugin.id !== pluginId),
+            }
+          : current,
+      )
+    } catch (err) {
+      addToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setInstallingPluginId(null)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -79,28 +134,92 @@ export function PluginList() {
     )
   }
 
-  if (error) {
-    return <div className="text-sm text-[var(--color-error)] py-4">{error}</div>
-  }
-
-  if (plugins.length === 0) {
-    return (
-      <div className="text-center py-12 rounded-2xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-6">
-        <span className="material-symbols-outlined text-[40px] text-[var(--color-text-tertiary)] mb-2 block">
-          extension
-        </span>
-        <p className="text-sm text-[var(--color-text-tertiary)]">
-          {t('settings.plugins.empty')}
-        </p>
-        <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
-          {t('settings.plugins.emptyHint')}
-        </p>
-      </div>
-    )
-  }
-
   return (
+    <>
     <div className="flex flex-col gap-6 min-w-0">
+      {error && (
+        <div className="rounded-lg border border-[var(--color-error)]/30 bg-[var(--color-error)]/8 px-3 py-2 text-sm text-[var(--color-error)]">
+          {error}
+        </div>
+      )}
+      <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
+        <div className="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,1fr)] xl:items-end">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-[var(--color-brand)]">
+                add_link
+              </span>
+              <h4 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                {t('settings.plugins.source.title')}
+              </h4>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-[var(--color-text-tertiary)]">
+              {t('settings.plugins.source.description')}
+            </p>
+          </div>
+          <div className="flex min-w-0 gap-2">
+            <input
+              type="url"
+              value={sourceInput}
+              onChange={(event) => setSourceInput(event.target.value)}
+              placeholder={t('settings.plugins.source.placeholder')}
+              className="min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none transition-colors focus:border-[var(--color-border-focus)]"
+            />
+            <Button
+              size="sm"
+              disabled={!sourceInput.trim()}
+              onClick={() => setShowSourceConfirm(true)}
+            >
+              <span className="material-symbols-outlined text-[16px]">download</span>
+              {t('settings.plugins.source.add')}
+            </Button>
+          </div>
+        </div>
+
+        {sourceResult && (
+          <div className="border-t border-[var(--color-border)] px-5 py-4">
+            {sourceResult.kind === 'skills' ? (
+              <div className="text-sm text-[var(--color-success)]">
+                {sourceResult.message}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="text-xs text-[var(--color-text-tertiary)]">
+                  {t('settings.plugins.source.choosePlugin')}
+                </div>
+                {sourceResult.plugins.length === 0 ? (
+                  <div className="text-sm text-[var(--color-success)]">
+                    {t('settings.plugins.source.allInstalled')}
+                  </div>
+                ) : sourceResult.plugins.map((plugin) => (
+                  <div
+                    key={plugin.id}
+                    className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-[var(--color-text-primary)]">
+                        {plugin.name}
+                      </div>
+                      {plugin.description && (
+                        <div className="truncate text-xs text-[var(--color-text-tertiary)]">
+                          {plugin.description}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      loading={installingPluginId === plugin.id}
+                      onClick={() => void handleInstallPlugin(plugin.id)}
+                    >
+                      {t('settings.plugins.source.install')}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
       <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] overflow-hidden">
         <div className="grid gap-4 px-5 py-5 min-w-0 2xl:grid-cols-[minmax(0,1.45fr)_minmax(420px,0.95fr)] 2xl:items-end">
           <div className="min-w-0">
@@ -176,6 +295,20 @@ export function PluginList() {
         </div>
       </section>
 
+      {plugins.length === 0 && (
+        <div className="text-center py-12 rounded-2xl border border-dashed border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-6">
+          <span className="material-symbols-outlined text-[40px] text-[var(--color-text-tertiary)] mb-2 block">
+            extension
+          </span>
+          <p className="text-sm text-[var(--color-text-tertiary)]">
+            {t('settings.plugins.empty')}
+          </p>
+          <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+            {t('settings.plugins.emptyHint')}
+          </p>
+        </div>
+      )}
+
       {marketplaces.length > 0 && (
         <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
           <div className="px-5 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-container-low)]">
@@ -225,6 +358,18 @@ export function PluginList() {
       {renderGroup('enabled', grouped.enabled, fetchPluginDetail, currentWorkDir, t)}
       {renderGroup('disabled', grouped.disabled, fetchPluginDetail, currentWorkDir, t)}
     </div>
+    <ConfirmDialog
+      open={showSourceConfirm}
+      onClose={() => setShowSourceConfirm(false)}
+      onConfirm={handleInstallSource}
+      title={t('settings.plugins.source.confirmTitle')}
+      body={t('settings.plugins.source.confirmBody', { source: sourceInput.trim() })}
+      confirmLabel={t('settings.plugins.source.confirm')}
+      cancelLabel={t('common.cancel')}
+      confirmVariant="primary"
+      loading={isApplying}
+    />
+    </>
   )
 }
 

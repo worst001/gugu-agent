@@ -31,6 +31,10 @@ type FileMetadataResponse = {
   files: FileMetadata[]
 }
 
+type WorkspacePreviewResponse = {
+  url: string
+}
+
 type NativeRevealResult = {
   path: string
   is_directory?: boolean
@@ -120,6 +124,10 @@ export const filesystemApi = {
 
   metadata(paths: string[]) {
     return api.post<FileMetadataResponse>('/api/filesystem/metadata', { paths })
+  },
+
+  prepareWorkspacePreview(sessionId: string, path: string) {
+    return api.post<WorkspacePreviewResponse>('/api/filesystem/preview', { sessionId, path })
   },
 
   async reveal(path: string): Promise<RevealResult> {

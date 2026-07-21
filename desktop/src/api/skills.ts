@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { SkillMeta, SkillDetail } from '../types/skill'
+import type { SkillMeta, SkillDetail, VideoCapabilityHealth } from '../types/skill'
 
 export const skillsApi = {
   list: (cwd?: string) => {
@@ -16,6 +16,14 @@ export const skillsApi = {
 
     return api.get<{ detail: SkillDetail }>(
       `/api/skills/detail?${query.toString()}`,
+      { timeout: 120_000 },
+    )
+  },
+
+  videoHealth: (cwd?: string) => {
+    const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''
+    return api.get<{ health: VideoCapabilityHealth }>(
+      `/api/skills/video-health${query}`,
       { timeout: 120_000 },
     )
   },

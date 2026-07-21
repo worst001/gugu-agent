@@ -4,6 +4,7 @@ import type { McpServerConfig } from '../../services/mcp/types.js'
 import {
   disablePluginOp,
   enablePluginOp,
+  installPluginOp,
   type InstallableScope,
   uninstallPluginOp,
   updatePluginOp,
@@ -181,6 +182,17 @@ export class PluginService {
     scope?: InstallableScope,
   ): Promise<ApiPluginActionResponse> {
     const result = await enablePluginOp(pluginId, scope)
+    if (!result.success) {
+      throw ApiError.badRequest(result.message)
+    }
+    return { ok: true, message: result.message }
+  }
+
+  async installPlugin(
+    pluginId: string,
+    scope: InstallableScope = 'user',
+  ): Promise<ApiPluginActionResponse> {
+    const result = await installPluginOp(pluginId, scope)
     if (!result.success) {
       throw ApiError.badRequest(result.message)
     }

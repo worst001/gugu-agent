@@ -16,6 +16,7 @@ import { loadAllPluginsCacheOnly } from '../../utils/plugins/pluginLoader.js'
 import type { LoadedPlugin } from '../../types/plugin.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
 import { ensureBundledAgentPackBootstrapped } from '../services/bundledAgentPackService.js'
+import { inspectVideoCapabilityHealth } from '../services/videoCapabilityHealthService.js'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -375,6 +376,8 @@ export async function handleSkillsApi(
         return await listSkills(url)
       case 'detail':
         return await getSkillDetail(url)
+      case 'video-health':
+        return await getVideoHealth(url)
       default:
         throw ApiError.notFound(`Unknown skills endpoint: ${sub}`)
     }
@@ -398,6 +401,24 @@ async function listSkills(url: URL): Promise<Response> {
   const skills = [...userSkills, ...projectSkills, ...pluginSkills]
   skills.sort((a, b) => a.name.localeCompare(b.name))
   return Response.json({ skills })
+}
+
+async function getVideoHealth(url: URL): Promise<Response> {
+  await ensureBundledAgentPackBootstrapped()
+  const cwd = getRequestedCwd(url)
+  const skills = await collectInstalledSkills(cwd)
+  return Response.json({
+    health: await inspectVideoCapabilityHealth(skills.map((skill) => skill.name)),
+  })
+}
+
+async function collectInstalledSkills(cwd: string): Promise<SkillMeta[]> {
+  const [userSkills, projectSkills, pluginSkills] = await Promise.all([
+    collectSkillsFromRoots([getUserSkillsDir()], 'user'),
+    collectSkillsFromRoots(getProjectSkillsDirs(cwd), 'project'),
+    collectPluginSkills(),
+  ])
+  return [...userSkills, ...projectSkills, ...pluginSkills]
 }
 
 async function getSkillDetail(url: URL): Promise<Response> {

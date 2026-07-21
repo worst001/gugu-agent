@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { sessionsApi, type GitReview } from '../../api/sessions'
 import { useTranslation, type TranslationKey } from '../../i18n'
 import { useUIStore } from '../../stores/uiStore'
 import { useAgentTaskStore } from '../../stores/agentTaskStore'
@@ -20,6 +21,7 @@ import {
   findSelectedAttachmentPreview,
   findSelectedFileChange,
   findSelectedPreview,
+  type WorkbenchFileChange,
 } from './workbenchModel'
 
 type Props = {
@@ -45,6 +47,24 @@ const EVIDENCE_TAB: {
   labelKey: 'workbench.tab.evidence',
 }
 
+function mapGitReviewFiles(review: GitReview | null): WorkbenchFileChange[] {
+  if (!review?.isGit) return []
+  const timestamp = Date.now()
+  return review.files.map((file) => ({
+    id: `git:${file.path}`,
+    filePath: file.path,
+    toolUseId: `git:${file.path}`,
+    toolName: 'Git',
+    kind: file.kind,
+    summary: file.oldPath ? `${file.oldPath} -> ${file.path}` : file.status.trim() || file.kind,
+    ...(file.oldText !== undefined ? { oldText: file.oldText } : {}),
+    ...(file.newText !== undefined ? { newText: file.newText } : {}),
+    binary: file.binary,
+    truncated: file.truncated,
+    timestamp,
+  }))
+}
+
 export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
   const t = useTranslation()
   const agentTaskDetail = useAgentTaskStore((store) =>
@@ -60,16 +80,37 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
   const terminalDrawerOpen = useUIStore((store) => store.terminalDrawerOpen)
   const setTerminalDrawerOpen = useUIStore((store) => store.setTerminalDrawerOpen)
   const [isResizing, setIsResizing] = useState(false)
+  const [gitReview, setGitReview] = useState<GitReview | null>(null)
+  const gitReviewRequestRef = useRef(0)
+
+  const refreshGitReview = useCallback(async (selectedPath?: string | null) => {
+    const requestId = ++gitReviewRequestRef.current
+    try {
+      const review = await sessionsApi.getGitReview(sessionId, selectedPath)
+      if (requestId === gitReviewRequestRef.current) setGitReview(review)
+    } catch {
+      if (requestId === gitReviewRequestRef.current) setGitReview(null)
+    }
+  }, [sessionId])
 
   const model = useMemo(() => buildWorkbenchModel(messages), [messages])
-  const tabs = agentTaskDetail ? [...TABS, EVIDENCE_TAB] : TABS
+  const gitFileChanges = useMemo(() => mapGitReviewFiles(gitReview), [gitReview])
+  const visibleTabs = gitReview?.isGit
+    ? TABS
+    : TABS.filter((tab) => tab.id !== 'diff')
+  const tabs = agentTaskDetail ? [...visibleTabs, EVIDENCE_TAB] : visibleTabs
   const activeTab =
-    !agentTaskDetail && state.activeTab === 'evidence'
+    (!agentTaskDetail && state.activeTab === 'evidence') ||
+    (!gitReview?.isGit && state.activeTab === 'diff')
       ? 'activity'
       : state.activeTab
   const selectedActivity = findSelectedActivity(model, state.selectedToolUseId)
+  const reviewModel = useMemo(
+    () => ({ ...model, fileChanges: gitFileChanges }),
+    [gitFileChanges, model],
+  )
   const selectedFileChange = findSelectedFileChange(
-    model,
+    reviewModel,
     state.selectedFilePath,
     state.selectedToolUseId,
   )
@@ -115,6 +156,20 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
     document.addEventListener('mousemove', handleMove)
     document.addEventListener('mouseup', handleUp)
   }
+
+  useEffect(() => {
+    if (!state.isOpen) return
+    const selectedPath = state.activeTab === 'diff' ? selectedFileChange?.filePath : null
+    void refreshGitReview(selectedPath)
+  }, [messages.length, refreshGitReview, selectedFileChange?.filePath, state.activeTab, state.isOpen])
+
+  useEffect(() => {
+    if (!state.isOpen) return
+    const selectedPath = state.activeTab === 'diff' ? selectedFileChange?.filePath : null
+    const refreshOnFocus = () => void refreshGitReview(selectedPath)
+    window.addEventListener('focus', refreshOnFocus)
+    return () => window.removeEventListener('focus', refreshOnFocus)
+  }, [refreshGitReview, selectedFileChange?.filePath, state.activeTab, state.isOpen])
 
   return (
     <aside
@@ -192,9 +247,8 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
           <div
             role="tablist"
             aria-label={t('workbench.tabs')}
-            className={`mx-3 my-2 grid gap-1 rounded-xl bg-[var(--color-surface-container-low)] p-1 ${
-              agentTaskDetail ? 'grid-cols-5' : 'grid-cols-4'
-            }`}
+            className="mx-3 my-2 grid gap-1 rounded-xl bg-[var(--color-surface-container-low)] p-1"
+            style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
           >
             {tabs.map((tab) => (
               <button
@@ -233,9 +287,23 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
 
             {activeTab === 'diff' && (
               <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="truncate text-[10px] text-[var(--color-text-tertiary)]">
+                    {gitReview?.branch ?? gitReview?.repoName ?? ''}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void refreshGitReview(selectedFileChange?.filePath)}
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+                    aria-label={t('workbench.diff.refresh')}
+                    title={t('workbench.diff.refresh')}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">refresh</span>
+                  </button>
+                </div>
                 <FileChangeList
                   sessionId={sessionId}
-                  fileChanges={model.fileChanges}
+                  fileChanges={gitFileChanges}
                   selectedFilePath={selectedFileChange?.filePath ?? null}
                 />
                 <DiffPreview fileChange={selectedFileChange} />

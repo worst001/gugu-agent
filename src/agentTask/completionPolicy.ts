@@ -1,3 +1,4 @@
+import { isSourceBackedArtifactRole } from './rolePacks.js'
 import type { AgentTask, EvidencePack } from './types.js'
 
 export type CompletionAssessment = {
@@ -34,6 +35,13 @@ export function assessAgentTaskCompletion(
 
   if (task.evidencePackId !== evidence.id) {
     errors.push('Evidence Pack is not linked by a persisted event')
+  }
+
+  if (
+    isSourceBackedArtifactRole(task.role) &&
+    evidence.artifacts.length === 0
+  ) {
+    errors.push('Source-backed task Evidence Pack must include an artifact')
   }
 
   const requiredChecks = task.requiredChecks.filter((check) => check.required)

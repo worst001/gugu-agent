@@ -4,12 +4,17 @@ import { marked, type Tokens } from 'marked'
 import { CodeViewer } from '../chat/CodeViewer'
 import { MermaidRenderer } from '../chat/MermaidRenderer'
 import { filesystemApi } from '../../api/filesystem'
+import {
+  openLocalHtmlFromAppAction,
+  openWebUrlFromAppAction,
+} from '../../utils/appActions'
 
 type Props = {
   content: string
   variant?: 'default' | 'document'
   className?: string
   localPathBase?: string | null
+  sessionId?: string
 }
 
 type CodeBlock = {
@@ -257,7 +262,7 @@ function getProseClasses(variant: 'default' | 'document', className?: string) {
     .join(' ')
 }
 
-export function MarkdownRenderer({ content, variant = 'default', className, localPathBase }: Props) {
+export function MarkdownRenderer({ content, variant = 'default', className, localPathBase, sessionId }: Props) {
   const { html, codeBlocks } = useMemo(() => parseMarkdown(content), [content])
   const proseClasses = useMemo(
     () => getProseClasses(variant, className),
@@ -294,13 +299,27 @@ export function MarkdownRenderer({ content, variant = 'default', className, loca
 
   const handleClick = useCallback(async (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null
+    const link = target?.closest<HTMLAnchorElement>('a[href]')
+    if (link && sessionId) {
+      const href = link.href
+      if (/^https?:\/\//i.test(href)) {
+        event.preventDefault()
+        openWebUrlFromAppAction(sessionId, href)
+        return
+      }
+    }
+
     const pathButton = target?.closest<HTMLButtonElement>('[data-open-local-path]')
     if (pathButton) {
       event.preventDefault()
       const localPath = pathButton.getAttribute('data-open-local-path')
       if (!localPath) return
       try {
-        await filesystemApi.reveal(localPath)
+        if (sessionId && /\.html?$/i.test(localPath)) {
+          await openLocalHtmlFromAppAction(sessionId, localPath)
+        } else {
+          await filesystemApi.reveal(localPath)
+        }
       } catch {
         pathButton.setAttribute('data-open-error', 'true')
         window.setTimeout(() => {
@@ -326,7 +345,7 @@ export function MarkdownRenderer({ content, variant = 'default', className, loca
     } catch {
       // Ignore clipboard errors
     }
-  }, [])
+  }, [sessionId])
 
   if (codeBlocks.length === 0) {
     const cleanHtml = enhanceMarkdownHtml(html, { localPathBase })

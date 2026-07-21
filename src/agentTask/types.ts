@@ -1,3 +1,5 @@
+import type { AgentTaskCapabilityId } from './capabilities.js'
+
 export const AGENT_TASK_STATUSES = [
   'intake',
   'scout',
@@ -14,7 +16,50 @@ export const AGENT_TASK_STATUSES = [
 
 export type AgentTaskStatus = (typeof AGENT_TASK_STATUSES)[number]
 
-export type AgentTaskRole = 'software_engineer'
+export const AGENT_TASK_ROLES = [
+  'software_engineer',
+  'knowledge_worker',
+  'short_video_operator',
+] as const
+
+export type AgentTaskRole = (typeof AGENT_TASK_ROLES)[number]
+
+export type AgentTaskDefinitionRef = {
+  id: string
+  version: string
+}
+
+export type AgentTaskAssistantOverlaySnapshot = {
+  id: string
+  name: string
+  baseRole: AgentTaskRole
+  sourceUpdatedAt: string
+  instructions: string
+}
+
+export type AgentTaskRoleAssignmentSnapshot = {
+  slotId: string
+  kind: 'primary' | 'collaborator'
+  role: AgentTaskRole
+  roleVersion: string
+  assistant?: AgentTaskAssistantOverlaySnapshot
+}
+
+export type AgentTaskDefinitionSnapshot = {
+  schemaVersion: 1
+  team?: AgentTaskDefinitionRef
+  taskTemplate?: AgentTaskDefinitionRef
+  workflow: AgentTaskDefinitionRef
+  roles: AgentTaskRoleAssignmentSnapshot[]
+  capabilities: {
+    required: AgentTaskCapabilityId[]
+    optional: AgentTaskCapabilityId[]
+  }
+  completionContract: {
+    definitionOfDone: string[]
+    outputContracts: string[]
+  }
+}
 
 export type VerificationCheckSpec = {
   id: string
@@ -60,6 +105,141 @@ export type EvidencePack = {
   artifacts: EvidenceArtifact[]
 }
 
+export type SourceLocator =
+  | { kind: 'file'; path: string; toolUseId: string }
+  | {
+      kind: 'attachment'
+      messageId: string
+      attachmentIndex: number
+      path?: string
+    }
+  | { kind: 'message'; messageId: string }
+  | { kind: 'tool_result'; toolUseId: string; messageId?: string }
+  | { kind: 'url'; url: string; toolUseId: string }
+
+export type SourceRef = {
+  id: string
+  sessionId: string
+  title: string
+  locator: SourceLocator
+  observedAt: string
+  contentHash?: string
+  excerpt?: string
+}
+
+export type ProvenancePack = {
+  schemaVersion: 1
+  id: string
+  taskId: string
+  runId: string
+  attempt: number
+  workspaceId: string
+  sessionId: string
+  createdAt: string
+  sources: SourceRef[]
+}
+
+export type KnowledgeCandidateKind = 'task_outcome' | 'review_finding'
+
+export type KnowledgeCandidate = {
+  id: string
+  kind: KnowledgeCandidateKind
+  state: 'pending'
+  text: string
+  createdAt: string
+}
+
+export type KnowledgeCandidatePack = {
+  schemaVersion: 1
+  id: string
+  taskId: string
+  runId: string
+  attempt: number
+  workspaceId: string
+  sessionId?: string
+  evidencePackId: string
+  provenancePackId?: string
+  artifactPaths: string[]
+  createdAt: string
+  candidates: KnowledgeCandidate[]
+}
+
+export type KnowledgeContextItem = {
+  candidateId: string
+  kind: KnowledgeCandidateKind
+  state: 'pending'
+  text: string
+  createdAt: string
+  sourceTaskId: string
+  sourceTaskTitle: string
+  evidencePackId: string
+  provenancePackId?: string
+  artifactPaths: string[]
+}
+
+export type KnowledgeContext = {
+  query: string
+  items: KnowledgeContextItem[]
+  truncated: boolean
+}
+
+export type WorkspaceKnowledgeTask = {
+  taskId: string
+  sessionId?: string
+  title: string
+  role: AgentTaskRole
+  assistantName?: string
+  parentTaskId?: string
+  relation?: AgentTaskRelation
+  completedAt: string
+  candidateCount: number
+  sourceCount: number
+  artifactPaths: string[]
+}
+
+export type WorkspaceKnowledgeSource = {
+  sourceId: string
+  title: string
+  kind: SourceLocator['kind']
+  locator: SourceLocator
+  observedAt: string
+  taskIds: string[]
+}
+
+export type WorkspaceKnowledgeArtifact = {
+  path: string
+  taskIds: string[]
+}
+
+export type WorkspaceKnowledgeItem = KnowledgeCandidate & {
+  taskId: string
+  taskTitle: string
+}
+
+export type PotentialKnowledgeConflict = {
+  kind: 'shared_artifact_path'
+  artifactPath: string
+  taskIds: string[]
+}
+
+export type WorkspaceKnowledgeMap = {
+  workspaceId: string
+  generatedAt: string
+  summary: {
+    taskCount: number
+    candidateCount: number
+    sourceCount: number
+    artifactCount: number
+    potentialConflictCount: number
+    truncated: boolean
+  }
+  tasks: WorkspaceKnowledgeTask[]
+  sources: WorkspaceKnowledgeSource[]
+  artifacts: WorkspaceKnowledgeArtifact[]
+  knowledgeItems: WorkspaceKnowledgeItem[]
+  potentialConflicts: PotentialKnowledgeConflict[]
+}
+
 export type AgentTaskReviewStatus = 'passed' | 'warning' | 'unavailable'
 
 export type AgentTaskReview = {
@@ -75,6 +255,8 @@ export type AgentTaskPlan = {
   verificationCheckIds: string[]
 }
 
+export type AgentTaskRelation = 'review'
+
 export type AgentTask = {
   schemaVersion: 1
   id: string
@@ -82,6 +264,12 @@ export type AgentTask = {
   attempt: number
   sessionId?: string
   role: AgentTaskRole
+  roleVersion: string
+  definitionSnapshot?: AgentTaskDefinitionSnapshot
+  assistantId?: string
+  assistantName?: string
+  parentTaskId?: string
+  relation?: AgentTaskRelation
   title: string
   goal: string
   constraints: string[]
@@ -110,7 +298,14 @@ export type CreateAgentTaskInput = {
   sessionId?: string
   workspacePath?: string
   constraints?: string[]
-  role?: AgentTaskRole
+  teamId?: string
+  taskTemplateId?: string
+  role?: string
+  assistantId?: string
+  assistantName?: string
+  assistantOverlay?: AgentTaskAssistantOverlaySnapshot
+  parentTaskId?: string
+  relation?: AgentTaskRelation
   requiredChecks?: VerificationCheckSpec[]
 }
 
@@ -156,4 +351,6 @@ export type AgentTaskDetail = {
   task: AgentTask
   events: AgentTaskEvent[]
   evidencePack?: EvidencePack
+  provenancePack?: ProvenancePack
+  knowledgeCandidatePack?: KnowledgeCandidatePack
 }

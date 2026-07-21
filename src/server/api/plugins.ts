@@ -2,8 +2,10 @@ import type { PluginScope } from '../../utils/plugins/schemas.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
 import { ensureBundledAgentPackBootstrapped } from '../services/bundledAgentPackService.js'
 import { PluginService } from '../services/pluginService.js'
+import { GitExtensionInstallService } from '../services/gitExtensionInstallService.js'
 
 const pluginService = new PluginService()
+const gitExtensionInstallService = new GitExtensionInstallService()
 
 export async function handlePluginsApi(
   req: Request,
@@ -35,6 +37,17 @@ export async function handlePluginsApi(
       return Response.json(await pluginService.reloadPlugins(cwd))
     }
 
+    if (method === 'POST' && sub === 'install-source') {
+      const body = await parseJsonBody(req)
+      const source = asString(body.source)
+      if (!source) {
+        throw ApiError.badRequest('Missing or invalid "source" in request body')
+      }
+      return Response.json(
+        await gitExtensionInstallService.addSource(source, body.confirmed === true),
+      )
+    }
+
     if (method === 'POST' && sub) {
       const body = await parseJsonBody(req)
       const pluginId = asString(body.id)
@@ -45,6 +58,16 @@ export async function handlePluginsApi(
       const scope = coerceScope(body.scope)
 
       switch (sub) {
+        case 'install':
+          if (scope === 'managed') {
+            throw ApiError.badRequest('Managed plugins cannot be installed from this endpoint')
+          }
+          return Response.json(
+            await pluginService.installPlugin(
+              pluginId,
+              scope ?? 'user',
+            ),
+          )
         case 'enable':
           return Response.json(await pluginService.enablePlugin(pluginId, scope))
         case 'disable':
@@ -77,6 +100,9 @@ export async function handlePluginsApi(
 }
 
 async function parseJsonBody(req: Request): Promise<Record<string, unknown>> {
+  if (!req.headers.get('Content-Type')?.toLowerCase().startsWith('application/json')) {
+    throw ApiError.badRequest('Content-Type must be application/json')
+  }
   try {
     return (await req.json()) as Record<string, unknown>
   } catch {

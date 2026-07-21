@@ -10,11 +10,16 @@ const STARTER_TASKS = [
 ] as const
 
 type Props = {
+  subtitle?: string
   showStarterTasks?: boolean
   onSelectPrompt?: (prompt: string) => void
 }
 
-export function EmptySessionWelcome({ showStarterTasks = true, onSelectPrompt }: Props) {
+export function EmptySessionWelcome({
+  subtitle,
+  showStarterTasks = true,
+  onSelectPrompt,
+}: Props) {
   const t = useTranslation()
 
   return (
@@ -24,7 +29,7 @@ export function EmptySessionWelcome({ showStarterTasks = true, onSelectPrompt }:
         {t('empty.title')}
       </h1>
       <p className="mx-auto max-w-xs text-sm text-[var(--color-text-secondary)]" style={{ fontFamily: 'var(--font-body)' }}>
-        {t('empty.subtitle')}
+        {subtitle ?? t('empty.subtitle')}
       </p>
       {showStarterTasks && onSelectPrompt && (
         <div className="mt-5 grid w-full max-w-lg grid-cols-2 gap-2 sm:grid-cols-3">

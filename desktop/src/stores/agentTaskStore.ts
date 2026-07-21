@@ -3,21 +3,30 @@ import { agentTasksApi } from '../api/agentTasks'
 import type {
   AgentTask,
   AgentTaskDetail,
+  AgentTaskRole,
+  AgentTaskRoleSummary,
+  AgentTaskTeamSummary,
+  WorkspaceKnowledgeMap,
 } from '../types/agentTask'
 
 type AgentTaskStore = {
   capabilityLoaded: boolean
   enabled: boolean
+  roles: AgentTaskRole[]
+  rolePacks: AgentTaskRoleSummary[]
+  teams: AgentTaskTeamSummary[]
   sessionId: string | null
   tasks: AgentTask[]
   currentTask: AgentTask | null
   detail: AgentTaskDetail | null
+  knowledgeMap: WorkspaceKnowledgeMap | null
   loading: boolean
   actionPending: boolean
   error: string | null
   loadCapabilities: () => Promise<boolean>
   fetchSessionTasks: (sessionId: string) => Promise<void>
   refreshCurrentTask: () => Promise<void>
+  refreshKnowledgeMap: () => Promise<void>
   beginCurrentTask: () => Promise<void>
   blockCurrentTask: (reason: string) => Promise<void>
   resolveCurrentTask: () => Promise<void>
@@ -42,14 +51,19 @@ function errorMessage(error: unknown): string {
 }
 
 let fetchSequence = 0
+let actionSequence = 0
 
 export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
   capabilityLoaded: false,
   enabled: false,
+  roles: [],
+  rolePacks: [],
+  teams: [],
   sessionId: null,
   tasks: [],
   currentTask: null,
   detail: null,
+  knowledgeMap: null,
   loading: false,
   actionPending: false,
   error: null,
@@ -60,11 +74,15 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
       set({
         capabilityLoaded: true,
         enabled: capability.enabled,
+        roles: capability.roles,
+        rolePacks: capability.rolePacks ?? [],
+        teams: capability.teams ?? [],
         ...(!capability.enabled
           ? {
               tasks: [],
               currentTask: null,
               detail: null,
+              knowledgeMap: null,
             }
           : {}),
         error: null,
@@ -74,6 +92,9 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
       set({
         capabilityLoaded: false,
         enabled: false,
+        roles: [],
+        rolePacks: [],
+        teams: [],
         error: errorMessage(error),
       })
       return false
@@ -83,11 +104,14 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
   fetchSessionTasks: async (sessionId) => {
     const sequence = ++fetchSequence
     if (get().sessionId !== sessionId) {
+      actionSequence += 1
       set({
         sessionId,
         tasks: [],
         currentTask: null,
         detail: null,
+        knowledgeMap: null,
+        actionPending: false,
         error: null,
       })
     }
@@ -116,10 +140,16 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
         existingDetail?.task.id === currentTask.id &&
         existingDetail.task.revision === currentTask.revision
 
+      const knowledgeMap =
+        currentTask?.id === get().currentTask?.id
+          ? get().knowledgeMap
+          : null
+
       set({
         tasks,
         currentTask,
         detail: detailIsCurrent ? existingDetail : null,
+        knowledgeMap,
         error: null,
       })
 
@@ -154,11 +184,13 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
     const task = get().currentTask
     const sessionId = get().sessionId
     if (!task || !sessionId) return
+    const revision = task.revision
     try {
       const detail = await agentTasksApi.get(task.id)
       if (
         get().sessionId === sessionId &&
-        get().currentTask?.id === task.id
+        get().currentTask?.id === task.id &&
+        get().currentTask?.revision === revision
       ) {
         set({
           detail,
@@ -170,7 +202,37 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
         })
       }
     } catch (error) {
-      set({ error: errorMessage(error) })
+      if (
+        get().sessionId === sessionId &&
+        get().currentTask?.id === task.id &&
+        get().currentTask?.revision === revision
+      ) {
+        set({ error: errorMessage(error) })
+      }
+    }
+  },
+
+  refreshKnowledgeMap: async () => {
+    const task = get().currentTask
+    const sessionId = get().sessionId
+    if (!task || !sessionId) return
+    try {
+      const { knowledgeMap } = await agentTasksApi.knowledgeMap(task.id)
+      if (
+        get().sessionId === sessionId &&
+        get().currentTask?.id === task.id &&
+        get().currentTask?.revision === task.revision
+      ) {
+        set({ knowledgeMap, error: null })
+      }
+    } catch (error) {
+      if (
+        get().sessionId === sessionId &&
+        get().currentTask?.id === task.id &&
+        get().currentTask?.revision === task.revision
+      ) {
+        set({ error: errorMessage(error) })
+      }
     }
   },
 
@@ -178,14 +240,21 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
     const task = get().currentTask
     const sessionId = get().sessionId
     if (!task || !sessionId) return
+    const sequence = ++actionSequence
     set({ actionPending: true })
     try {
       await agentTasksApi.begin(task.id)
-      await get().fetchSessionTasks(sessionId)
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        await get().fetchSessionTasks(sessionId)
+      }
     } catch (error) {
-      set({ error: errorMessage(error) })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ error: errorMessage(error) })
+      }
     } finally {
-      set({ actionPending: false })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ actionPending: false })
+      }
     }
   },
 
@@ -200,14 +269,21 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
       task.status === 'failed' ||
       task.status === 'cancelled'
     ) return
+    const sequence = ++actionSequence
     set({ actionPending: true })
     try {
       await agentTasksApi.block(task.id, reason)
-      await get().fetchSessionTasks(sessionId)
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        await get().fetchSessionTasks(sessionId)
+      }
     } catch (error) {
-      set({ error: errorMessage(error) })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ error: errorMessage(error) })
+      }
     } finally {
-      set({ actionPending: false })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ actionPending: false })
+      }
     }
   },
 
@@ -215,14 +291,21 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
     const task = get().currentTask
     const sessionId = get().sessionId
     if (!task || !sessionId) return
+    const sequence = ++actionSequence
     set({ actionPending: true })
     try {
       await agentTasksApi.resolve(task.id)
-      await get().fetchSessionTasks(sessionId)
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        await get().fetchSessionTasks(sessionId)
+      }
     } catch (error) {
-      set({ error: errorMessage(error) })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ error: errorMessage(error) })
+      }
     } finally {
-      set({ actionPending: false })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ actionPending: false })
+      }
     }
   },
 
@@ -230,24 +313,33 @@ export const useAgentTaskStore = create<AgentTaskStore>((set, get) => ({
     const task = get().currentTask
     const sessionId = get().sessionId
     if (!task || !sessionId) return
+    const sequence = ++actionSequence
     set({ actionPending: true })
     try {
       await agentTasksApi.resume(task.id)
-      await get().fetchSessionTasks(sessionId)
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        await get().fetchSessionTasks(sessionId)
+      }
     } catch (error) {
-      set({ error: errorMessage(error) })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ error: errorMessage(error) })
+      }
     } finally {
-      set({ actionPending: false })
+      if (get().sessionId === sessionId && sequence === actionSequence) {
+        set({ actionPending: false })
+      }
     }
   },
 
   clear: () => {
     fetchSequence += 1
+    actionSequence += 1
     set({
       sessionId: null,
       tasks: [],
       currentTask: null,
       detail: null,
+      knowledgeMap: null,
       loading: false,
       actionPending: false,
       error: null,

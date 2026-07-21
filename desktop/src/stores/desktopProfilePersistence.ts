@@ -50,7 +50,7 @@ function writeJsonStorage(key: string, value: unknown): void {
 }
 
 export function hydrateDesktopProfile(bundle: DesktopProfileBundle): void {
-  const { appearance, layout, updates } = bundle.profile.preferences
+  const { appearance, layout, updates, work } = bundle.profile.preferences
   const { workspaceState } = bundle
 
   applyTheme(appearance.theme)
@@ -79,6 +79,7 @@ export function hydrateDesktopProfile(bundle: DesktopProfileBundle): void {
   useSessionStore.setState({
     pinnedProjects: workspaceState.projects.pinned,
     removedProjects: workspaceState.projects.removed,
+    newSessionWorkType: work?.newSessionDefault ?? 'smart',
   })
   useAgentRunModeStore.setState({ selections: workspaceState.tools.agentRunModes })
   useCeWorkflowRoleStore.setState({ selections: workspaceState.tools.ceWorkflowRoles })
@@ -92,7 +93,12 @@ function persistTabs(): void {
     .map((tab) => ({
       sessionId: tab.sessionId,
       title: tab.title,
-      type: tab.type as 'session' | 'settings' | 'scheduled',
+      type: tab.type as
+        | 'session'
+        | 'settings'
+        | 'scheduled'
+        | 'knowledge'
+        | 'team',
     }))
   scheduleDesktopProfilePatch({
     workspaceState: {
@@ -141,15 +147,26 @@ function installSubscriptions(): void {
       })
     }),
     useSessionStore.subscribe((state, previous) => {
-      if (state.pinnedProjects === previous.pinnedProjects &&
-        state.removedProjects === previous.removedProjects) return
+      const projectsChanged = state.pinnedProjects !== previous.pinnedProjects ||
+        state.removedProjects !== previous.removedProjects
+      const workTypeChanged = state.newSessionWorkType !== previous.newSessionWorkType
+      if (!projectsChanged && !workTypeChanged) return
       scheduleDesktopProfilePatch({
-        workspaceState: {
-          projects: {
-            pinned: state.pinnedProjects,
-            removed: state.removedProjects,
+        ...(workTypeChanged ? {
+          profile: {
+            preferences: {
+              work: { newSessionDefault: state.newSessionWorkType },
+            },
           },
-        },
+        } : {}),
+        ...(projectsChanged ? {
+          workspaceState: {
+            projects: {
+              pinned: state.pinnedProjects,
+              removed: state.removedProjects,
+            },
+          },
+        } : {}),
       })
     }),
     useTabStore.subscribe((state, previous) => {

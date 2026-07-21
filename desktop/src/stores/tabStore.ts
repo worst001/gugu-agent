@@ -7,10 +7,18 @@ const TAB_STORAGE_KEY = 'cc-haha-open-tabs'
 
 export const SETTINGS_TAB_ID = '__settings__'
 export const SCHEDULED_TAB_ID = '__scheduled__'
+export const TEAM_TAB_ID = '__agent_team__'
 export const TERMINAL_TAB_PREFIX = '__terminal__'
 export const DRAFT_TAB_ID = '__new_session_draft__'
 
-export type TabType = 'session' | 'draft' | 'settings' | 'scheduled' | 'terminal'
+export type TabType =
+  | 'session'
+  | 'draft'
+  | 'settings'
+  | 'scheduled'
+  | 'knowledge'
+  | 'team'
+  | 'terminal'
 
 export type Tab = {
   sessionId: string
@@ -182,13 +190,23 @@ export const useTabStore = create<TabStore>((set, get) => ({
       const validTabs: Tab[] = data.openTabs
         .filter((t) => {
           // Special tabs are always valid
-          if (t.type === 'settings' || t.type === 'scheduled') return true
+          if (
+            t.type === 'settings' ||
+            t.type === 'scheduled' ||
+            t.type === 'knowledge' ||
+            t.type === 'team'
+          ) return true
           if (t.type === 'terminal' || t.type === 'draft') return false
           // Session tabs must exist on server
           return existingIds.has(t.sessionId)
         })
         .map((t) => {
-          if (t.type === 'settings' || t.type === 'scheduled') {
+          if (
+            t.type === 'settings' ||
+            t.type === 'scheduled' ||
+            t.type === 'knowledge' ||
+            t.type === 'team'
+          ) {
             return { sessionId: t.sessionId, title: t.title, type: t.type, status: 'idle' as const }
           }
           const serverTitle = sessions.find((s) => s.id === t.sessionId)?.title

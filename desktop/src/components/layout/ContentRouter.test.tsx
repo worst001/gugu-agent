@@ -18,6 +18,14 @@ vi.mock('../../pages/Settings', () => ({
   Settings: () => <div data-testid="settings-page" />,
 }))
 
+vi.mock('../../pages/ProjectKnowledge', () => ({
+  ProjectKnowledge: () => <div data-testid="project-knowledge" />,
+}))
+
+vi.mock('../../pages/AgentTeams', () => ({
+  AgentTeams: () => <div data-testid="agent-teams" />,
+}))
+
 vi.mock('../../pages/TerminalSettings', () => ({
   TerminalSettings: ({ active, onNewTerminal, testId }: { active: boolean; onNewTerminal: () => void; testId: string }) => (
     <div data-active={active ? 'true' : 'false'} data-testid={testId}>
@@ -80,6 +88,33 @@ describe('ContentRouter terminal tabs', () => {
     expect(panel).toHaveAttribute('aria-hidden', 'false')
   })
 
+  it('renders project knowledge without mounting a chat session', () => {
+    useTabStore.setState({
+      tabs: [{ sessionId: '__project_knowledge__:%2Fworkspace%2Fproject-a', title: 'Project Knowledge', type: 'knowledge', status: 'idle' }],
+      activeTabId: '__project_knowledge__:%2Fworkspace%2Fproject-a',
+    })
+
+    render(<ContentRouter />)
+
+    expect(screen.getByTestId('project-knowledge')).toBeInTheDocument()
+    expect(screen.queryByTestId('active-session')).not.toBeInTheDocument()
+  })
+  it('renders the AI team without mounting a chat session', () => {
+    useTabStore.setState({
+      tabs: [{
+        sessionId: '__agent_team__',
+        title: 'AI Team',
+        type: 'team',
+        status: 'idle',
+      }],
+      activeTabId: '__agent_team__',
+    })
+
+    render(<ContentRouter />)
+
+    expect(screen.getByTestId('agent-teams')).toBeInTheDocument()
+    expect(screen.queryByTestId('active-session')).not.toBeInTheDocument()
+  })
   it('renders the active terminal tab as main content', () => {
     useTabStore.setState({
       tabs: [{ sessionId: '__terminal__1', title: 'Terminal 1', type: 'terminal', status: 'idle' }],

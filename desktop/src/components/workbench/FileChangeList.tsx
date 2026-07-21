@@ -38,7 +38,13 @@ export function FileChangeList({ sessionId, fileChanges, selectedFilePath }: Pro
           >
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">
-                {change.kind === 'created' ? 'note_add' : 'edit_note'}
+                {change.kind === 'created'
+                  ? 'note_add'
+                  : change.kind === 'deleted'
+                    ? 'delete'
+                    : change.kind === 'renamed'
+                      ? 'drive_file_rename_outline'
+                      : 'edit_note'}
               </span>
               <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[11px] text-[var(--color-text-primary)]">
                 {change.filePath}

@@ -1,7 +1,15 @@
 import type { Locale } from '../i18n'
 import type { AgentRunMode } from '../constants/agentRunModes'
+import type { AgentTaskRole } from './agentTask'
 import type { RuntimeSelection } from './runtime'
 import type { ThemeMode } from './settings'
+
+export type NewSessionWorkType =
+  | 'smart'
+  | 'chat'
+  | 'software_delivery'
+  | 'knowledge_delivery'
+  | 'short_video_production'
 
 export type DesktopProfile = {
   schemaVersion: 1
@@ -18,10 +26,23 @@ export type DesktopProfile = {
     updates: {
       dismissedVersion: string | null
     }
+    work: {
+      newSessionDefault: NewSessionWorkType
+    }
   }
   migration: {
     legacyLocalStorageV1: boolean
   }
+  updatedAt: string
+}
+
+export type CustomAssistant = {
+  id: string
+  name: string
+  description: string
+  baseRole: AgentTaskRole
+  instructions: string
+  createdAt: string
   updatedAt: string
 }
 
@@ -35,7 +56,7 @@ export type DesktopWorkspaceState = {
     openTabs: Array<{
       sessionId: string
       title: string
-      type: 'session' | 'settings' | 'scheduled'
+      type: 'session' | 'settings' | 'scheduled' | 'knowledge' | 'team'
     }>
     activeTabId: string | null
   }
@@ -43,6 +64,9 @@ export type DesktopWorkspaceState = {
     text: string
     updatedAt: number
   }>
+  assistants: {
+    custom: CustomAssistant[]
+  }
   tools: {
     agentRunModes: Record<string, AgentRunMode>
     ceWorkflowRoles: Record<string, string>
@@ -59,6 +83,7 @@ export type DesktopProfilePatch = {
     appearance?: Partial<DesktopProfile['preferences']['appearance']>
     layout?: Partial<DesktopProfile['preferences']['layout']>
     updates?: Partial<DesktopProfile['preferences']['updates']>
+    work?: Partial<DesktopProfile['preferences']['work']>
   }
   migration?: Partial<DesktopProfile['migration']>
 }
@@ -67,6 +92,7 @@ export type DesktopWorkspaceStatePatch = {
   projects?: Partial<DesktopWorkspaceState['projects']>
   tabs?: Partial<DesktopWorkspaceState['tabs']>
   drafts?: DesktopWorkspaceState['drafts']
+  assistants?: Partial<DesktopWorkspaceState['assistants']>
   tools?: Partial<DesktopWorkspaceState['tools']>
   migration?: Partial<DesktopWorkspaceState['migration']>
 }

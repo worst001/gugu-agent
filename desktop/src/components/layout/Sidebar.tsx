@@ -1,4 +1,14 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import {
+  BookOpenText,
+  Check,
+  ChevronDown,
+  Clapperboard,
+  Code2,
+  MessageSquareText,
+  Sparkles,
+  type LucideIcon,
+} from 'lucide-react'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation } from '../../i18n'
@@ -6,12 +16,20 @@ import { ProjectFilter } from './ProjectFilter'
 import { CapabilityBar } from './CapabilityBar'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 import type { SessionListItem } from '../../types/session'
-import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
+import {
+  useTabStore,
+  SETTINGS_TAB_ID,
+  SCHEDULED_TAB_ID,
+  TEAM_TAB_ID,
+  DRAFT_TAB_ID,
+} from '../../stores/tabStore'
+import { createProjectKnowledgeTabId } from '../../constants/projectKnowledge'
 import { useChatStore } from '../../stores/chatStore'
 import { openNewSessionDraftFromAppAction } from '../../utils/appActions'
 import { filesystemApi } from '../../api/filesystem'
 import { expandProjectKeys, isProjectInSet } from '../../utils/projectKeys'
 import { copyTextToClipboard } from '../chat/clipboard'
+import type { NewSessionWorkType } from '../../types/desktopProfile'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 
@@ -50,6 +68,8 @@ export function Sidebar() {
   const removeProjects = useSessionStore((s) => s.removeProjects)
   const setProjectPinned = useSessionStore((s) => s.setProjectPinned)
   const setNewSessionWorkDir = useSessionStore((s) => s.setNewSessionWorkDir)
+  const newSessionWorkType = useSessionStore((s) => s.newSessionWorkType)
+  const setNewSessionWorkType = useSessionStore((s) => s.setNewSessionWorkType)
   const addToast = useUIStore((s) => s.addToast)
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
   const activeTabId = useTabStore((s) => s.activeTabId)
@@ -65,6 +85,8 @@ export function Sidebar() {
   const [renameValue, setRenameValue] = useState('')
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const [showArchived, setShowArchived] = useState(false)
+  const [workTypeMenuOpen, setWorkTypeMenuOpen] = useState(false)
+  const workTypeMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetchSessions()
@@ -81,6 +103,17 @@ export function Sidebar() {
     document.addEventListener('click', close)
     return () => document.removeEventListener('click', close)
   }, [contextMenu])
+
+  useEffect(() => {
+    if (!workTypeMenuOpen) return
+    const close = (event: MouseEvent) => {
+      if (!workTypeMenuRef.current?.contains(event.target as Node)) {
+        setWorkTypeMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [workTypeMenuOpen])
 
   const removedProjectSet = useMemo(() => new Set(removedProjects), [removedProjects])
   const pinnedProjectSet = useMemo(() => new Set(pinnedProjects), [pinnedProjects])
@@ -146,6 +179,59 @@ export function Sidebar() {
       ...(regularGroups.length > 0 ? [{ id: 'projects', title: t('sidebar.projects'), groups: regularGroups }] : []),
     ]
   }, [pinnedSessions, projectGroups, t])
+
+  const workTypeOptions = useMemo<Array<{
+    id: NewSessionWorkType
+    label: string
+    description: string
+    Icon: LucideIcon
+  }>>(() => [
+    {
+      id: 'smart',
+      label: t('sidebar.workType.smart'),
+      description: t('sidebar.workType.smartDescription'),
+      Icon: Sparkles,
+    },
+    {
+      id: 'chat',
+      label: t('sidebar.workType.chat'),
+      description: t('sidebar.workType.chatDescription'),
+      Icon: MessageSquareText,
+    },
+    {
+      id: 'software_delivery',
+      label: t('sidebar.workType.software'),
+      description: t('sidebar.workType.softwareDescription'),
+      Icon: Code2,
+    },
+    {
+      id: 'knowledge_delivery',
+      label: t('sidebar.workType.knowledge'),
+      description: t('sidebar.workType.knowledgeDescription'),
+      Icon: BookOpenText,
+    },
+    {
+      id: 'short_video_production',
+      label: t('sidebar.workType.shortVideo'),
+      description: t('sidebar.workType.shortVideoDescription'),
+      Icon: Clapperboard,
+    },
+  ], [t])
+  const selectedWorkType = workTypeOptions.find(
+    (option) => option.id === newSessionWorkType,
+  ) ?? workTypeOptions[0]!
+
+  const handleWorkTypeSelect = useCallback((workType: NewSessionWorkType) => {
+    setNewSessionWorkType(workType)
+    setWorkTypeMenuOpen(false)
+    if (activeTabId !== DRAFT_TAB_ID) {
+      openNewSessionDraftFromAppAction(t('sidebar.newSession'))
+    } else {
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLTextAreaElement>('[data-new-session-composer]')?.focus()
+      })
+    }
+  }, [activeTabId, setNewSessionWorkType, t])
 
   const handleSessionContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.preventDefault()
@@ -295,6 +381,84 @@ export function Sidebar() {
       aria-label="Sidebar"
     >
       <div className={`px-3 pb-3 pt-3 flex flex-col ${sidebarOpen ? 'gap-0.5' : 'items-center gap-2'}`}>
+        <div ref={workTypeMenuRef} className={`relative mb-1 ${sidebarOpen ? 'w-full' : ''}`}>
+          <button
+            type="button"
+            onClick={() => setWorkTypeMenuOpen((value) => !value)}
+            aria-haspopup="menu"
+            aria-expanded={workTypeMenuOpen}
+            aria-label={t('sidebar.workType.label')}
+            title={!sidebarOpen ? selectedWorkType.label : undefined}
+            className={sidebarOpen
+              ? 'flex h-10 w-full items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-[var(--color-sidebar-item-hover)]'
+              : 'flex h-9 w-9 items-center justify-center rounded-md text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-sidebar-item-hover)]'}
+          >
+            <selectedWorkType.Icon
+              size={16}
+              strokeWidth={1.2}
+              className="shrink-0 text-[var(--color-brand)]"
+              aria-hidden="true"
+            />
+            {sidebarOpen && (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold text-[var(--color-text-primary)]">
+                    {selectedWorkType.label}
+                  </span>
+                  <span className="block truncate text-[10px] text-[var(--color-text-tertiary)]">
+                    {t('sidebar.workType.newSessionDefault')}
+                  </span>
+                </span>
+                <ChevronDown size={14} strokeWidth={1.2} aria-hidden="true" />
+              </>
+            )}
+          </button>
+
+          {workTypeMenuOpen && (
+            <div
+              role="menu"
+              className={`absolute top-full z-50 mt-1 w-[268px] overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-1 shadow-[var(--shadow-dropdown)] ${sidebarOpen ? 'left-0' : 'left-10'}`}
+            >
+              <div className="px-3 pb-1 pt-2 text-[10px] font-semibold text-[var(--color-text-tertiary)]">
+                {t('sidebar.workType.newSessionDefault')}
+              </div>
+              {workTypeOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={option.id === newSessionWorkType}
+                  onClick={() => handleWorkTypeSelect(option.id)}
+                  className="flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+                >
+                  <option.Icon
+                    size={15}
+                    strokeWidth={1.2}
+                    className="mt-0.5 shrink-0 text-[var(--color-text-secondary)]"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-[var(--color-text-primary)]">
+                      {option.label}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-[var(--color-text-tertiary)]">
+                      {option.description}
+                    </span>
+                  </span>
+                  {option.id === newSessionWorkType && (
+                    <Check
+                      size={14}
+                      strokeWidth={1.2}
+                      className="mt-0.5 shrink-0 text-[var(--color-brand)]"
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <NavItem
           active={false}
           collapsed={!sidebarOpen}
@@ -318,6 +482,26 @@ export function Sidebar() {
           icon={<ClockIcon />}
         >
           {t('sidebar.scheduled')}
+        </NavItem>
+        <NavItem
+          active={activeTabId === TEAM_TAB_ID}
+          collapsed={!sidebarOpen}
+          label={t('sidebar.aiTeam')}
+          onClick={() => {
+            setShowArchived(false)
+            useTabStore.getState().openTab(
+              TEAM_TAB_ID,
+              t('sidebar.aiTeam'),
+              'team',
+            )
+          }}
+          icon={(
+            <span className="material-symbols-outlined text-[18px]">
+              groups
+            </span>
+          )}
+        >
+          {t('sidebar.aiTeam')}
         </NavItem>
         <NavItem
           active={showArchived}
@@ -416,6 +600,21 @@ export function Sidebar() {
                           {group.sessions.length}
                         </span>
                       </button>
+                      {!group.ungrouped && group.pathLabel && (
+                        <button
+                          type="button"
+                          onClick={() => useTabStore.getState().openTab(
+                            createProjectKnowledgeTabId(group.pathLabel),
+                            group.title + ' · ' + t('projectKnowledge.title'),
+                            'knowledge',
+                          )}
+                          aria-label={t('sidebar.projectKnowledge')}
+                          title={t('sidebar.projectKnowledge')}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] opacity-60 transition-[opacity,color,background-color] hover:bg-[var(--color-sidebar-item-hover)] hover:text-[var(--color-text-primary)] hover:opacity-100 focus-visible:opacity-100"
+                        >
+                          <span className="material-symbols-outlined text-[15px]" aria-hidden="true">account_tree</span>
+                        </button>
+                      )}
                     </div>
                     {!collapsed && group.pathLabel && (
                       <div className="mb-1 truncate px-8 text-[10px] text-[var(--color-text-tertiary)]" title={group.pathLabel}>

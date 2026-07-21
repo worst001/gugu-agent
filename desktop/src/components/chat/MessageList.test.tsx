@@ -133,6 +133,36 @@ describe('MessageList nested tool calls', () => {
     expect(screen.getByText('check_circle')).toBeTruthy()
   })
 
+  it('labels assistant text followed by a real tool call as a stage result', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'assistant-stage',
+              type: 'assistant_text',
+              content: 'The configuration is valid. I will verify the build next.',
+              timestamp: 1,
+            },
+            {
+              id: 'tool-build',
+              type: 'tool_use',
+              toolName: 'Bash',
+              toolUseId: 'bash-build',
+              input: { command: 'bun run build' },
+              timestamp: 2,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Stage result')).toBeTruthy()
+    expect(screen.getByText('The configuration is valid. I will verify the build next.')).toBeTruthy()
+  })
+
   it('shows a recovery card instead of a blank transcript when known history has no visible messages', async () => {
     const reloadHistory = vi.spyOn(useChatStore.getState(), 'reloadHistory').mockResolvedValue(undefined)
 

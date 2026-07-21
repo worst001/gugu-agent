@@ -2016,6 +2016,109 @@ export class SessionService {
   // Private helpers
   // --------------------------------------------------------------------------
 
+  private coalesceAssistantSnapshotEntries(entries: RawEntry[]): RawEntry[] {
+    const coalesced: RawEntry[] = []
+    let pending: RawEntry | null = null
+    let pendingMessageId: string | null = null
+
+    const flushPending = () => {
+      if (pending) coalesced.push(pending)
+      pending = null
+      pendingMessageId = null
+    }
+
+    for (const entry of entries) {
+      const messageId =
+        entry.message?.role === 'assistant' && typeof entry.message.id === 'string'
+          ? entry.message.id
+          : null
+
+      if (!messageId) {
+        flushPending()
+        coalesced.push(entry)
+        continue
+      }
+
+      if (pending && pendingMessageId === messageId) {
+        pending = {
+          ...pending,
+          ...entry,
+          message: {
+            ...pending.message,
+            ...entry.message,
+            content: this.mergeAssistantSnapshotContent(
+              pending.message?.content,
+              entry.message?.content,
+            ),
+          },
+        }
+        continue
+      }
+
+      flushPending()
+      pending = entry
+      pendingMessageId = messageId
+    }
+
+    flushPending()
+    return coalesced
+  }
+
+  private mergeAssistantSnapshotContent(current: unknown, incoming: unknown): unknown {
+    if (!Array.isArray(current) || !Array.isArray(incoming)) {
+      return incoming ?? current
+    }
+
+    const merged = [...current]
+    for (const block of incoming) {
+      if (!block || typeof block !== 'object') {
+        merged.push(block)
+        continue
+      }
+
+      const next = block as Record<string, unknown>
+      const type = typeof next.type === 'string' ? next.type : ''
+      const textField = type === 'thinking' ? 'thinking' : type === 'text' ? 'text' : null
+
+      if (textField && typeof next[textField] === 'string') {
+        const nextText = next[textField] as string
+        const existingIndex = merged.findIndex((candidate) => (
+          candidate &&
+          typeof candidate === 'object' &&
+          (candidate as Record<string, unknown>).type === type &&
+          typeof (candidate as Record<string, unknown>)[textField] === 'string'
+        ))
+
+        if (existingIndex >= 0) {
+          const existing = merged[existingIndex] as Record<string, unknown>
+          const existingText = existing[textField] as string
+          if (existingText === nextText || existingText.startsWith(nextText)) continue
+          if (nextText.startsWith(existingText)) {
+            merged[existingIndex] = block
+            continue
+          }
+        }
+      }
+
+      if (type === 'tool_use' && typeof next.id === 'string') {
+        const existingIndex = merged.findIndex((candidate) => (
+          candidate &&
+          typeof candidate === 'object' &&
+          (candidate as Record<string, unknown>).type === 'tool_use' &&
+          (candidate as Record<string, unknown>).id === next.id
+        ))
+        if (existingIndex >= 0) {
+          merged[existingIndex] = block
+          continue
+        }
+      }
+
+      merged.push(block)
+    }
+
+    return merged
+  }
+
   private entriesToMessages(entries: RawEntry[]): MessageEntry[] {
     const messages: MessageEntry[] = []
     const entriesByUuid = new Map<string, RawEntry>()
@@ -2028,7 +2131,7 @@ export class SessionService {
       }
     }
 
-    for (const entry of entries) {
+    for (const entry of this.coalesceAssistantSnapshotEntries(entries)) {
       // Only process transcript entries (user / assistant / system with messages)
       if (!entry.message?.role) continue
 

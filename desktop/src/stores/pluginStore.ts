@@ -6,6 +6,7 @@ import type {
   PluginReloadSummary,
   PluginScope,
   PluginSummary,
+  GitExtensionInstallResult,
 } from '../types/plugin'
 
 type PluginStore = {
@@ -21,6 +22,8 @@ type PluginStore = {
   fetchPlugins: (cwd?: string) => Promise<void>
   fetchPluginDetail: (id: string, cwd?: string) => Promise<void>
   reloadPlugins: (cwd?: string) => Promise<PluginReloadSummary>
+  installSource: (source: string, cwd?: string) => Promise<GitExtensionInstallResult>
+  installPlugin: (id: string, scope?: PluginScope, cwd?: string) => Promise<string>
   enablePlugin: (id: string, scope?: PluginScope, cwd?: string) => Promise<string>
   disablePlugin: (id: string, scope?: PluginScope, cwd?: string) => Promise<string>
   updatePlugin: (id: string, scope?: PluginScope, cwd?: string) => Promise<string>
@@ -86,6 +89,31 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
       set({ isApplying: false, error: message })
       throw err
     }
+  },
+
+  installSource: async (source, cwd) => {
+    set({ isApplying: true, error: null })
+    try {
+      const result = await pluginsApi.installSource(source)
+      await get().fetchPlugins(cwd)
+      set({ isApplying: false })
+      return result
+    } catch (err) {
+      set({
+        isApplying: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+  },
+
+  installPlugin: async (id, scope = 'user', cwd) => {
+    return runAction(
+      () => pluginsApi.install({ id, scope }),
+      set,
+      get,
+      cwd,
+    )
   },
 
   enablePlugin: async (id, scope, cwd) => {
