@@ -84,6 +84,9 @@ export function anthropicToOpenaiChat(
           parameters: t.input_schema,
         },
       }))
+    if (body.stream && capabilities.toolStream) {
+      result.tool_stream = true
+    }
   }
 
   // tool_choice
@@ -93,7 +96,7 @@ export function anthropicToOpenaiChat(
 
   // thinking → reasoning_effort
   if (body.thinking) {
-    if (capabilities.thinkingRequestParam === 'deepseek') {
+    if (capabilities.thinkingRequestParam !== null) {
       result.thinking = { type: body.thinking.type === 'enabled' ? 'enabled' : 'disabled' }
     } else {
       const budget = body.thinking.budget_tokens

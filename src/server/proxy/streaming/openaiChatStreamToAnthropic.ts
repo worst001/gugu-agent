@@ -48,7 +48,11 @@ type StreamState = {
   blockStartSent: boolean   // content_block_start emitted for current block?
   blockStopSent: boolean    // content_block_stop emitted for current block?
   emittedTextByBlock: Map<number, string>
+  lastTextChunkByBlock: Map<number, string>
   snapshotTextBlocks: Set<number>
+  emittedThinkingByBlock: Map<number, string>
+  lastThinkingChunkByBlock: Map<number, string>
+  snapshotThinkingBlocks: Set<number>
 
   // Tool call tracking
   toolBlocks: Map<number, ToolBlockState>
@@ -79,7 +83,11 @@ function createState(model: string): StreamState {
     blockStartSent: false,
     blockStopSent: false,
     emittedTextByBlock: new Map(),
+    lastTextChunkByBlock: new Map(),
     snapshotTextBlocks: new Set(),
+    emittedThinkingByBlock: new Map(),
+    lastThinkingChunkByBlock: new Map(),
+    snapshotThinkingBlocks: new Set(),
     toolBlocks: new Map(),
     model,
     messageStartSent: false,
@@ -388,9 +396,18 @@ function handleThinking(delta: DeltaEx, state: StreamState): void {
   }
 
   if (reasoning.thinking) {
-    emitDelta(state, state.currentBlockIndex, {
-      type: 'thinking_delta', thinking: reasoning.thinking,
-    })
+    const thinking = normalizeSnapshotDelta(
+      reasoning.thinking,
+      state.currentBlockIndex,
+      state.emittedThinkingByBlock,
+      state.lastThinkingChunkByBlock,
+      state.snapshotThinkingBlocks,
+    )
+    if (thinking) {
+      emitDelta(state, state.currentBlockIndex, {
+        type: 'thinking_delta', thinking,
+      })
+    }
   }
   if (reasoning.signature) {
     emitDelta(state, state.currentBlockIndex, {
@@ -406,7 +423,13 @@ function handleText(delta: DeltaEx, state: StreamState): void {
     openBlock(state, 'text', { type: 'text', text: '' })
   }
 
-  const text = normalizeTextDelta(delta.content, state)
+  const text = normalizeSnapshotDelta(
+    delta.content,
+    state.currentBlockIndex,
+    state.emittedTextByBlock,
+    state.lastTextChunkByBlock,
+    state.snapshotTextBlocks,
+  )
   if (!text) return
 
   emitDelta(state, state.currentBlockIndex, {
@@ -414,30 +437,49 @@ function handleText(delta: DeltaEx, state: StreamState): void {
   })
 }
 
-function normalizeTextDelta(content: string, state: StreamState): string {
-  const blockIndex = state.currentBlockIndex
+function normalizeSnapshotDelta(
+  content: string,
+  blockIndex: number,
+  emittedByBlock: Map<number, string>,
+  lastChunkByBlock: Map<number, string>,
+  snapshotBlocks: Set<number>,
+): string {
   if (blockIndex < 0) return content
 
-  const emitted = state.emittedTextByBlock.get(blockIndex) || ''
+  const emitted = emittedByBlock.get(blockIndex) || ''
+  const lastChunk = lastChunkByBlock.get(blockIndex) || ''
+  lastChunkByBlock.set(blockIndex, content)
+
   if (!emitted) {
-    state.emittedTextByBlock.set(blockIndex, content)
+    emittedByBlock.set(blockIndex, content)
     return content
   }
 
+  // Some OpenAI-compatible relays repeatedly stream the full snapshot.
+  // A repeated long chunk is not an intentional duplicate sentence.
+  if (content === lastChunk && content.length >= 12) {
+    snapshotBlocks.add(blockIndex)
+    return ''
+  }
+
   if (content === emitted) {
-    if (state.snapshotTextBlocks.has(blockIndex)) return ''
-    state.emittedTextByBlock.set(blockIndex, emitted + content)
+    if (snapshotBlocks.has(blockIndex)) return ''
+    emittedByBlock.set(blockIndex, emitted + content)
     return content
   }
 
   if (content.startsWith(emitted)) {
     const suffix = content.slice(emitted.length)
-    state.emittedTextByBlock.set(blockIndex, content)
-    state.snapshotTextBlocks.add(blockIndex)
+    emittedByBlock.set(blockIndex, content)
+    snapshotBlocks.add(blockIndex)
     return suffix
   }
 
-  state.emittedTextByBlock.set(blockIndex, emitted + content)
+  if (snapshotBlocks.has(blockIndex) && emitted.endsWith(content)) {
+    return ''
+  }
+
+  emittedByBlock.set(blockIndex, emitted + content)
   return content
 }
 

@@ -37,6 +37,41 @@ describe('git review service', () => {
     expect((await getGitReviewForWorkDir(root)).files).toEqual([])
   })
 
+  it('shows review for a newly initialized repository without commits', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gugu-unborn-git-'))
+    cleanupDirs.push(root)
+    await git(root, 'init')
+    await fs.writeFile(path.join(root, 'first.txt'), 'first file\n')
+
+    const review = await getGitReviewForWorkDir(root, 'first.txt')
+
+    expect(review).toMatchObject({
+      isGit: true,
+      changedFiles: 1,
+    })
+    expect(review.files).toContainEqual(expect.objectContaining({
+      path: 'first.txt',
+      kind: 'created',
+      oldText: '',
+      newText: 'first file\n',
+    }))
+  })
+
+  it('returns metadata for repositories with more than 500 changed files', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gugu-large-git-review-'))
+    cleanupDirs.push(root)
+    await git(root, 'init')
+    await Promise.all(Array.from({ length: 501 }, (_, index) =>
+      fs.writeFile(path.join(root, `file-${index}.txt`), `file ${index}\n`),
+    ))
+
+    const review = await getGitReviewForWorkDir(root)
+
+    expect(review.changedFiles).toBe(501)
+    expect(review.files).toHaveLength(501)
+    expect(review.filesTruncated).toBe(false)
+  })
+
   it('reads created, edited, deleted, and renamed files from Git', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gugu-git-review-'))
     cleanupDirs.push(root)
@@ -47,7 +82,7 @@ describe('git review service', () => {
     await git(root, 'add', '.')
     await git(root, '-c', 'user.name=Gugu', '-c', 'user.email=gugu@example.com', 'commit', '-m', 'initial')
 
-    await fs.writeFile(path.join(root, 'edited.txt'), 'after\n')
+    await fs.writeFile(path.join(root, 'edited.txt'), 'after\r\n')
     await fs.rm(path.join(root, 'deleted.txt'))
     await fs.rename(path.join(root, 'old-name.txt'), path.join(root, 'new-name.txt'))
     await fs.writeFile(path.join(root, 'created.txt'), 'new file\n')

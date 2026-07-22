@@ -675,9 +675,17 @@ function formatPresetProtocolLabel(
 
 function formatPresetAgentLabel(preset: ProviderPreset | undefined, apiFormat: ApiFormat, t: ReturnType<typeof useTranslation>): string {
   if (preset?.agentCompatible === false) return t('settings.providers.agentNotReady')
-  if (apiFormat === 'openai_chat' || apiFormat === 'openai_responses') return t('settings.providers.agentReadyViaProxy')
   if (apiFormat === 'chatgpt_codex') return t('settings.providers.agentReadyViaCodex')
   if (apiFormat === 'gugu_managed') return t('settings.providers.agentReadyViaGugu')
+  if (
+    preset?.agentCompatible !== true &&
+    (apiFormat === 'openai_chat' || apiFormat === 'openai_responses')
+  ) {
+    return t('settings.providers.agentNeedsTest')
+  }
+  if (apiFormat === 'openai_chat' || apiFormat === 'openai_responses') {
+    return t('settings.providers.agentReadyViaProxy')
+  }
   return t('settings.providers.agentReady')
 }
 

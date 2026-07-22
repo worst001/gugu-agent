@@ -16,18 +16,21 @@ let tmpDir: string
 let originalConfigDir: string | undefined
 let originalManagedDefaultFlag: string | undefined
 let originalServerPort: number
+let originalFetch: typeof globalThis.fetch
 
 async function setup() {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'provider-test-'))
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   originalManagedDefaultFlag = process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT
   originalServerPort = ProviderService.getServerPort()
+  originalFetch = globalThis.fetch
   ProviderService.setServerPort(3456)
   process.env.CLAUDE_CONFIG_DIR = tmpDir
   process.env.CC_GUGU_DISABLE_MANAGED_DEFAULT = '1'
 }
 
 async function teardown() {
+  globalThis.fetch = originalFetch
   if (originalConfigDir !== undefined) {
     process.env.CLAUDE_CONFIG_DIR = originalConfigDir
   } else {
@@ -415,6 +418,39 @@ describe('ProviderService', () => {
   // ─── activateProvider ────────────────────────────────────────────────────
 
   describe('activateProvider', () => {
+    test('should reuse the main GLM model for blank runtime slots', async () => {
+      const svc = new ProviderService()
+      const provider = await svc.addProvider(sampleInput({
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        apiFormat: 'openai_chat',
+        models: {
+          main: 'glm-5',
+          haiku: '',
+          sonnet: '',
+          opus: '',
+        },
+      }))
+
+      expect(provider.models).toEqual({
+        main: 'glm-5',
+        haiku: 'glm-5',
+        sonnet: 'glm-5',
+        opus: 'glm-5',
+      })
+
+      const env = await svc.getProviderRuntimeEnv(provider.id)
+      expect(env.ANTHROPIC_MODEL).toBe('glm-5')
+      expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('glm-5')
+      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('glm-5')
+      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('glm-5')
+      expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES)
+        .toBe('thinking,interleaved_thinking')
+      expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES)
+        .toBe('thinking,interleaved_thinking')
+      expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES)
+        .toBe('thinking,interleaved_thinking')
+    })
+
     test('should activate a provider with a valid model', async () => {
       const svc = new ProviderService()
       const first = await svc.addProvider(sampleInput({ name: 'First' }))
@@ -546,6 +582,69 @@ describe('ProviderService', () => {
       expect(active!.baseUrl).toBe(provider.baseUrl)
       expect(active!.apiKey).toBe(provider.apiKey)
       expect(active!.apiFormat).toBe('anthropic')
+    })
+  })
+
+  describe('testProviderConfig', () => {
+    test('should validate a real Agent tool call through the proxy pipeline', async () => {
+      const requestBodies: Array<Record<string, unknown>> = []
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+        requestBodies.push(body)
+        const responseBody = requestBodies.length === 1
+          ? {
+              id: 'chat_connectivity',
+              object: 'chat.completion',
+              created: 0,
+              model: 'glm-5',
+              choices: [{
+                index: 0,
+                message: { role: 'assistant', content: 'ok' },
+                finish_reason: 'stop',
+              }],
+            }
+          : {
+              id: 'chat_tool',
+              object: 'chat.completion',
+              created: 0,
+              model: 'glm-5',
+              choices: [{
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [{
+                    id: 'call_1',
+                    type: 'function',
+                    function: {
+                      name: 'get_test_value',
+                      arguments: '{"value":"ok"}',
+                    },
+                  }],
+                },
+                finish_reason: 'tool_calls',
+              }],
+            }
+        return new Response(JSON.stringify(responseBody), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }) as typeof globalThis.fetch
+
+      const result = await new ProviderService().testProviderConfig({
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        apiKey: 'sk-test',
+        modelId: 'glm-5',
+        apiFormat: 'openai_chat',
+      })
+
+      expect(result.connectivity.success).toBe(true)
+      expect(result.proxy?.success).toBe(true)
+      expect(requestBodies[1].tools).toBeArray()
+      expect(requestBodies[1].tool_choice).toEqual({
+        type: 'function',
+        function: { name: 'get_test_value' },
+      })
     })
   })
 })

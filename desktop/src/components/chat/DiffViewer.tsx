@@ -1,6 +1,8 @@
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
+import { diffLines } from 'diff'
 import { Highlight, type PrismTheme } from 'prism-react-renderer'
 import { CopyButton } from '../shared/CopyButton'
+import { useTranslation } from '../../i18n'
 
 type Props = {
   filePath: string
@@ -112,12 +114,17 @@ const diffStyles = {
 }
 
 export function DiffViewer({ filePath, oldString, newString }: Props) {
+  const t = useTranslation()
   const language = inferLanguage(filePath)
-
-  const oldLines = oldString.split('\n')
-  const newLines = newString.split('\n')
-  const additions = newLines.filter((l, i) => l !== (oldLines[i] ?? null)).length
-  const deletions = oldLines.filter((l, i) => l !== (newLines[i] ?? null)).length
+  const lineChanges = diffLines(oldString, newString)
+  const additions = lineChanges.reduce(
+    (count, change) => count + (change.added ? change.count ?? 0 : 0),
+    0,
+  )
+  const deletions = lineChanges.reduce(
+    (count, change) => count + (change.removed ? change.count ?? 0 : 0),
+    0,
+  )
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-outline-variant)]/50 bg-[var(--color-surface-container-low)]">
@@ -148,6 +155,11 @@ export function DiffViewer({ filePath, oldString, newString }: Props) {
           compareMethod={DiffMethod.WORDS}
           renderContent={(str) => highlightSyntax(str, language)}
           hideLineNumbers={false}
+          showDiffOnly
+          extraLinesSurroundingDiff={3}
+          codeFoldMessageRenderer={(count) => (
+            <span>{t('workbench.diff.foldedLines', { count })}</span>
+          )}
           styles={diffStyles}
           useDarkTheme={document.documentElement.dataset.themeTone === 'dark'}
         />

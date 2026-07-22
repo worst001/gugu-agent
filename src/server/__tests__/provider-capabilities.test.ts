@@ -49,4 +49,59 @@ describe('provider capabilities', () => {
     expect(capabilities.openAIChat.requiresReasoningContentForToolCalls).toBe(false)
     expect(capabilities.openAIChat.thinkingRequestParam).toBeNull()
   })
+
+  test('detects GLM OpenAI Chat capabilities', () => {
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      model: 'glm-5',
+    })
+
+    expect(capabilities.providerFamily).toBe('glm')
+    expect(capabilities.openAIChat).toMatchObject({
+      thinkingRequestParam: 'glm',
+      toolStream: true,
+    })
+  })
+
+  test('detects Kimi OpenAI Chat capabilities', () => {
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://api.moonshot.cn/v1',
+      model: 'kimi-k2.6',
+    })
+
+    expect(capabilities.providerFamily).toBe('kimi')
+    expect(capabilities.supportsImages).toBe(true)
+    expect(capabilities.openAIChat).toMatchObject({
+      reasoningContentReplay: true,
+      requiresReasoningContentForToolCalls: false,
+      thinkingRequestParam: 'kimi',
+    })
+  })
+
+
+  test('does not send current GLM thinking fields to legacy GLM models', () => {
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      model: 'glm-4-flash',
+    })
+
+    expect(capabilities.providerFamily).toBe('glm')
+    expect(capabilities.openAIChat.thinkingRequestParam).toBeNull()
+    expect(capabilities.openAIChat.toolStream).toBe(false)
+  })
+
+  test('does not enable K2 thinking fields for legacy Moonshot models', () => {
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://api.moonshot.cn/v1',
+      model: 'moonshot-v1-128k',
+    })
+
+    expect(capabilities.providerFamily).toBe('kimi')
+    expect(capabilities.openAIChat.thinkingRequestParam).toBeNull()
+  })
+
 })

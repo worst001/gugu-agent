@@ -390,3 +390,25 @@ describe('openaiResponsesStreamToAnthropic', () => {
     expect((msgDelta.data.delta as Record<string, unknown>).stop_reason).toBe('tool_use')
   })
 })
+
+
+describe('OpenAI-compatible snapshot streaming regressions', () => {
+  test('deduplicates cumulative and repeated reasoning snapshots', async () => {
+    const chunks = [
+      'data: {"id":"c1","object":"chat.completion.chunk","created":0,"model":"glm-5","choices":[{"index":0,"delta":{"reasoning":"Inspecting files"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1","object":"chat.completion.chunk","created":0,"model":"glm-5","choices":[{"index":0,"delta":{"reasoning":"Inspecting files and tests"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1","object":"chat.completion.chunk","created":0,"model":"glm-5","choices":[{"index":0,"delta":{"reasoning":"Inspecting files and tests"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c1","object":"chat.completion.chunk","created":0,"model":"glm-5","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]
+
+    const events = await collectSse(openaiChatStreamToAnthropic(makeStream(chunks), 'glm-5'))
+    const thinking = events
+      .filter((event) => event.event === 'content_block_delta')
+      .map((event) => event.data.delta as Record<string, unknown>)
+      .filter((delta) => delta.type === 'thinking_delta')
+      .map((delta) => delta.thinking)
+
+    expect(thinking).toEqual(['Inspecting files', ' and tests'])
+  })
+})

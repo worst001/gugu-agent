@@ -2,7 +2,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024
-const MAX_REVIEW_FILES = 500
+const MAX_REVIEW_FILES = 5_000
 
 export type GitInfo = {
   isGit: boolean
@@ -26,6 +26,7 @@ export type GitReviewFile = {
 
 export type GitReview = GitInfo & {
   files: GitReviewFile[]
+  filesTruncated: boolean
 }
 
 type PorcelainEntry = {
@@ -36,7 +37,7 @@ type PorcelainEntry = {
 
 async function runGit(cwd: string, args: string[]): Promise<Uint8Array | null> {
   try {
-    const proc = Bun.spawn(['git', ...args], {
+    const proc = Bun.spawn(['git', '-c', 'safe.directory=*', ...args], {
       cwd,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -57,6 +58,10 @@ function decode(bytes: Uint8Array | null): string | null {
   } catch {
     return null
   }
+}
+
+function normalizeReviewText(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
 }
 
 function parsePorcelain(text: string): PorcelainEntry[] {
@@ -114,7 +119,7 @@ async function readWorktreeText(filePath: string): Promise<{
       const text = decode(bytes)
       return text === null
         ? { binary: true, truncated }
-        : { text, binary: false, truncated }
+        : { text: normalizeReviewText(text), binary: false, truncated }
     } finally {
       await handle.close()
     }
@@ -141,7 +146,7 @@ async function readHeadText(repoRoot: string, repoPath: string): Promise<{
   const text = decode(bytes)
   return text === null
     ? { binary: true, truncated: false }
-    : { text, binary: false, truncated: false }
+    : { text: normalizeReviewText(text), binary: false, truncated: false }
 }
 
 export async function getGitInfoForWorkDir(workDir: string): Promise<GitInfo> {
@@ -178,7 +183,9 @@ export async function getGitReviewForWorkDir(
   selectedPath?: string | null,
 ): Promise<GitReview> {
   const info = await getGitInfoForWorkDir(workDir)
-  if (!info.isGit || !info.repoRoot) return { ...info, files: [] }
+  if (!info.isGit || !info.repoRoot) {
+    return { ...info, files: [], filesTruncated: false }
+  }
 
   const statusText = decode(await runGit(workDir, [
     'status',
@@ -228,5 +235,9 @@ export async function getGitReviewForWorkDir(
     })
   }
 
-  return { ...info, files }
+  return {
+    ...info,
+    files,
+    filesTruncated: entries.length > MAX_REVIEW_FILES,
+  }
 }

@@ -82,6 +82,7 @@ export type GitReviewFile = {
 
 export type GitReview = GitInfo & {
   files: GitReviewFile[]
+  filesTruncated: boolean
 }
 
 export type SessionUsageSnapshot = {

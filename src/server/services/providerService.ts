@@ -12,6 +12,7 @@ import * as os from 'os'
 import { ApiError } from '../middleware/errorHandler.js'
 import { anthropicToOpenaiChat } from '../proxy/transform/anthropicToOpenaiChat.js'
 import { anthropicToOpenaiResponses } from '../proxy/transform/anthropicToOpenaiResponses.js'
+import { resolveProviderCapabilities } from '../proxy/providerCapabilities.js'
 import { anthropicToChatGPTCodexRequest } from '../proxy/transform/chatgptCodexRequest.js'
 import { openaiChatToAnthropic } from '../proxy/transform/openaiChatToAnthropic.js'
 import { openaiResponsesToAnthropic } from '../proxy/transform/openaiResponsesToAnthropic.js'
@@ -33,6 +34,7 @@ import type {
   ApiFormat,
   ProviderAuthKind,
   ProviderExtraParams,
+  ModelMapping,
 } from '../types/provider.js'
 
 const MANAGED_ENV_KEYS = [
@@ -67,6 +69,34 @@ const GUGU_MANAGED_PROVIDER_MODELS = {
   haiku: 'gugu-managed-fast',
   sonnet: 'gugu-managed-main',
   opus: 'gugu-managed-main',
+}
+const THIRD_PARTY_THINKING_CAPABILITIES = 'thinking,interleaved_thinking'
+
+function normalizeModelMapping(models: ModelMapping): ModelMapping {
+  const main = models.main.trim()
+  return {
+    main,
+    haiku: models.haiku.trim() || main,
+    sonnet: models.sonnet.trim() || main,
+    opus: models.opus.trim() || main,
+  }
+}
+
+function getThirdPartyModelCapabilities(
+  provider: Pick<SavedProvider, 'apiFormat' | 'baseUrl'>,
+  model: string,
+): string | undefined {
+  const capabilities = resolveProviderCapabilities({
+    apiFormat: provider.apiFormat ?? 'anthropic',
+    baseUrl: provider.baseUrl,
+    model,
+  })
+  return (
+    (capabilities.providerFamily === 'glm' || capabilities.providerFamily === 'kimi') &&
+    capabilities.openAIChat.thinkingRequestParam !== null
+  )
+    ? THIRD_PARTY_THINKING_CAPABILITIES
+    : undefined
 }
 
 const LEGACY_PRESET_DEFAULT_ENV: Record<string, Record<string, string>> = {
@@ -343,7 +373,7 @@ export class ProviderService {
       baseUrl: input.baseUrl,
       apiFormat: input.apiFormat ?? 'anthropic',
       authKind: input.authKind ?? 'api_key',
-      models: input.models,
+      models: normalizeModelMapping(input.models),
       ...(input.notes !== undefined && { notes: input.notes }),
       ...(input.extraParams !== undefined && { extraParams: input.extraParams }),
     }
@@ -366,7 +396,7 @@ export class ProviderService {
       ...(input.baseUrl !== undefined && { baseUrl: input.baseUrl }),
       ...(input.apiFormat !== undefined && { apiFormat: input.apiFormat }),
       ...(input.authKind !== undefined && { authKind: input.authKind }),
-      ...(input.models !== undefined && { models: input.models }),
+      ...(input.models !== undefined && { models: normalizeModelMapping(input.models) }),
       ...(input.notes !== undefined && { notes: input.notes }),
       ...(input.extraParams !== undefined && { extraParams: input.extraParams }),
     }
@@ -483,15 +513,28 @@ export class ProviderService {
     const baseUrl = needsProxy
       ? `http://127.0.0.1:${ProviderService.serverPort}${proxyPath}`
       : provider.baseUrl
+    const models = normalizeModelMapping(provider.models)
+    const haikuCapabilities = getThirdPartyModelCapabilities(provider, models.haiku)
+    const sonnetCapabilities = getThirdPartyModelCapabilities(provider, models.sonnet)
+    const opusCapabilities = getThirdPartyModelCapabilities(provider, models.opus)
 
     return {
       ...getPresetDefaultEnv(provider.presetId),
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_API_KEY: needsProxy ? 'proxy-managed' : provider.apiKey,
-      ANTHROPIC_MODEL: provider.models.main,
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: provider.models.haiku,
-      ANTHROPIC_DEFAULT_SONNET_MODEL: provider.models.sonnet,
-      ANTHROPIC_DEFAULT_OPUS_MODEL: provider.models.opus,
+      ANTHROPIC_MODEL: models.main,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: models.haiku,
+      ...(haikuCapabilities && {
+        ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES: haikuCapabilities,
+      }),
+      ANTHROPIC_DEFAULT_SONNET_MODEL: models.sonnet,
+      ...(sonnetCapabilities && {
+        ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES: sonnetCapabilities,
+      }),
+      ANTHROPIC_DEFAULT_OPUS_MODEL: models.opus,
+      ...(opusCapabilities && {
+        ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES: opusCapabilities,
+      }),
     }
   }
 
@@ -807,14 +850,34 @@ export class ProviderService {
       const anthropicReq: AnthropicRequest = {
         model: modelId,
         max_tokens: 64,
-        messages: [{ role: 'user', content: 'Say "ok" and nothing else.' }],
+        messages: [{
+          role: 'user',
+          content: 'Call get_test_value with the value "ok". Do not answer directly.',
+        }],
+        tools: [{
+          name: 'get_test_value',
+          description: 'Returns a test value for Agent compatibility validation.',
+          input_schema: {
+            type: 'object',
+            properties: { value: { type: 'string' } },
+            required: ['value'],
+          },
+        }],
+        tool_choice: { type: 'tool', name: 'get_test_value' },
       }
 
       // Transform to OpenAI format
       let upstreamUrl: string
       let transformedBody: unknown
       if (format === 'openai_chat') {
-        transformedBody = anthropicToOpenaiChat(anthropicReq)
+        const capabilities = resolveProviderCapabilities({
+          apiFormat: format,
+          baseUrl: base,
+          model: modelId,
+        })
+        transformedBody = anthropicToOpenaiChat(anthropicReq, {
+          capabilities: capabilities.openAIChat,
+        })
         upstreamUrl = buildOpenAIEndpoint(base, 'chat/completions')
       } else {
         transformedBody = anthropicToOpenaiResponses(anthropicReq)
@@ -848,6 +911,15 @@ export class ProviderService {
       if (anthropicRes.type !== 'message' || !Array.isArray(anthropicRes.content)) {
         return { success: false, latencyMs, modelUsed: modelId,
           error: 'Proxy transform produced invalid Anthropic response' }
+      }
+      if (!anthropicRes.content.some((block) => block.type === 'tool_use')) {
+        return {
+          success: false,
+          latencyMs,
+          modelUsed: modelId,
+          httpStatus: response.status,
+          error: 'Chat works, but the model did not return the required Agent tool call',
+        }
       }
 
       return { success: true, latencyMs, modelUsed: anthropicRes.model || modelId, httpStatus: response.status }

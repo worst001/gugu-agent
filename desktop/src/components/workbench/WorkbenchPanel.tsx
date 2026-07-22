@@ -305,6 +305,8 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
                   sessionId={sessionId}
                   fileChanges={gitFileChanges}
                   selectedFilePath={selectedFileChange?.filePath ?? null}
+                  totalFileCount={gitReview?.changedFiles ?? gitFileChanges.length}
+                  filesTruncated={gitReview?.filesTruncated ?? false}
                 />
                 <DiffPreview fileChange={selectedFileChange} />
               </div>

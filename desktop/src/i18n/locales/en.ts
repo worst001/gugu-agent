@@ -370,8 +370,8 @@ export const en = {
   'settings.providers.failed': 'Failed: {error}',
   'settings.providers.connectivityOk': '① Connectivity ({latency}ms)',
   'settings.providers.connectivityFailed': '① Connectivity failed: {error}',
-  'settings.providers.proxyOk': '② Proxy pipeline ({latency}ms)',
-  'settings.providers.proxyFailed': '② Proxy failed: {error}',
+  'settings.providers.proxyOk': '② Agent tool call passed ({latency}ms)',
+  'settings.providers.proxyFailed': '② Agent tool call failed: {error}',
   'settings.providers.confirmDelete': 'Delete provider "{name}"? This cannot be undone.',
   'settings.providers.activate': 'Activate',
   'settings.providers.default': 'Default',
@@ -428,6 +428,7 @@ export const en = {
   'settings.providers.protocolGuguManaged': 'Gugu managed',
   'settings.providers.agentReady': 'Agent ready',
   'settings.providers.agentReadyViaProxy': 'Agent ready via proxy',
+  'settings.providers.agentNeedsTest': 'Agent compatibility test required',
   'settings.providers.agentReadyViaCodex': 'Agent ready via Codex',
   'settings.providers.agentReadyViaGugu': 'Agent ready via Gugu',
   'settings.providers.agentNotReady': 'Not agent-ready',
@@ -2144,6 +2145,12 @@ export const en = {
   'agentTask.review.relation': 'Review handoff',
 
   'tabs.closeConfirmStop': 'Stop & Close',
+  'workbench.diff.search': 'Search changed files',
+  'workbench.diff.searchPlaceholder': 'Search files...',
+  'workbench.diff.fileCount': '{count} changed',
+  'workbench.diff.filesTruncated': 'Showing the first {shown} of {total} changed files.',
+  'workbench.diff.noMatches': 'No changed files match this search.',
+  'workbench.diff.foldedLines': '{count} unchanged lines',
 } as const
 
 export type TranslationKey = keyof typeof en

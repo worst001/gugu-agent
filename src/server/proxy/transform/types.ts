@@ -56,6 +56,7 @@ export type OpenAIChatRequest = {
   repetition_penalty?: number
   stop?: string | string[]
   stream?: boolean
+  tool_stream?: boolean
   tools?: OpenAIResponsesTool[]
   tool_choice?: unknown
   reasoning_effort?: 'low' | 'medium' | 'high'

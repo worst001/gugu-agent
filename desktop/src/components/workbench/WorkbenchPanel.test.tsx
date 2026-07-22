@@ -145,6 +145,7 @@ describe('WorkbenchPanel', () => {
       repoRoot: 'D:/Project',
       workDir: 'D:/Project',
       changedFiles: 1,
+      filesTruncated: false,
       files: [{
         path: 'src/App.tsx',
         status: ' M',
@@ -225,6 +226,7 @@ describe('WorkbenchPanel', () => {
       repoRoot: null,
       workDir: 'D:/Notes',
       changedFiles: 0,
+      filesTruncated: false,
       files: [],
     })
     useWorkbenchStore.getState().openWorkbench('session-1')

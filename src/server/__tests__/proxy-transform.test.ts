@@ -692,3 +692,59 @@ describe('openaiResponsesToAnthropic', () => {
     expect(result.content).toEqual([{ type: 'text', text: '' }])
   })
 })
+
+
+describe('GLM and Kimi OpenAI Chat compatibility', () => {
+  test('uses GLM thinking and streaming tool-call request fields', () => {
+    const req: AnthropicRequest = {
+      model: 'glm-5',
+      max_tokens: 1024,
+      stream: true,
+      thinking: { type: 'enabled', budget_tokens: 4096 },
+      messages: [{ role: 'user', content: 'Inspect the project' }],
+      tools: [{
+        name: 'Read',
+        input_schema: { type: 'object', properties: {} },
+      }],
+    }
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      model: req.model,
+    }).openAIChat
+
+    const result = anthropicToOpenaiChat(req, { capabilities })
+
+    expect(result.thinking).toEqual({ type: 'enabled' })
+    expect(result.tool_stream).toBe(true)
+    expect(result.reasoning_effort).toBeUndefined()
+  })
+
+  test('preserves Kimi reasoning for the following tool call', () => {
+    const req: AnthropicRequest = {
+      model: 'kimi-k2.6',
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'Need to inspect files.' },
+            { type: 'tool_use', id: 'tool_1', name: 'Glob', input: { pattern: '*' } },
+          ],
+        },
+      ],
+    }
+    const capabilities = resolveProviderCapabilities({
+      apiFormat: 'openai_chat',
+      baseUrl: 'https://api.moonshot.cn/v1',
+      model: req.model,
+    }).openAIChat
+
+    const result = anthropicToOpenaiChat(req, { capabilities })
+
+    expect(result.messages[0]).toMatchObject({
+      role: 'assistant',
+      reasoning_content: 'Need to inspect files.',
+    })
+  })
+})
