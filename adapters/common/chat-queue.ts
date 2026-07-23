@@ -10,7 +10,8 @@ const queues = new Map<string, Promise<void>>()
 
 export async function enqueue(chatId: string, fn: () => Promise<void>): Promise<void> {
   const prev = queues.get(chatId) ?? Promise.resolve()
-  const next = prev.then(fn, () => fn()).catch((err) => {
+  const task = prev.then(fn, fn)
+  const next = task.catch((err) => {
     console.error(`[ChatQueue] Error in task for chat ${chatId}:`, err)
   })
   queues.set(chatId, next)
@@ -20,5 +21,5 @@ export async function enqueue(chatId: string, fn: () => Promise<void>): Promise<
       queues.delete(chatId)
     }
   })
-  return next
+  return task
 }

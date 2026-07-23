@@ -138,8 +138,16 @@ vi.mock('../components/settings/ClaudeOfficialLogin', () => ({
   ClaudeOfficialLogin: () => <div data-testid="claude-official-login" />,
 }))
 
+vi.mock('../components/settings/WeixinConnectionCard', () => ({
+  WeixinConnectionCard: () => <div data-testid="weixin-connection-card" />,
+}))
+
+vi.mock('../components/settings/FeishuConnectionCard', () => ({
+  FeishuConnectionCard: () => <div data-testid="feishu-connection-card" />,
+}))
+
 vi.mock('../pages/AdapterSettings', () => ({
-  AdapterSettings: () => <div>Adapter Settings Mock</div>,
+  AdapterSettings: () => <div data-testid="adapter-settings" />,
 }))
 
 vi.mock('../stores/agentStore', () => ({
@@ -318,6 +326,14 @@ describe('Settings > General tab', () => {
     expect(screen.queryByText('Terminal')).not.toBeInTheDocument()
     expect(screen.getByText('MCP')).toBeInTheDocument()
     expect(screen.getByText('Plugins')).toBeInTheDocument()
+  })
+
+  it('keeps IM access in settings and opens the simple phone connection page', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('IM Adapters'))
+
+    expect(screen.getByTestId('adapter-settings')).toBeInTheDocument()
   })
 
   it('does not expose the experimental project profile settings by default', () => {

@@ -38,6 +38,7 @@ export const zh: Record<TranslationKey, string> = {
   'sidebar.terminal': '终端',
   'sidebar.archivedSessions': '已归档对话',
   'sidebar.settings': '设置',
+  'sidebar.mobileConnection': '手机连接',
   'sidebar.searchPlaceholder': '搜索会话...',
   'sidebar.noSessions': '暂无会话',
   'sidebar.noArchivedSessions': '暂无归档对话',
@@ -596,6 +597,8 @@ export const zh: Record<TranslationKey, string> = {
 
   // Settings > Adapters
   'settings.tab.adapters': 'IM 接入',
+  'settings.mobile.title': '手机连接',
+  'settings.mobile.description': '连接微信后，即可在手机上继续与 Gugu 对话。',
   'settings.adapters.description': '配置即时通讯适配器，通过飞书、钉钉、企业微信或 QQ 与 Gu Agent 对话。企业微信属于企业管理员高级接入。',
   'settings.adapters.telegram': 'Telegram',
   'settings.adapters.feishu': '飞书 (Feishu)',
@@ -682,6 +685,7 @@ export const zh: Record<TranslationKey, string> = {
   'settings.adapters.platform.dingtalk': '钉钉',
   'settings.adapters.platform.wecom': '企业微信',
   'settings.adapters.platform.qq': 'QQ',
+  'settings.adapters.platform.weixin': '\u5fae\u4fe1',
   'settings.adapters.securityTitle': '远程通道安全边界',
   'settings.adapters.securityDesc': 'IM 只读取本机安全配置文件；凭据不会打进安装包。远程用户必须通过配对码或显式白名单授权。',
   'settings.adapters.statusCredentials': '通道凭据',
@@ -1847,7 +1851,7 @@ export const zh: Record<TranslationKey, string> = {
   'newTask.notifyChannels': '通知渠道',
   'newTask.notifyHint': '任务完成后将标题和结果推送到 IM 渠道。',
   'newTask.notConfigured': '未配置',
-  'newTask.noChannelConfigured': '尚未配置任何 IM 渠道，请前往 设置 → IM 接入 进行配置。',
+  'newTask.noChannelConfigured': '尚未连接手机，请使用侧栏底部的“手机连接”完成配置。',
 
   // ─── Cron 描述 ──────────────────────────────────────
   'cron.everyMinute': '每分钟执行',

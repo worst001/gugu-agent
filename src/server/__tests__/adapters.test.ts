@@ -275,7 +275,7 @@ describe('adapters API', () => {
     expect(JSON.stringify(body)).not.toContain('telegram-secret-token')
     expect(body.defaultProjectConfigured).toBe(true)
     expect(body.pairingActive).toBe(true)
-    expect(body.channels).toHaveLength(5)
+    expect(body.channels).toHaveLength(6)
     expect(body.channels).toContainEqual(expect.objectContaining({
       platform: 'telegram',
       status: 'ready',
@@ -308,6 +308,24 @@ describe('adapters API', () => {
       credentialsReady: true,
       pairedUsersCount: 1,
     }))
+  })
+
+  test('stores adapter configuration with owner-only permissions', async () => {
+    const url = new URL('http://127.0.0.1:3456/api/adapters')
+    const response = await handleApiRequest(
+      new Request(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultProjectDir: 'D:\\work' }),
+      }),
+      url,
+    )
+
+    expect(response.status).toBe(200)
+    if (process.platform !== 'win32') {
+      const mode = (await fs.stat(path.join(tmpDir, 'adapters.json'))).mode & 0o777
+      expect(mode).toBe(0o600)
+    }
   })
 
   async function writeAdaptersConfig(value: Record<string, unknown>) {

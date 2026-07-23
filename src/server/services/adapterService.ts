@@ -22,7 +22,7 @@ export type PairingState = {
   createdAt?: number | null
 }
 
-export type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq'
+export type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq' | 'weixin'
 
 export type AdapterFileConfig = {
   serverUrl?: string
@@ -72,6 +72,13 @@ export type AdapterFileConfig = {
     sandbox?: boolean
     oneBotUrl?: string
     oneBotAccessToken?: string
+    allowedUsers?: string[]
+    pairedUsers?: PairedUser[]
+    defaultWorkDir?: string
+  }
+  weixin?: {
+    accountId?: string
+    baseUrl?: string
     allowedUsers?: string[]
     pairedUsers?: PairedUser[]
     defaultWorkDir?: string
@@ -199,6 +206,7 @@ class AdapterService {
     const dingtalk = config.dingtalk ?? {}
     const wecom = config.wecom ?? {}
     const qq = config.qq ?? {}
+    const weixin = config.weixin ?? {}
     const pairingExpiresAt = config.pairing?.expiresAt ?? null
     const now = Date.now()
 
@@ -223,6 +231,10 @@ class AdapterService {
     const qqMissing = qqHasBot || qqHasOneBot
       ? []
       : ['appId/appSecret or oneBotUrl']
+    const weixinMissing = [
+      ...(hasValue(weixin.accountId) ? [] : ['accountId']),
+      ...(hasValue(weixin.baseUrl) ? [] : ['baseUrl']),
+    ]
 
     return {
       configLocation: '~/.claude/adapters.json',
@@ -285,10 +297,21 @@ class AdapterService {
           qq.allowedUsers?.length ?? 0,
           qq.pairedUsers?.length ?? 0,
         ),
+        withCounts(
+          'weixin',
+          [
+            ...textFields(weixin, ['accountId', 'baseUrl']),
+            ...((weixin.allowedUsers?.length ?? 0) > 0 ? ['allowedUsers'] : []),
+            ...((weixin.pairedUsers?.length ?? 0) > 0 ? ['pairedUsers'] : []),
+          ],
+          weixinMissing,
+          weixin.allowedUsers?.length ?? 0,
+          weixin.pairedUsers?.length ?? 0,
+        ),
       ],
       notes: [
         'Diagnostics only checks local configuration readiness. It does not call IM provider APIs.',
-        'Adapter credentials stay in the local adapters config and are never returned by this endpoint.',
+        'Adapter credentials stay in local credential storage and are never returned by this endpoint.',
       ],
     }
   }
@@ -334,6 +357,7 @@ class AdapterService {
       dingtalk: patch.dingtalk ? { ...current.dingtalk, ...patch.dingtalk } : current.dingtalk,
       wecom: patch.wecom ? { ...current.wecom, ...patch.wecom } : current.wecom,
       qq: patch.qq ? { ...current.qq, ...patch.qq } : current.qq,
+      weixin: patch.weixin ? { ...current.weixin, ...patch.weixin } : current.weixin,
       pairing: patch.pairing !== undefined ? { ...current.pairing, ...patch.pairing } : current.pairing,
     }
 
@@ -347,7 +371,10 @@ class AdapterService {
 
     const tmpFile = `${filePath}.tmp.${Date.now()}`
     try {
-      await fs.writeFile(tmpFile, JSON.stringify(data, null, 2) + '\n', 'utf-8')
+      await fs.writeFile(tmpFile, JSON.stringify(data, null, 2) + '\n', {
+        encoding: 'utf-8',
+        mode: 0o600,
+      })
       await fs.rename(tmpFile, filePath)
     } catch (err) {
       await fs.unlink(tmpFile).catch(() => {})

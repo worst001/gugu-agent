@@ -32,6 +32,7 @@
     "@aws-sdk/client-bedrock-runtime": "^3.1020.0",
     "@commander-js/extra-typings": "^14.0.0",
     "@growthbook/growthbook": "^1.6.5",
+    "@larksuiteoapi/node-sdk": "^1.71.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api-logs": "^0.214.0",
     "@opentelemetry/core": "^2.6.1",

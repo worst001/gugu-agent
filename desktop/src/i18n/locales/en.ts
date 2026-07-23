@@ -36,6 +36,7 @@ export const en = {
   'sidebar.terminal': 'Terminal',
   'sidebar.archivedSessions': 'Archived conversations',
   'sidebar.settings': 'Settings',
+  'sidebar.mobileConnection': 'Phone',
   'sidebar.searchPlaceholder': 'Search sessions...',
   'sidebar.noSessions': 'No sessions yet',
   'sidebar.noArchivedSessions': 'No archived conversations',
@@ -578,6 +579,8 @@ export const en = {
 
   // Settings > Adapters
   'settings.tab.adapters': 'IM Adapters',
+  'settings.mobile.title': 'Phone connection',
+  'settings.mobile.description': 'Connect Weixin to continue chatting with Gugu from your phone.',
   'settings.adapters.description': 'Configure IM adapters to chat with Gu Agent via Feishu, DingTalk, WeCom, or QQ. WeCom is an advanced admin-managed integration.',
   'settings.adapters.telegram': 'Telegram',
   'settings.adapters.feishu': 'Feishu',
@@ -664,6 +667,7 @@ export const en = {
   'settings.adapters.platform.dingtalk': 'DingTalk',
   'settings.adapters.platform.wecom': 'WeCom',
   'settings.adapters.platform.qq': 'QQ',
+  'settings.adapters.platform.weixin': 'WeChat',
   'settings.adapters.securityTitle': 'Remote channel boundary',
   'settings.adapters.securityDesc': 'IM adapters read the local secure config file only. Credentials are not bundled into installers. Remote users must be paired or explicitly allowlisted.',
   'settings.adapters.statusCredentials': 'Channel credentials',
@@ -1843,7 +1847,7 @@ export const en = {
   'newTask.notifyChannels': 'Notification channels',
   'newTask.notifyHint': 'Send the task title and result to your IM channels when done.',
   'newTask.notConfigured': 'Not configured',
-  'newTask.noChannelConfigured': 'No IM channels configured yet. Go to Settings → IM Adapters to set up.',
+  'newTask.noChannelConfigured': 'No phone connected yet. Use Phone at the bottom of the sidebar to set up.',
 
   // ─── Cron Descriptions ──────────────────────────────────────
   'cron.everyMinute': 'Runs every minute',

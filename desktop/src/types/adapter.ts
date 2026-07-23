@@ -10,7 +10,7 @@ export type PairingState = {
   createdAt: number | null
 }
 
-export type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq'
+export type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq' | 'weixin'
 
 export type AdapterFileConfig = {
   serverUrl?: string
@@ -64,6 +64,62 @@ export type AdapterFileConfig = {
     pairedUsers?: PairedUser[]
     defaultWorkDir?: string
   }
+  weixin?: {
+    accountId?: string
+    baseUrl?: string
+    allowedUsers?: string[]
+    pairedUsers?: PairedUser[]
+    defaultWorkDir?: string
+  }
+}
+
+export type FeishuConnection = {
+  connected: boolean
+  appId: string | null
+}
+
+export type FeishuInstallationStatus = {
+  installationId: string
+  state:
+    | 'waiting'
+    | 'authorizing'
+    | 'authorized'
+    | 'expired'
+    | 'failed'
+    | 'cancelled'
+  expiresAt: number
+  qrCodeDataUrl?: string
+  authorizationUrl?: string
+  appId?: string
+  error?: string
+}
+
+export type WeixinRuntimeStatus = {
+  state: 'starting' | 'online' | 'degraded' | 'offline'
+  lastPollAt: number | null
+  error: string | null
+}
+
+export type WeixinConnection = {
+  connected: boolean
+  accountId: string | null
+  runtime: WeixinRuntimeStatus
+}
+
+export type WeixinInstallationStatus = {
+  installationId: string
+  state:
+    | 'waiting'
+    | 'scanned'
+    | 'needs_verification'
+    | 'authorized'
+    | 'expired'
+    | 'failed'
+    | 'cancelled'
+  expiresAt: number
+  qrCodeDataUrl?: string
+  accountId?: string
+  error?: string
 }
 
 export type AdapterChannelStatus = {

@@ -12,7 +12,7 @@ import * as path from 'node:path'
 import * as crypto from 'node:crypto'
 import type { PairedUser, PairingState } from './config.js'
 
-type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq'
+type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq' | 'weixin'
 
 const SAFE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789' // 排除 0/O/1/I/L
 

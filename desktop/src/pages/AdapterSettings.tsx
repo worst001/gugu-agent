@@ -3,13 +3,15 @@ import { useAdapterStore } from '../stores/adapterStore'
 import { useTranslation } from '../i18n'
 import { Input } from '../components/shared/Input'
 import { Button } from '../components/shared/Button'
+import { WeixinConnectionCard } from '../components/settings/WeixinConnectionCard'
+import { FeishuConnectionCard } from '../components/settings/FeishuConnectionCard'
 import { DirectoryPicker } from '../components/shared/DirectoryPicker'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { adaptersApi } from '../api/adapters'
 import type { AdapterDiagnostics, AdapterPlatform } from '../types/adapter'
 
 type ImTab = Exclude<AdapterPlatform, 'telegram'>
-const visibleAdapterPlatforms = new Set<AdapterPlatform>(['feishu', 'dingtalk', 'wecom', 'qq'])
+const visibleAdapterPlatforms = new Set<AdapterPlatform>(['feishu', 'dingtalk', 'wecom', 'qq', 'weixin'])
 const FEISHU_DEVELOPER_CONSOLE_URL = 'https://open.feishu.cn/app?lang=zh-CN'
 const DINGTALK_DEVELOPER_CONSOLE_URL = 'https://open.dingtalk.com/'
 const WECOM_ADMIN_CONSOLE_URL = 'https://work.weixin.qq.com/wework_admin/frame'
@@ -269,12 +271,19 @@ export function AdapterSettings() {
     }
   }, [restartAdapters])
 
+  const handleWeixinConnectionChanged = useCallback(async () => {
+    await restartAdapters()
+    await fetchConfig()
+  }, [fetchConfig, restartAdapters])
+
+
   // Collect all paired users across platforms
   const allPairedUsers = [
     ...(config.feishu?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'feishu' as const })),
     ...(config.dingtalk?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'dingtalk' as const })),
     ...(config.wecom?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'wecom' as const })),
     ...(config.qq?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'qq' as const })),
+    ...(config.weixin?.pairedUsers ?? []).map((u) => ({ ...u, platform: 'weixin' as const })),
   ].filter((u) => visibleAdapterPlatforms.has(u.platform))
   const fsAllowedCount = parseStringAllowedUsers(fsAllowedUsers).length
   const dtAllowedCount = parseStringAllowedUsers(dtAllowedUsers).length
@@ -315,6 +324,9 @@ export function AdapterSettings() {
       <div>
         <p className="text-sm text-[var(--color-text-secondary)]">{t('settings.adapters.description')}</p>
       </div>
+
+      <WeixinConnectionCard onConnectionChanged={handleWeixinConnectionChanged} />
+      <FeishuConnectionCard onConnectionChanged={handleWeixinConnectionChanged} />
 
       <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-4">
         <div className="mb-4 flex items-start justify-between gap-3">

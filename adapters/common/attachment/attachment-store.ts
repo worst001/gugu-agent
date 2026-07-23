@@ -34,9 +34,14 @@ function defaultRoot(): string {
 
 /** Strip path separators / .. / control chars from a filename. */
 function sanitizeFilename(name: string): string {
+  const base = path.basename(name || '')
+  // Use the Windows superset so IM identifiers remain valid path segments on
+  // every supported desktop platform (for example qq:private:123).
   // eslint-disable-next-line no-control-regex
-  const base = path.basename(name || '').replace(/[\x00-\x1f]/g, '')
-  const cleaned = base.replace(/[\/\\]/g, '_').replace(/\.\.+/g, '_')
+  const cleaned = base
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/\.\.+/g, '_')
+    .replace(/[. ]+$/g, '')
   return cleaned.trim() || 'unnamed'
 }
 

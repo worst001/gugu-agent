@@ -24,7 +24,7 @@ import {
 } from './desktop-screenshot.js'
 import { isScreenshotCommand } from './screenshot-command.js'
 
-type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq'
+type AdapterPlatform = 'telegram' | 'feishu' | 'dingtalk' | 'wecom' | 'qq' | 'weixin'
 
 type ChatRuntimeState = {
   state: 'idle' | 'thinking' | 'streaming' | 'tool_executing' | 'permission_pending'
@@ -118,7 +118,7 @@ export class TextChatRunner {
       return
     }
 
-    enqueue(message.conversationId, async () => {
+    return enqueue(message.conversationId, async () => {
       await this.routeText(message.conversationId, text, attachments, message.messageId)
     })
   }

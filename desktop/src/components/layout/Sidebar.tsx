@@ -711,7 +711,7 @@ export function Sidebar() {
 
       <CapabilityBar />
 
-      <div className={`border-t border-[var(--color-border)] p-3 ${sidebarOpen ? '' : 'flex justify-center'}`}>
+      <div className={`border-t border-[var(--color-border)] p-3 ${sidebarOpen ? 'grid grid-cols-[minmax(0,1fr)_auto] gap-1' : 'flex flex-col items-center gap-1'}`}>
         <NavItem
           active={activeTabId === SETTINGS_TAB_ID}
           collapsed={!sidebarOpen}
@@ -724,6 +724,20 @@ export function Sidebar() {
         >
           {t('sidebar.settings')}
         </NavItem>
+        <button
+          type="button"
+          aria-label={t('sidebar.mobileConnection')}
+          title={t('sidebar.mobileConnection')}
+          onClick={() => {
+            setShowArchived(false)
+            useUIStore.getState().setPendingSettingsTab('adapters')
+            useTabStore.getState().openTab(SETTINGS_TAB_ID, t('sidebar.settings'), 'settings')
+          }}
+          className={`flex items-center justify-center rounded-[12px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-sidebar-item-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${sidebarOpen ? 'h-10 gap-1.5 px-2.5 text-xs' : 'h-10 w-10'}`}
+        >
+          <span className="material-symbols-outlined text-[18px]" aria-hidden="true">phone_iphone</span>
+          {sidebarOpen && <span>{t('sidebar.mobileConnection')}</span>}
+        </button>
       </div>
 
       {contextMenu && sidebarOpen && (

@@ -36,6 +36,7 @@ vi.mock('../../i18n', () => ({
       'sidebar.terminal': 'Terminal',
       'sidebar.archivedSessions': 'Archived conversations',
       'sidebar.settings': 'Settings',
+      'sidebar.mobileConnection': 'Phone connection',
       'sidebar.aiTeam': 'AI Team',
       'sidebar.searchPlaceholder': 'Search sessions',
       'sidebar.noSessions': 'No sessions',
@@ -174,6 +175,7 @@ describe('Sidebar', () => {
     } as Partial<ReturnType<typeof useChatStore.getState>>)
     useUIStore.setState({
       sidebarOpen: true,
+      pendingSettingsTab: null,
       addToast,
     } as Partial<ReturnType<typeof useUIStore.getState>>)
   })
@@ -196,6 +198,15 @@ describe('Sidebar', () => {
     ])
     expect(useTabStore.getState().activeTabId).toBe(DRAFT_TAB_ID)
     expect(screen.getByRole('complementary')).not.toHaveAttribute('data-tauri-drag-region')
+  })
+
+  it('opens the phone connection from the settings footer', () => {
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Phone connection' }))
+
+    expect(useTabStore.getState().activeTabId).toBe('__settings__')
+    expect(useUIStore.getState().pendingSettingsTab).toBe('adapters')
   })
 
   it('changes only the new-session default and opens a draft from an active session', () => {

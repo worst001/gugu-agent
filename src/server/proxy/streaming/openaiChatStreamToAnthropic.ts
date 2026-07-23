@@ -48,10 +48,8 @@ type StreamState = {
   blockStartSent: boolean   // content_block_start emitted for current block?
   blockStopSent: boolean    // content_block_stop emitted for current block?
   emittedTextByBlock: Map<number, string>
-  lastTextChunkByBlock: Map<number, string>
   snapshotTextBlocks: Set<number>
   emittedThinkingByBlock: Map<number, string>
-  lastThinkingChunkByBlock: Map<number, string>
   snapshotThinkingBlocks: Set<number>
 
   // Tool call tracking
@@ -83,10 +81,8 @@ function createState(model: string): StreamState {
     blockStartSent: false,
     blockStopSent: false,
     emittedTextByBlock: new Map(),
-    lastTextChunkByBlock: new Map(),
     snapshotTextBlocks: new Set(),
     emittedThinkingByBlock: new Map(),
-    lastThinkingChunkByBlock: new Map(),
     snapshotThinkingBlocks: new Set(),
     toolBlocks: new Map(),
     model,
@@ -400,7 +396,6 @@ function handleThinking(delta: DeltaEx, state: StreamState): void {
       reasoning.thinking,
       state.currentBlockIndex,
       state.emittedThinkingByBlock,
-      state.lastThinkingChunkByBlock,
       state.snapshotThinkingBlocks,
     )
     if (thinking) {
@@ -427,7 +422,6 @@ function handleText(delta: DeltaEx, state: StreamState): void {
     delta.content,
     state.currentBlockIndex,
     state.emittedTextByBlock,
-    state.lastTextChunkByBlock,
     state.snapshotTextBlocks,
   )
   if (!text) return
@@ -441,26 +435,17 @@ function normalizeSnapshotDelta(
   content: string,
   blockIndex: number,
   emittedByBlock: Map<number, string>,
-  lastChunkByBlock: Map<number, string>,
   snapshotBlocks: Set<number>,
 ): string {
   if (blockIndex < 0) return content
 
   const emitted = emittedByBlock.get(blockIndex) || ''
-  const lastChunk = lastChunkByBlock.get(blockIndex) || ''
-  lastChunkByBlock.set(blockIndex, content)
 
   if (!emitted) {
     emittedByBlock.set(blockIndex, content)
     return content
   }
 
-  // Some OpenAI-compatible relays repeatedly stream the full snapshot.
-  // A repeated long chunk is not an intentional duplicate sentence.
-  if (content === lastChunk && content.length >= 12) {
-    snapshotBlocks.add(blockIndex)
-    return ''
-  }
 
   if (content === emitted) {
     if (snapshotBlocks.has(blockIndex)) return ''

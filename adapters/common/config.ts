@@ -73,6 +73,14 @@ export type QqConfig = {
   defaultWorkDir: string
 }
 
+export type WeixinConfig = {
+  accountId: string
+  baseUrl: string
+  allowedUsers: string[]
+  pairedUsers: PairedUser[]
+  defaultWorkDir: string
+}
+
 export type AdapterConfig = {
   serverUrl: string
   defaultProjectDir: string
@@ -82,6 +90,7 @@ export type AdapterConfig = {
   dingtalk: DingtalkConfig
   wecom: WecomConfig
   qq: QqConfig
+  weixin: WeixinConfig
 }
 
 function getConfigPath(): string {
@@ -107,6 +116,7 @@ export function loadConfig(): AdapterConfig {
   const dt = file.dingtalk ?? {}
   const wc = file.wecom ?? {}
   const qq = file.qq ?? {}
+  const wx = file.weixin ?? {}
   const pairing = file.pairing ?? {}
 
   return {
@@ -164,6 +174,13 @@ export function loadConfig(): AdapterConfig {
       allowedUsers: qq.allowedUsers ?? [],
       pairedUsers: qq.pairedUsers ?? [],
       defaultWorkDir: qq.defaultWorkDir || process.cwd(),
+    },
+    weixin: {
+      accountId: wx.accountId || '',
+      baseUrl: wx.baseUrl || '',
+      allowedUsers: wx.allowedUsers ?? [],
+      pairedUsers: wx.pairedUsers ?? [],
+      defaultWorkDir: wx.defaultWorkDir || '',
     },
   }
 }

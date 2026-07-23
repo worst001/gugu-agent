@@ -411,4 +411,24 @@ describe('OpenAI-compatible snapshot streaming regressions', () => {
 
     expect(thinking).toEqual(['Inspecting files', ' and tests'])
   })
+
+  test('preserves identical consecutive text deltas', async () => {
+    const repeated = 'repeat this phrase'
+    const chunks = [
+      'data: {"id":"c2","object":"chat.completion.chunk","created":0,"model":"generic","choices":[{"index":0,"delta":{"content":"' + repeated + '"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c2","object":"chat.completion.chunk","created":0,"model":"generic","choices":[{"index":0,"delta":{"content":"' + repeated + '"},"finish_reason":null}]}\n\n',
+      'data: {"id":"c2","object":"chat.completion.chunk","created":0,"model":"generic","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ]
+
+    const events = await collectSse(openaiChatStreamToAnthropic(makeStream(chunks), 'generic'))
+    const text = events
+      .filter((event) => event.event === 'content_block_delta')
+      .map((event) => event.data.delta as Record<string, unknown>)
+      .filter((delta) => delta.type === 'text_delta')
+      .map((delta) => delta.text)
+      .join('')
+
+    expect(text).toBe(repeated + repeated)
+  })
 })

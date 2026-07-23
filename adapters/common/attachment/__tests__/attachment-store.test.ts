@@ -32,6 +32,12 @@ describe('AttachmentStore', () => {
     expect(target.endsWith('foo.pdf')).toBe(true)
   })
 
+  it('sanitizes IM session identifiers for Windows paths', () => {
+    const store = new AttachmentStore({ root: tmpRoot, retentionMs: 60_000 })
+    const target = store.resolvePath('qq', 'qq:private:123', 'report.txt')
+    expect(target).toContain(path.join('qq', 'qq_private_123'))
+  })
+
   it('sanitizes unsafe filenames (strips path separators and ..)', async () => {
     const store = new AttachmentStore({ root: tmpRoot, retentionMs: 60_000 })
     const target = store.resolvePath('feishu', 'sess-1', '../../etc/passwd')

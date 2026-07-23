@@ -114,7 +114,7 @@ struct AppExitState {
 
 /// 与 ServerState 平级的 adapter 子进程状态。
 ///
-/// adapter sidecar（claude-sidecar adapters --feishu --telegram --dingtalk --wecom --qq）的生命周期
+/// adapter sidecar（claude-sidecar adapters --feishu --telegram --dingtalk --wecom --qq --weixin）的生命周期
 /// 跟 server 不同：它没有 HTTP 端口可探活，没配凭据时会自己干净退出，
 /// 而且需要支持运行时热重启 —— 用户在设置页保存飞书 / Telegram 凭据后，
 /// 前端会通过 invoke('restart_adapters_sidecar') 来重启它，让新凭据生效。
@@ -312,13 +312,13 @@ fn get_server_url(state: State<'_, ServerState>) -> Result<String, String> {
         .unwrap_or_else(|| "desktop server did not start".to_string()))
 }
 
-/// 前端在设置页保存飞书 / Telegram 凭据后调用，触发 adapter sidecar 热重启。
+/// 前端在设置页保存 IM 凭据或完成微信扫码后调用，触发 adapter sidecar 热重启。
 ///
 /// 流程：
 ///   1. kill 当前 adapter 子进程（如果在跑）
 ///   2. spawn 新的 adapter 子进程
 ///   3. 新 sidecar 内部的 loadConfig() 会读到最新的 ~/.claude/adapters.json
-///      并重新建立 WebSocket 连接到飞书 / Telegram
+///      并重新建立对应的 IM 长连接
 ///
 /// 凭据缺失时 sidecar 自己会 warn + skip + 退出，所以这里不需要前置检查。
 #[tauri::command]
@@ -2538,6 +2538,7 @@ fn start_adapters_sidecar(
         "--dingtalk",
         "--wecom",
         "--qq",
+        "--weixin",
     ]);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     configure_sidecar_command(&mut command);

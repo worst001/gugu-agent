@@ -10,6 +10,10 @@ type Props = {
   newString: string
 }
 
+function normalizeDiffText(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+}
+
 function inferLanguage(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase()
   const langMap: Record<string, string> = {
@@ -116,7 +120,9 @@ const diffStyles = {
 export function DiffViewer({ filePath, oldString, newString }: Props) {
   const t = useTranslation()
   const language = inferLanguage(filePath)
-  const lineChanges = diffLines(oldString, newString)
+  const normalizedOldString = normalizeDiffText(oldString)
+  const normalizedNewString = normalizeDiffText(newString)
+  const lineChanges = diffLines(normalizedOldString, normalizedNewString)
   const additions = lineChanges.reduce(
     (count, change) => count + (change.added ? change.count ?? 0 : 0),
     0,
@@ -149,8 +155,8 @@ export function DiffViewer({ filePath, oldString, newString }: Props) {
       {/* Diff area */}
       <div className="max-h-[400px] overflow-auto">
         <ReactDiffViewer
-          oldValue={oldString}
-          newValue={newString}
+          oldValue={normalizedOldString}
+          newValue={normalizedNewString}
           splitView={false}
           compareMethod={DiffMethod.WORDS}
           renderContent={(str) => highlightSyntax(str, language)}

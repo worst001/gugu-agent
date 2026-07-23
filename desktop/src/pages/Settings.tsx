@@ -38,6 +38,7 @@ import { useBillingStore } from '../stores/billingStore'
 import type { BillingStatus } from '../types/billing'
 import { openTerminalFromAppAction } from '../utils/appActions'
 
+
 const SELF_CONFIG_PROVIDER_PRESET_ID = 'custom'
 const MANAGED_PROVIDER_PRESET_ID = 'gugu-managed'
 const USER_CONFIGURABLE_API_FORMATS = new Set<ApiFormat>([

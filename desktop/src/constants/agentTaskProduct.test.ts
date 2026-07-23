@@ -192,19 +192,19 @@ describe('agentTaskProduct', () => {
       .toBe('knowledge_worker')
   })
 
-  it('builds a hidden launch contract with the exact selected role', () => {
+  it('keeps launch wire short and free of product instructions', () => {
     const request = buildAgentTaskLaunchRequest(
       { id: 'task-launch', role: 'short_video_operator' },
-      '制作三个选题',
+      'Produce three topics',
     )
 
-    expect(request.wire).toContain('exact role "short_video_operator"')
-    expect(request.wire).toContain('AgentTask "task-launch"')
-    expect(request.wire).toContain('Do not create another task')
-    expect(request.wire).toContain('制作三个选题')
-    expect(request.wire).toContain('durable professional contract')
-    expect(request.wire).not.toContain('Assistant Overlay')
-    expect(request.display).toBe('制作三个选题')
+    expect(request.wire).toBe([
+      'Produce three topics',
+      'Use existing AgentTask task-launch with role short_video_operator; load it before substantive work.',
+    ].join('\n\n'))
+    expect(request.wire).not.toContain('[Gugu durable task request]')
+    expect(request.wire).not.toContain('Do not expose')
+    expect(request.display).toBe('Produce three topics')
   })
 
   it('builds a review request with an auditable parent relation', () => {

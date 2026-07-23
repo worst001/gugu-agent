@@ -18,6 +18,7 @@
  */
 
 import { existsSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseLauncherArgs, resolveSidecarInvocation } from './launcherRouting'
@@ -108,6 +109,7 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
   let enableDingtalk = false
   let enableWecom = false
   let enableQq = false
+  let enableWeixin = false
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i]
@@ -136,10 +138,14 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
       enableQq = true
       continue
     }
+    if (arg === '--weixin') {
+      enableWeixin = true
+      continue
+    }
     console.warn(`gugu-sidecar adapters: ignoring unknown arg "${arg}"`)
   }
 
-  if (!enableFeishu && !enableTelegram && !enableDingtalk && !enableWecom && !enableQq) {
+  if (!enableFeishu && !enableTelegram && !enableDingtalk && !enableWecom && !enableQq && !enableWeixin) {
     console.error(
       'gugu-sidecar adapters: must enable at least one IM adapter flag',
     )
@@ -255,6 +261,29 @@ async function runAdapters(rawArgs: string[]): Promise<void> {
       attemptedStart += 1
       if (await startBundledAdapter('qq')) {
         started += 1
+      }
+    }
+  }
+
+  if (enableWeixin) {
+    const configDir =
+      process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+    const credentialPath = path.join(configDir, 'weixin', 'credentials.json')
+    if (!existsSync(credentialPath)) {
+      console.warn(
+        '[gugu-sidecar] --weixin requested but WeChat is not connected - skipping',
+      )
+    } else {
+      console.log('[gugu-sidecar] starting WeChat adapter')
+      attemptedStart += 1
+      try {
+        await import('../../adapters/weixin/index.ts')
+        started += 1
+      } catch (err) {
+        console.error(
+          '[gugu-sidecar] failed to start WeChat adapter:',
+          err instanceof Error ? err.message : err,
+        )
       }
     }
   }

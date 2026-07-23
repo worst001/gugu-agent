@@ -1,6 +1,6 @@
 # 飞书接入
 
-> 飞书 Adapter 的接入教程。官方已经提供了**预配好权限的模板机器人**，跟着下面几步点一点就能完成接入。
+> 推荐直接在 Gugu Agent 桌面端扫码接入。扫码会自动创建应用、保存凭据并绑定扫码者；手填 App ID / App Secret 仅作为兼容兜底。
 
 ## 适用场景
 
@@ -8,14 +8,27 @@
 
 实现入口：`adapters/feishu/index.ts`
 
-## 先分清两个“飞书”
+## 推荐：在桌面端扫码接入
+
+1. 打开 `设置 → IM 接入`。
+2. 在「飞书」卡片点击「连接飞书」。
+3. 用手机系统相机扫描二维码；若飞书内置扫一扫提示 不合法，点击「在浏览器打开授权页」。
+4. 卡片显示「已连接」后，直接私聊新创建的 Bot 发送 `你好`。
+
+这条流程使用飞书官方 Node SDK 的设备授权：Gugu 只在本机显示二维码；确认后自动写入 App ID / App Secret，复用现有飞书 WebSocket 长连接，并把扫码者的 `open_id` 设为首个已配对用户。无需再生成 6 位配对码，也无需在桌面端手填密钥。
+
+企业租户可能要求管理员批准创建应用或相关权限；这是飞书侧的安全策略，需要在手机确认页按提示完成。断开连接只清除本机凭据，不会删除飞书租户里已创建的应用。
+
+## 手动接入（旧版本或故障兜底）
+
+### 先分清两个“飞书”
 
 - **飞书开发者后台（网页）**：创建应用、拿 App ID / App Secret、开启机器人能力、配置事件和权限、发布安装。入口是 [open.feishu.cn/app](https://open.feishu.cn/app?lang=zh-CN)。
 - **飞书 App（手机/电脑聊天客户端）**：像平时聊天一样私聊机器人，发送配对码和测试消息。
 
 下面步骤里说“开发者后台”，指网页管理台；说“飞书 App”，指手机或电脑里的聊天软件。
 
-## 1. 一键创建飞书机器人
+### 1. 一键创建飞书机器人
 
 直接打开下面的链接创建机器人——这是官方为 OpenClaw 提前配好所有权限（消息、事件、卡片回调等）的模板，省去手动配 scope 和事件订阅：
 
@@ -29,7 +42,7 @@
 
 创建成功后，把 **App ID** 和 **App Secret** 保存下来，接着去配置机器人菜单。
 
-## 2. 配置自定义菜单（/projects /new /clear）
+### 2. 配置自定义菜单（/projects /new /clear）
 
 进入[飞书开发者后台](https://open.feishu.cn/app?lang=zh-CN)，选择刚创建的机器人，进入机器人配置页：
 
@@ -67,7 +80,7 @@
 - `/new`：开启新对话
 - `/clear`：清空当前会话上下文
 
-## 3. 在 Gugu Agent 桌面端填写
+### 3. 在 Gugu Agent 桌面端填写
 
 ### 3.1 填写 App ID / App Secret
 
@@ -96,7 +109,7 @@
 
 生成新配对码后旧码会立即失效，请发送页面上最新的 6 位码。
 
-## 4. 飞书机器人与桌面端配对
+### 4. 飞书机器人与桌面端配对
 
 打开手机或电脑上的飞书 App，私聊刚才创建的机器人，按提示把上一步的 6 位配对码发给它：
 
@@ -136,13 +149,13 @@
 
 ### A. 本机 Gugu Agent
 
-- 已打开 `设置 → IM 接入 → 飞书`
-- 已填写 App ID / App Secret
-- 已点击「保存」
-- 已点击「启动/重启本地接入」
-- 已生成配对码，并在飞书 App 里私聊 Bot 发送最新 6 位码
+二维码方式：
 
-只有本地开发源码时才需要手动跑 `cd adapters && bun run feishu`。
+- 已打开 `设置 → IM 接入`，并在飞书卡片完成扫码
+- 卡片显示「已连接」
+- 扫码者已自动绑定，无需再生成或发送 6 位配对码
+
+手动兜底方式才需要填写 App ID / App Secret、保存、重启本地接入并发送配对码。只有本地开发源码时才需要手动跑 `cd adapters && bun run feishu`。
 
 ### B. 飞书开发者后台（网页）
 
@@ -200,7 +213,7 @@ export ADAPTER_SERVER_URL="ws://127.0.0.1:3456"
 
 ### 一键创建后的机器人权限够用吗？
 
-OpenClaw 官方模板已预配 `im:message.p2p_msg:readonly`、`im:message:send_as_bot`、`im:resource`、`im.message.receive_v1`、`card.action.trigger` 等所需权限，**不需要再手动去配 scope 或事件订阅**。
+桌面端二维码流程会在飞书官方基础模板上增量声明 `im:message.p2p_msg:readonly`、`im:message:send_as_bot`、`im:message:update`、`im:resource`、`im.message.receive_v1` 和 `card.action.trigger`。正常情况下无需手动配置；如果租户策略忽略了增量配置，再按上面的手动权限清单补齐并发布版本。
 
 ### 收不到消息
 
@@ -227,9 +240,9 @@ OpenClaw 官方模板已预配 `im:message.p2p_msg:readonly`、`im:message:send_
 
 ### 一直提示未授权
 
-- 配对码是否仍在 60 分钟有效期内
-- 发的是不是桌面端当前这一枚（重新生成后旧的立即失效）
-- `feishu.pairedUsers` 里是否已经写入当前 `open_id`
+- 二维码方式应自动把扫码者写入 `feishu.pairedUsers`；确认当前私聊账号就是扫码账号
+- 手动接入时，检查配对码是否仍在 60 分钟有效期内，且发送的是桌面端当前这一枚
+- 检查 `feishu.pairedUsers` 里是否已经写入当前 `open_id`
 
 ### 会话没恢复
 
@@ -237,6 +250,8 @@ OpenClaw 官方模板已预配 `im:message.p2p_msg:readonly`、`im:message:send_
 
 ## 源码入口
 
+- `src/server/services/feishuInstallService.ts`
+- `desktop/src/components/settings/FeishuConnectionCard.tsx`
 - `adapters/feishu/index.ts`
 - `adapters/common/pairing.ts`
 - `adapters/common/session-store.ts`

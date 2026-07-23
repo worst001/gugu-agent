@@ -223,15 +223,18 @@ export async function getGitReviewForWorkDir(
       ? { text: '', binary: false, truncated: false }
       : await readWorktreeText(currentPath)
     const binary = oldVersion.binary || newVersion.binary
+    const truncated = oldVersion.truncated || newVersion.truncated
 
     files.push({
       path: entry.path,
       ...(entry.oldPath ? { oldPath: entry.oldPath } : {}),
       status: entry.status,
       kind,
-      ...(!binary ? { oldText: oldVersion.text ?? '', newText: newVersion.text ?? '' } : {}),
+      ...(!binary && !truncated
+        ? { oldText: oldVersion.text ?? '', newText: newVersion.text ?? '' }
+        : {}),
       binary,
-      truncated: oldVersion.truncated || newVersion.truncated,
+      truncated,
     })
   }
 

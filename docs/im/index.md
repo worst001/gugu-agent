@@ -167,6 +167,7 @@ Adapter 不是直接把消息丢给一个全局 Claude 进程，而是：
 
 分别看：
 
+- [微信手机连接](./weixin.md)
 - [Telegram 接入](./telegram.md)
 - [飞书接入](./feishu.md)
 - [钉钉接入](./dingtalk.md)
