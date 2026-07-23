@@ -39,6 +39,11 @@ export class MessageDedup {
     return true
   }
 
+  /** Releases a reservation so failed processing can be retried. */
+  forget(id: string): void {
+    this.store.delete(id)
+  }
+
   private sweep(): void {
     const now = Date.now()
     for (const [key, ts] of this.store) {

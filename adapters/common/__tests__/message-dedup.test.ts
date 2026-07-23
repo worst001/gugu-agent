@@ -23,6 +23,12 @@ describe('MessageDedup', () => {
     expect(dedup.tryRecord('msg-1')).toBe(false)
   })
 
+  it('allows failed processing to release a message for retry', () => {
+    expect(dedup.tryRecord('msg-1')).toBe(true)
+    dedup.forget('msg-1')
+    expect(dedup.tryRecord('msg-1')).toBe(true)
+  })
+
   it('allows same ID after TTL expires', async () => {
     const shortDedup = new MessageDedup(50, 100) // 50ms TTL
     expect(shortDedup.tryRecord('msg-1')).toBe(true)

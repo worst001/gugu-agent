@@ -34,6 +34,7 @@ describe('provider capabilities', () => {
       requiresReasoningContentForToolCalls: false,
       thinkingRequestParam: null,
       cacheTelemetryStyle: 'openai',
+      cumulativeStreamDeltas: false,
     })
   })
 
@@ -60,6 +61,7 @@ describe('provider capabilities', () => {
     expect(capabilities.providerFamily).toBe('glm')
     expect(capabilities.openAIChat).toMatchObject({
       thinkingRequestParam: 'glm',
+      cumulativeStreamDeltas: true,
       toolStream: true,
     })
   })

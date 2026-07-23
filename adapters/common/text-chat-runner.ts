@@ -103,24 +103,29 @@ export class TextChatRunner {
     const dedupId = message.messageId || `${message.conversationId}:${Date.now()}:${text}:${attachmentFingerprint}`
     if (!this.dedup.tryRecord(dedupId)) return
 
-    if (!isAllowedUser(this.options.platform, message.userId)) {
-      const success = tryPair(
-        text,
-        { userId: message.userId, displayName: message.displayName || this.options.userLabel },
-        this.options.platform,
-      )
-      await this.sendText(
-        message.conversationId,
-        success
-          ? '配对成功！现在可以开始聊天了。\n\n发送消息即可与 Gu Agent 对话。'
-          : '未授权。请在 Gugu Agent 桌面端生成配对码后发送给我。',
-      )
-      return
-    }
+    try {
+      if (!isAllowedUser(this.options.platform, message.userId)) {
+        const success = tryPair(
+          text,
+          { userId: message.userId, displayName: message.displayName || this.options.userLabel },
+          this.options.platform,
+        )
+        await this.sendText(
+          message.conversationId,
+          success
+            ? '配对成功！现在可以开始聊天了。\n\n发送消息即可与 Gu Agent 对话。'
+            : '未授权。请在 Gugu Agent 桌面端生成配对码后发送给我。',
+        )
+        return
+      }
 
-    return enqueue(message.conversationId, async () => {
-      await this.routeText(message.conversationId, text, attachments, message.messageId)
-    })
+      return await enqueue(message.conversationId, async () => {
+        await this.routeText(message.conversationId, text, attachments, message.messageId)
+      })
+    } catch (error) {
+      this.dedup.forget(dedupId)
+      throw error
+    }
   }
 
   private async routeText(

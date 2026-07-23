@@ -9,6 +9,7 @@ export type OpenAIChatProviderCapabilities = {
   requiresReasoningContentForToolCalls: boolean
   thinkingRequestParam: ThinkingRequestParam | null
   cacheTelemetryStyle: CacheTelemetryStyle | null
+  cumulativeStreamDeltas: boolean
   toolStream: boolean
 }
 
@@ -30,6 +31,7 @@ export const GENERIC_OPENAI_CHAT_CAPABILITIES: OpenAIChatProviderCapabilities = 
   requiresReasoningContentForToolCalls: false,
   thinkingRequestParam: null,
   cacheTelemetryStyle: 'openai',
+  cumulativeStreamDeltas: false,
   toolStream: false,
 }
 
@@ -38,6 +40,7 @@ const DEEPSEEK_OPENAI_CHAT_CAPABILITIES: OpenAIChatProviderCapabilities = {
   requiresReasoningContentForToolCalls: true,
   thinkingRequestParam: 'deepseek',
   cacheTelemetryStyle: 'deepseek',
+  cumulativeStreamDeltas: false,
   toolStream: false,
 }
 
@@ -46,6 +49,7 @@ const GLM_OPENAI_CHAT_CAPABILITIES: OpenAIChatProviderCapabilities = {
   requiresReasoningContentForToolCalls: false,
   thinkingRequestParam: null,
   cacheTelemetryStyle: 'openai',
+  cumulativeStreamDeltas: true,
   toolStream: false,
 }
 
@@ -54,6 +58,7 @@ const KIMI_OPENAI_CHAT_CAPABILITIES: OpenAIChatProviderCapabilities = {
   requiresReasoningContentForToolCalls: false,
   thinkingRequestParam: null,
   cacheTelemetryStyle: 'openai',
+  cumulativeStreamDeltas: false,
   toolStream: false,
 }
 

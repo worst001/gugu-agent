@@ -122,7 +122,11 @@ describe('openaiChatStreamToAnthropic', () => {
       'data: [DONE]\n\n',
     ]
 
-    const events = await collectSse(openaiChatStreamToAnthropic(makeStream(sseChunks), 'compatible-chat'))
+    const events = await collectSse(openaiChatStreamToAnthropic(
+      makeStream(sseChunks),
+      'compatible-chat',
+      true,
+    ))
     const texts = events
       .filter((e) => e.event === 'content_block_delta')
       .map((e) => (e.data.delta as Record<string, unknown>).text)
@@ -402,7 +406,7 @@ describe('OpenAI-compatible snapshot streaming regressions', () => {
       'data: [DONE]\n\n',
     ]
 
-    const events = await collectSse(openaiChatStreamToAnthropic(makeStream(chunks), 'glm-5'))
+    const events = await collectSse(openaiChatStreamToAnthropic(makeStream(chunks), 'glm-5', true))
     const thinking = events
       .filter((event) => event.event === 'content_block_delta')
       .map((event) => event.data.delta as Record<string, unknown>)

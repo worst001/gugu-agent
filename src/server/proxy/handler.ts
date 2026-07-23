@@ -869,7 +869,11 @@ async function handleOpenaiChat(
         { status: 502 },
       )
     }
-    const anthropicStream = openaiChatStreamToAnthropic(upstream.body, body.model)
+    const anthropicStream = openaiChatStreamToAnthropic(
+      upstream.body,
+      body.model,
+      capabilities.cumulativeStreamDeltas,
+    )
     return new Response(monitorAnthropicSseStream(anthropicStream, abortUpstream), {
       status: 200,
       headers: {

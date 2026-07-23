@@ -84,11 +84,13 @@ account ID, and recovers as an empty cursor when its JSON is malformed. Polling
 uses bounded requests and backoff. UI installation polling retries transient
 local/provider errors.
 
-The current cursor policy commits the provider cursor before dispatch. This is
-an explicit at-most-once tradeoff: it avoids replay after restart but a process
-failure between commit and dispatch can lose that batch. Persistent inbox
-delivery is a future change, not something to hide behind the in-memory dedup
-cache.
+The current cursor policy waits for every message handler in a provider batch
+before committing the provider cursor. Handler failures leave the cursor
+unchanged and release the in-memory dedup reservation so the message can be
+retried. A crash after some handlers finish but before the batch cursor is
+committed can replay those messages after restart because deduplication is
+memory-only. A persistent inbox or idempotent acknowledgement remains the
+production-grade upgrade.
 
 ## Security boundary
 

@@ -118,4 +118,27 @@ describe('git review service', () => {
       newText: 'rename me\n',
     })
   })
+
+  it('does not fabricate text diffs for files larger than 2 MiB', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gugu-oversized-git-review-'))
+    cleanupDirs.push(root)
+    await git(root, 'init')
+    const largePath = path.join(root, 'large.txt')
+    const largeSize = 2 * 1024 * 1024 + 1
+    await fs.writeFile(largePath, 'a'.repeat(largeSize))
+    await git(root, 'add', 'large.txt')
+    await git(root, '-c', 'user.name=Gugu', '-c', 'user.email=gugu@example.com', 'commit', '-m', 'initial')
+    await fs.writeFile(largePath, 'b'.repeat(largeSize))
+
+    const review = await getGitReviewForWorkDir(root, 'large.txt')
+    const file = review.files.find((entry) => entry.path === 'large.txt')
+
+    expect(file).toMatchObject({
+      kind: 'edited',
+      binary: false,
+      truncated: true,
+    })
+    expect(file).not.toHaveProperty('oldText')
+    expect(file).not.toHaveProperty('newText')
+  })
 })

@@ -51,6 +51,7 @@ type StreamState = {
   snapshotTextBlocks: Set<number>
   emittedThinkingByBlock: Map<number, string>
   snapshotThinkingBlocks: Set<number>
+  cumulativeStreamDeltas: boolean
 
   // Tool call tracking
   toolBlocks: Map<number, ToolBlockState>
@@ -72,7 +73,7 @@ function formatSse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
-function createState(model: string): StreamState {
+function createState(model: string, cumulativeStreamDeltas: boolean): StreamState {
   return {
     queue: [],
     currentBlockType: 'text',
@@ -84,6 +85,7 @@ function createState(model: string): StreamState {
     snapshotTextBlocks: new Set(),
     emittedThinkingByBlock: new Map(),
     snapshotThinkingBlocks: new Set(),
+    cumulativeStreamDeltas,
     toolBlocks: new Map(),
     model,
     messageStartSent: false,
@@ -101,11 +103,12 @@ function createState(model: string): StreamState {
 export function openaiChatStreamToAnthropic(
   upstream: ReadableStream<Uint8Array>,
   model: string,
+  cumulativeStreamDeltas = false,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
   let buffer = ''
-  const state = createState(model)
+  const state = createState(model, cumulativeStreamDeltas)
 
   return new ReadableStream({
     async start(controller) {
@@ -392,12 +395,14 @@ function handleThinking(delta: DeltaEx, state: StreamState): void {
   }
 
   if (reasoning.thinking) {
-    const thinking = normalizeSnapshotDelta(
-      reasoning.thinking,
-      state.currentBlockIndex,
-      state.emittedThinkingByBlock,
-      state.snapshotThinkingBlocks,
-    )
+    const thinking = state.cumulativeStreamDeltas
+      ? normalizeSnapshotDelta(
+          reasoning.thinking,
+          state.currentBlockIndex,
+          state.emittedThinkingByBlock,
+          state.snapshotThinkingBlocks,
+        )
+      : reasoning.thinking
     if (thinking) {
       emitDelta(state, state.currentBlockIndex, {
         type: 'thinking_delta', thinking,
@@ -418,12 +423,14 @@ function handleText(delta: DeltaEx, state: StreamState): void {
     openBlock(state, 'text', { type: 'text', text: '' })
   }
 
-  const text = normalizeSnapshotDelta(
-    delta.content,
-    state.currentBlockIndex,
-    state.emittedTextByBlock,
-    state.snapshotTextBlocks,
-  )
+  const text = state.cumulativeStreamDeltas
+    ? normalizeSnapshotDelta(
+        delta.content,
+        state.currentBlockIndex,
+        state.emittedTextByBlock,
+        state.snapshotTextBlocks,
+      )
+    : delta.content
   if (!text) return
 
   emitDelta(state, state.currentBlockIndex, {
