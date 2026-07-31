@@ -52,7 +52,7 @@ const sourceLocatorSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('file'),
     path: z.string().min(1),
-    toolUseId: z.string().min(1),
+    toolUseId: z.string().min(1).optional(),
   }),
   z.strictObject({
     kind: z.literal('attachment'),
@@ -71,7 +71,7 @@ const sourceLocatorSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('url'),
     url: z.string().min(1),
-    toolUseId: z.string().min(1),
+    toolUseId: z.string().min(1).optional(),
   }),
 ])
 
@@ -504,6 +504,7 @@ Lifecycle: create, begin, scout, plan, execution, verification, review.
 - Run all file edits and commands through the existing tools and permission flow.
 - During scout, use recall when prior local task outcomes may help. Returned entries are pending hints; verify their Evidence or Provenance before reuse.
 - Record provenance for every message, attachment, file read, tool result, or URL that materially informs the task before finishing review.
+- For file and URL provenance, pass the observed path or URL without toolUseId; the runtime resolves and verifies the internal ID from the Session transcript.
 - Record scout and plan only after doing that phase's work. If the task has no required checks yet, provide real runnable requiredChecks with the plan action.
 - For verification, submit the exact declared command, exit code, timestamps, and output from commands that actually ran.
 - A failed or missing required check cannot complete the task.

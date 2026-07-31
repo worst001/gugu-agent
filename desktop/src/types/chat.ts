@@ -190,7 +190,7 @@ export type UIMessage =
   | { id: string; type: 'thinking'; content: string; timestamp: number; rawContent?: string; origin?: TurnOrigin }
   | { id: string; type: 'tool_use'; toolName: string; toolUseId: string; input: unknown; timestamp: number; parentToolUseId?: string; origin?: TurnOrigin }
   | { id: string; type: 'tool_result'; toolUseId: string; content: unknown; isError: boolean; timestamp: number; parentToolUseId?: string; origin?: TurnOrigin }
-  | { id: string; type: 'system'; content: string; timestamp: number; origin?: TurnOrigin; variant?: 'compact_pending' | 'compact_complete' | 'task_context' }
+  | { id: string; type: 'system'; content: string; timestamp: number; origin?: TurnOrigin; variant?: 'compact_pending' | 'compact_complete' | 'task_context' | 'stage_result' }
   | {
       id: string
       type: 'permission_request'

@@ -1614,6 +1614,7 @@ describe('chatStore history mapping', () => {
       {
         type: 'system',
         content: '本轮响应长时间未恢复，已自动停止。当前停在：等待模型继续输出；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。',
+        variant: 'stage_result',
       },
     ])
   })
@@ -1989,6 +1990,27 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('strips the durable task launch suffix when restoring user transcript history', () => {
+    const mapped = mapHistoryMessagesToUiMessages([
+      {
+        id: 'user-durable-task',
+        type: 'user',
+        content: [
+          'Read README.md and extract three rules.',
+          'Use existing AgentTask task-123 with role knowledge_worker; load it before substantive work.',
+        ].join('\n\n'),
+        timestamp: '2026-07-30T00:00:00.000Z',
+      },
+    ])
+
+    expect(mapped).toMatchObject([
+      {
+        type: 'user_text',
+        content: 'Read README.md and extract three rules.',
+      },
+    ])
+  })
+
   it('does not show internal office toolbox fallback text for attachment-only history', () => {
     const { wire } = buildOfficeToolMessage('file-assistant', '', {
       hasAttachments: true,
@@ -2289,6 +2311,7 @@ describe('chatStore history mapping', () => {
     expect(session?.messages[0]).toMatchObject({
       type: 'system',
       content: '本轮响应长时间未恢复，已自动停止。当前停在：等待上游模型继续输出；尚未得到最终回复。你可以重新运行，或直接说「从这里继续」。',
+      variant: 'stage_result',
     })
   })
 

@@ -32,6 +32,14 @@ type TranscriptIndex = {
   toolResults: Map<string, ToolResultObservation | null>
 }
 
+type FileSourceLocator = Extract<SourceLocator, { kind: 'file' }>
+type UrlSourceLocator = Extract<SourceLocator, { kind: 'url' }>
+
+export type ProvenanceSourceLocator =
+  | (Omit<FileSourceLocator, 'toolUseId'> & { toolUseId?: string })
+  | (Omit<UrlSourceLocator, 'toolUseId'> & { toolUseId?: string })
+  | Exclude<SourceLocator, FileSourceLocator | UrlSourceLocator>
+
 export class AgentTaskProvenanceValidationError extends Error {
   constructor(message: string) {
     super(message)
@@ -119,6 +127,31 @@ function requireSuccessfulTool(
   return { use, result }
 }
 
+function findLatestSuccessfulToolUseId(
+  index: TranscriptIndex,
+  predicate: (use: ToolUseObservation) => boolean,
+  label: string,
+): string {
+  let found: string | undefined
+  for (const [toolUseId, use] of index.toolUses) {
+    const result = index.toolResults.get(toolUseId)
+    if (
+      use &&
+      result &&
+      result.block.is_error !== true &&
+      predicate(use)
+    ) {
+      found = toolUseId
+    }
+  }
+  if (!found) {
+    throw new AgentTaskProvenanceValidationError(
+      'Successful tool use not found: ' + label,
+    )
+  }
+  return found
+}
+
 function extractText(value: unknown): string {
   const parts: string[] = []
   const visit = (item: unknown): void => {
@@ -155,12 +188,18 @@ function comparablePath(value: string): string {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
-function normalizedUrl(value: string): string {
+function tryNormalizedUrl(value: string): string | undefined {
   try {
     return new URL(value).href
   } catch {
-    throw new AgentTaskProvenanceValidationError(`Invalid source URL: ${value}`)
+    return undefined
   }
+}
+
+function normalizedUrl(value: string): string {
+  const normalized = tryNormalizedUrl(value)
+  if (!normalized) throw new AgentTaskProvenanceValidationError(`Invalid source URL: ${value}`)
+  return normalized
 }
 
 function makeSource(
@@ -183,7 +222,8 @@ function makeSource(
 function resolveSource(
   sessionId: string,
   index: TranscriptIndex,
-  locator: SourceLocator,
+  workspacePath: string,
+  locator: ProvenanceSourceLocator,
 ): SourceRef {
   switch (locator.kind) {
     case 'message': {
@@ -261,7 +301,22 @@ function resolveSource(
     }
 
     case 'file': {
-      const { use, result } = requireSuccessfulTool(index, locator.toolUseId)
+      const requestedPath = isAbsolute(locator.path)
+        ? locator.path
+        : resolve(workspacePath, locator.path)
+      const toolUseId = locator.toolUseId ?? findLatestSuccessfulToolUseId(
+        index,
+        (candidate) => {
+          const candidatePath = typeof candidate.input.file_path === 'string'
+            ? candidate.input.file_path
+            : ''
+          return candidate.name === FILE_READ_TOOL_NAME &&
+            isAbsolute(candidatePath) &&
+            comparablePath(requestedPath) === comparablePath(candidatePath)
+        },
+        'Read for file ' + requestedPath,
+      )
+      const { use, result } = requireSuccessfulTool(index, toolUseId)
       const observedPath = typeof use.input.file_path === 'string'
         ? use.input.file_path
         : ''
@@ -269,23 +324,31 @@ function resolveSource(
         use.name !== FILE_READ_TOOL_NAME ||
         !observedPath ||
         !isAbsolute(observedPath) ||
-        comparablePath(locator.path) !== comparablePath(observedPath)
+        comparablePath(requestedPath) !== comparablePath(observedPath)
       ) {
         throw new AgentTaskProvenanceValidationError(
-          `File source does not match Read tool use: ${locator.toolUseId}`,
+          `File source does not match Read tool use: ${toolUseId}`,
         )
       }
       return makeSource(
         sessionId,
         basename(observedPath),
-        { kind: 'file', path: observedPath, toolUseId: locator.toolUseId },
+        { kind: 'file', path: observedPath, toolUseId },
         result.message.timestamp,
         result.block.content,
       )
     }
 
     case 'url': {
-      const { use, result } = requireSuccessfulTool(index, locator.toolUseId)
+      const url = normalizedUrl(locator.url)
+      const toolUseId = locator.toolUseId ?? findLatestSuccessfulToolUseId(
+        index,
+        (candidate) => candidate.name === WEB_FETCH_TOOL_NAME &&
+          typeof candidate.input.url === 'string' &&
+          url === tryNormalizedUrl(candidate.input.url),
+        'WebFetch for URL ' + url,
+      )
+      const { use, result } = requireSuccessfulTool(index, toolUseId)
       const observedUrl = typeof use.input.url === 'string' ? use.input.url : ''
       if (
         use.name !== WEB_FETCH_TOOL_NAME ||
@@ -293,14 +356,13 @@ function resolveSource(
         normalizedUrl(locator.url) !== normalizedUrl(observedUrl)
       ) {
         throw new AgentTaskProvenanceValidationError(
-          `URL source does not match WebFetch tool use: ${locator.toolUseId}`,
+          `URL source does not match WebFetch tool use: ${toolUseId}`,
         )
       }
-      const url = normalizedUrl(observedUrl)
       return makeSource(
         sessionId,
         url,
-        { kind: 'url', url, toolUseId: locator.toolUseId },
+        { kind: 'url', url, toolUseId },
         result.message.timestamp,
         result.block.content,
       )
@@ -313,7 +375,7 @@ export class AgentTaskProvenanceService {
 
   async buildPack(
     task: AgentTask,
-    locators: SourceLocator[],
+    locators: ProvenanceSourceLocator[],
   ): Promise<ProvenancePack> {
     const sessionId = task.sessionId?.trim()
     if (!sessionId) {
@@ -329,7 +391,7 @@ export class AgentTaskProvenanceService {
     const index = indexTranscript(await this.sessions.getSessionMessages(sessionId))
     const seen = new Set<string>()
     const sources = locators.flatMap((locator) => {
-      const source = resolveSource(sessionId, index, locator)
+      const source = resolveSource(sessionId, index, task.workspacePath!, locator)
       const key = JSON.stringify(source.locator)
       if (seen.has(key)) return []
       seen.add(key)
@@ -352,7 +414,7 @@ export class AgentTaskProvenanceService {
 
 export async function recordAgentTaskProvenance(
   task: AgentTask,
-  locators: SourceLocator[],
+  locators: ProvenanceSourceLocator[],
   store: AgentTaskProvenanceStore,
   resolver = new AgentTaskProvenanceService(),
 ): Promise<ProvenancePack> {

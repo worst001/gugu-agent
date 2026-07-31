@@ -175,6 +175,7 @@ describe('Sidebar', () => {
     } as Partial<ReturnType<typeof useChatStore.getState>>)
     useUIStore.setState({
       sidebarOpen: true,
+      collapsedSidebarProjects: new Set(),
       pendingSettingsTab: null,
       addToast,
     } as Partial<ReturnType<typeof useUIStore.getState>>)
@@ -429,6 +430,33 @@ describe('Sidebar', () => {
 
     expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Investigate bug/ })).toBeInTheDocument()
+  })
+
+  it('keeps collapsed project groups after the sidebar remounts', () => {
+    useSessionStore.setState({
+      sessions: [
+        {
+          id: 'session-a',
+          title: 'Build feature',
+          createdAt: '2026-06-19T08:00:00.000Z',
+          modifiedAt: '2026-06-19T09:00:00.000Z',
+          messageCount: 2,
+          projectPath: '/workspace/project-a',
+          workDir: '/workspace/project-a',
+          workDirExists: true,
+        },
+      ],
+    })
+
+    const view = render(<Sidebar />)
+    fireEvent.click(getProjectGroupButton(/project-a/))
+    expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
+
+    view.unmount()
+    render(<Sidebar />)
+
+    expect(getProjectGroupButton(/project-a/)).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: /Build feature/ })).not.toBeInTheDocument()
   })
 
   it('auto-expands collapsed project groups while searching', () => {

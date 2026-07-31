@@ -29,13 +29,19 @@ type AttachmentRef = {
   mimeType?: string
 }
 
+type SdkSocket = {
+  send(data: string): void
+  close?(code?: number, reason?: string): void
+}
+
+
 type SessionProcess = {
   proc: ReturnType<typeof Bun.spawn>
   outputCallbacks: Array<(msg: any) => void>
   workDir: string
   permissionMode: string
   sdkToken: string
-  sdkSocket: { send(data: string): void } | null
+  sdkSocket: SdkSocket | null
   pendingOutbound: string[]
   stderrLines: string[]
   /** Bun/CLI sometimes prints fatal lines to stdout; was previously discarded (stdout: ignore). */
@@ -474,12 +480,16 @@ export class ConversationService {
 
   attachSdkConnection(
     sessionId: string,
-    socket: { send(data: string): void },
+    socket: SdkSocket,
   ): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
+    const previous = session.sdkSocket
 
     session.sdkSocket = socket
+    if (previous && previous !== socket) {
+      previous.close?.(1000, 'Replaced by a newer SDK connection')
+    }
     while (session.pendingOutbound.length > 0) {
       const line = session.pendingOutbound.shift()
       if (line) {
@@ -491,7 +501,7 @@ export class ConversationService {
 
   detachSdkConnection(
     sessionId: string,
-    socket?: { send(data: string): void },
+    socket?: SdkSocket,
   ): boolean {
     const session = this.sessions.get(sessionId)
     if (!session || (socket && session.sdkSocket !== socket)) return false
@@ -499,9 +509,13 @@ export class ConversationService {
     return true
   }
 
-  handleSdkPayload(sessionId: string, rawPayload: string): void {
+  handleSdkPayload(
+    sessionId: string,
+    rawPayload: string,
+    socket?: SdkSocket,
+  ): void {
     const session = this.sessions.get(sessionId)
-    if (!session) return
+    if (!session || (socket && session.sdkSocket !== socket)) return
 
     const lines = rawPayload
       .split('\n')

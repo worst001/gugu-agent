@@ -59,6 +59,14 @@ describe('AgentTaskTool', () => {
     expect(prompt).toContain('assistantId and assistantName together')
     expect(prompt).toContain('relation "review"')
     expect(prompt).toContain('teamId or taskTemplateId')
+    expect(prompt).toContain('without toolUseId')
+    expect(AgentTaskTool.inputSchema.safeParse({
+      action: 'provenance',
+      sources: [{
+        kind: 'file',
+        path: 'D:/workspace/facts.md',
+      }],
+    }).success).toBe(true)
     expect(AgentTaskTool.inputSchema.safeParse({
       action: 'provenance',
       sources: [{

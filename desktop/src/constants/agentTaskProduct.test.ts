@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildAgentTaskLaunchRequest,
   buildAgentTaskReviewRequest,
+  extractAgentTaskLaunchDisplayText,
   detectAgentTaskTeam,
   recommendAgentTaskRole,
   recommendAgentTaskTeam,
@@ -205,6 +206,8 @@ describe('agentTaskProduct', () => {
     expect(request.wire).not.toContain('[Gugu durable task request]')
     expect(request.wire).not.toContain('Do not expose')
     expect(request.display).toBe('Produce three topics')
+    expect(extractAgentTaskLaunchDisplayText(request.wire)).toBe('Produce three topics')
+    expect(extractAgentTaskLaunchDisplayText(request.display)).toBeNull()
   })
 
   it('builds a review request with an auditable parent relation', () => {

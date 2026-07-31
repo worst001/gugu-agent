@@ -163,6 +163,27 @@ describe('MessageList nested tool calls', () => {
     expect(screen.getByText('The configuration is valid. I will verify the build next.')).toBeTruthy()
   })
 
+  it('renders a terminal recovery notice as a stage result', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{
+            id: 'recovery-stage',
+            type: 'system',
+            content: 'The interrupted turn stopped. Continue from the recorded checkpoint.',
+            timestamp: 1,
+            variant: 'stage_result',
+          }],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Stage result')).toBeTruthy()
+    expect(screen.getByText('The interrupted turn stopped. Continue from the recorded checkpoint.')).toBeTruthy()
+  })
+
   it('shows a recovery card instead of a blank transcript when known history has no visible messages', async () => {
     const reloadHistory = vi.spyOn(useChatStore.getState(), 'reloadHistory').mockResolvedValue(undefined)
 
@@ -1686,5 +1707,36 @@ describe('MessageList nested tool calls', () => {
     ).toBeTruthy()
     expect(screen.getByText('Open subscription')).toBeTruthy()
     expect(screen.queryByText('Error:')).toBeNull()
+  })
+
+  it('shows conversation position controls when scrolled away from the latest reply', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{
+            id: 'older-reply',
+            type: 'assistant_text',
+            content: 'An older reply',
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const container = screen.getByTestId('message-scroll-container')
+    const scrollTo = vi.fn()
+    Object.defineProperties(container, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 500 },
+      scrollTop: { configurable: true, writable: true, value: 100 },
+      scrollTo: { configurable: true, value: scrollTo },
+    })
+    fireEvent.scroll(container)
+
+    expect(screen.getByRole('button', { name: 'Conversation overview' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Scroll to latest reply' }))
+    expect(scrollTo).toHaveBeenCalledWith({ top: 2000, behavior: 'smooth' })
   })
 })

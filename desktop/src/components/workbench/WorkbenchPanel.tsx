@@ -325,6 +325,7 @@ export function WorkbenchPanel({ sessionId, messages, workDir }: Props) {
                 />
                 <WorkspaceFileTree
                   root={workDir}
+                  initialPath={state.selectedFilePath}
                   fallback={selectedAttachment ? (
                     <PreviewRenderer attachment={selectedAttachment} />
                   ) : (

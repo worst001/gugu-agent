@@ -488,6 +488,14 @@ type MessageListProps = {
 }
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 48
+const JUMP_TO_BOTTOM_THRESHOLD_PX = 160
+const EMPTY_SCROLL_METRICS = {
+  scrollable: false,
+  awayFromBottom: false,
+  topPercent: 0,
+  viewportPercent: 100,
+}
+
 const PLAN_CONFIRMATION_RECENT_MS = 5 * 60 * 1000
 
 function isNearScrollBottom(element: HTMLElement) {
@@ -594,6 +602,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const [planConfirmationTarget, setPlanConfirmationTarget] = useState<PlanConfirmationTarget | null>(null)
   const [planUpdateText, setPlanUpdateText] = useState('')
   const dismissedPlanConfirmationIdsRef = useRef<Set<string>>(new Set())
+  const [scrollMetrics, setScrollMetrics] = useState(EMPTY_SCROLL_METRICS)
 
   const stopActiveTurn = useCallback(() => {
     if (!resolvedSessionId || isMemberSession) return
@@ -620,12 +629,36 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
     const container = scrollContainerRef.current
     if (!container) return
     shouldAutoScrollRef.current = isNearScrollBottom(container)
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    const scrollHeight = Math.max(container.scrollHeight, 1)
+    const next = {
+      scrollable: container.scrollHeight - container.clientHeight > 1,
+      awayFromBottom: distanceToBottom > JUMP_TO_BOTTOM_THRESHOLD_PX,
+      topPercent: Math.round((container.scrollTop / scrollHeight) * 100),
+      viewportPercent: Math.round((container.clientHeight / scrollHeight) * 100),
+    }
+    setScrollMetrics((current) => (
+      current.scrollable === next.scrollable &&
+      current.awayFromBottom === next.awayFromBottom &&
+      current.topPercent === next.topPercent &&
+      current.viewportPercent === next.viewportPercent
+        ? current
+        : next
+    ))
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    shouldAutoScrollRef.current = true
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
   }, [])
 
   useEffect(() => {
     if (lastSessionIdRef.current !== resolvedSessionId) {
       shouldAutoScrollRef.current = true
       lastSessionIdRef.current = resolvedSessionId
+      setScrollMetrics(EMPTY_SCROLL_METRICS)
     }
 
     if (!shouldAutoScrollRef.current) return
@@ -1011,11 +1044,14 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   let latestMessageActionTarget: MessageActionTarget | null = null
 
   return (
-    <div
-      ref={scrollContainerRef}
-      onScroll={updateAutoScrollState}
-      className="flex-1 overflow-y-auto px-4 py-4"
-    >
+    <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div
+        ref={scrollContainerRef}
+        onScroll={updateAutoScrollState}
+        className="flex-1 overflow-y-auto px-4 py-4"
+        data-testid="message-scroll-container"
+        style={{ height: '100%' }}
+      >
       <div className="mx-auto max-w-[860px]">
         {renderItems.map((item, itemIndex) => {
           if (item.kind === 'tool_group') {
@@ -1448,6 +1484,54 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
         </div>
       </Modal>
 
+      </div>
+
+      {scrollMetrics.scrollable && (
+        <button
+          type="button"
+          aria-label={t('chat.conversationOverview')}
+          title={t('chat.conversationOverview')}
+          onClick={(event) => {
+            const container = scrollContainerRef.current
+            if (!container) return
+            const bounds = event.currentTarget.getBoundingClientRect()
+            if (bounds.height <= 0) return
+            const ratio = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height))
+            container.scrollTo({
+              top: ratio * Math.max(0, container.scrollHeight - container.clientHeight),
+              behavior: 'smooth',
+            })
+          }}
+          className="absolute right-2 top-1/2 z-10 h-[min(42vh,280px)] min-h-24 w-3 -translate-y-1/2 rounded-full opacity-45 transition-opacity hover:opacity-90 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+          style={{
+            backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0 6px, var(--color-text-tertiary) 6px 7px, transparent 7px 10px)',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            className="absolute left-1/2 w-2 -translate-x-1/2 rounded-full border border-[var(--color-text-secondary)] bg-[var(--color-surface)]/80"
+            style={{
+              top: `${Math.min(
+                scrollMetrics.topPercent,
+                100 - Math.max(6, scrollMetrics.viewportPercent),
+              )}%`,
+              height: `${Math.max(6, scrollMetrics.viewportPercent)}%`,
+            }}
+          />
+        </button>
+      )}
+
+      {scrollMetrics.awayFromBottom && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          aria-label={t('chat.scrollToBottom')}
+          title={t('chat.scrollToBottom')}
+          className="absolute bottom-5 left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface-container)] text-[var(--color-text-secondary)] shadow-lg transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+        >
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">arrow_downward</span>
+        </button>
+      )}
     </div>
   )
 }
@@ -1699,6 +1783,16 @@ export const MessageBlock = memo(function MessageBlock({
     case 'task_summary':
       return <InlineTaskSummary tasks={message.tasks} />
     case 'system':
+      if (message.variant === 'stage_result') {
+        return (
+          <AssistantMessage
+            content={message.content}
+            isStageResult
+            localPathBase={localPathBase}
+            sessionId={sessionId}
+          />
+        )
+      }
       if (message.variant === 'compact_pending' || message.variant === 'compact_complete') {
         return <CompactStatusDivider message={message} />
       }

@@ -15,6 +15,7 @@ import { type CeWorkflowModelPreference } from '../constants/ceWorkflowRoles'
 import { extractAgentRunModeDisplayText } from '../constants/agentRunModes'
 import { isOfficeToolInternalFallbackRequest, type OfficeToolId } from '../constants/officeTools'
 import { extractTaskContextDisplayText } from '../constants/taskContextGraph'
+import { extractAgentTaskLaunchDisplayText } from '../constants/agentTaskProduct'
 import type { MessageEntry } from '../types/session'
 import type { EffortLevel, PermissionMode } from '../types/settings'
 import type {
@@ -848,6 +849,7 @@ function stripHiddenUserPromptScaffolding(content: string): string {
   let stripped = content
   for (let i = 0; i < 8; i += 1) {
     const next = extractTaskContextDisplayText(stripped)
+      ?? extractAgentTaskLaunchDisplayText(stripped)
       ?? extractAgentRunModeDisplayText(stripped)
       ?? extractAttachmentParserDisplayText(stripped)
       ?? extractOfficeToolboxDisplayText(stripped)
@@ -1993,7 +1995,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               : maxTurnsReachedPrompt
                 ? appendSystemMessage(newMessages, maxTurnsReachedPrompt, Date.now())
                 : agentRecoveryPrompt
-                  ? appendSystemMessage(newMessages, agentRecoveryPrompt, Date.now())
+                  ? appendSystemMessage(newMessages, agentRecoveryPrompt, Date.now(), 'stage_result')
                   : [...newMessages, { id: nextId(), type: 'error', message: msg.message, code: msg.code, timestamp: Date.now() }]
             return {
               messages: newMessages,
@@ -2127,6 +2129,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 ? msg.message
                 : 'Agent 已恢复到可继续输入状态。',
               Date.now(),
+              'stage_result',
             ),
             chatState: 'idle',
             isCompacting: false,

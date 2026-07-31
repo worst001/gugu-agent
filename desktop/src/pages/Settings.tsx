@@ -48,7 +48,8 @@ const USER_CONFIGURABLE_API_FORMATS = new Set<ApiFormat>([
 ])
 
 export function Settings() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
+  const activeTab = useUIStore((s) => s.activeSettingsTab)
+  const setActiveTab = useUIStore((s) => s.setActiveSettingsTab)
   const pendingSettingsTab = useUIStore((s) => s.pendingSettingsTab)
   const t = useTranslation()
 

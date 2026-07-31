@@ -78,8 +78,10 @@ type UIStore = {
   sidebarOpen: boolean
   sidebarWidth: number
   capabilityPanelCollapsed: boolean
+  collapsedSidebarProjects: Set<string>
   terminalDrawerOpen: boolean
   activeView: ActiveView
+  activeSettingsTab: SettingsTab
   pendingSettingsTab: SettingsTab | null
   activeModal: string | null
   toasts: Toast[]
@@ -92,8 +94,10 @@ type UIStore = {
   resetSidebarWidth: () => void
   setCapabilityPanelCollapsed: (collapsed: boolean) => void
   toggleCapabilityPanel: () => void
+  setCollapsedSidebarProjects: (update: (current: Set<string>) => Set<string>) => void
   setTerminalDrawerOpen: (open: boolean) => void
   setActiveView: (view: ActiveView) => void
+  setActiveSettingsTab: (tab: SettingsTab) => void
   setPendingSettingsTab: (tab: SettingsTab | null) => void
   openModal: (id: string) => void
   closeModal: () => void
@@ -108,8 +112,10 @@ export const useUIStore = create<UIStore>((set) => ({
   sidebarOpen: true,
   sidebarWidth: getStoredSidebarWidth(),
   capabilityPanelCollapsed: getStoredCapabilityPanelCollapsed(),
+  collapsedSidebarProjects: new Set(),
   terminalDrawerOpen: false,
   activeView: 'code',
+  activeSettingsTab: 'providers',
   pendingSettingsTab: null,
   activeModal: null,
   toasts: [],
@@ -151,8 +157,12 @@ export const useUIStore = create<UIStore>((set) => ({
       return { capabilityPanelCollapsed: next }
     })
   },
+  setCollapsedSidebarProjects: (update) => set((state) => ({
+    collapsedSidebarProjects: update(state.collapsedSidebarProjects),
+  })),
   setTerminalDrawerOpen: (open) => set({ terminalDrawerOpen: open }),
   setActiveView: (view) => set({ activeView: view }),
+  setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
   setPendingSettingsTab: (tab) => set({ pendingSettingsTab: tab }),
   openModal: (id) => set({ activeModal: id }),
   closeModal: () => set({ activeModal: null }),

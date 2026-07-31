@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { AgentTask, SourceLocator } from '../../agentTask/types.js'
+import type { AgentTask } from '../../agentTask/types.js'
 import {
   AgentTaskProvenanceService,
   AgentTaskProvenanceValidationError,
+  type ProvenanceSourceLocator,
 } from '../services/agentTaskProvenanceService.js'
 
 let configDir: string
@@ -151,11 +152,11 @@ describe('AgentTaskProvenanceService', () => {
       ),
     ])
 
-    const locators: SourceLocator[] = [
+    const locators: ProvenanceSourceLocator[] = [
       { kind: 'message', messageId: 'user-1' },
       { kind: 'attachment', messageId: 'user-1', attachmentIndex: 0 },
-      { kind: 'file', path: filePath, toolUseId: 'Read:0' },
-      { kind: 'url', url: 'https://example.com/guide', toolUseId: 'WebFetch:0' },
+      { kind: 'file', path: filePath },
+      { kind: 'url', url: 'https://example.com/guide' },
       { kind: 'tool_result', toolUseId: 'Read:0' },
     ]
     const pack = await new AgentTaskProvenanceService().buildPack(

@@ -533,6 +533,35 @@ describe('WorkbenchPanel', () => {
     expect(filesystemApi.open).toHaveBeenCalledWith('D:/Project/src/App.tsx')
   })
 
+  it('previews a file path selected before the workbench opens', async () => {
+    vi.mocked(filesystemApi.listWorkspaceDir).mockResolvedValue({
+      root: 'D:/Project',
+      path: 'D:/Project',
+      truncated: false,
+      entries: [],
+    })
+    vi.mocked(filesystemApi.readWorkspaceTextFile).mockResolvedValue({
+      name: 'knowledge-smoke.md',
+      path: 'D:/Project/docs/knowledge-smoke.md',
+      language: 'markdown',
+      content: '# Knowledge smoke',
+      size: 17,
+      truncated: false,
+    })
+
+    useWorkbenchStore.getState().openWorkbench('session-1', {
+      activeTab: 'preview',
+      selectedFilePath: 'docs/knowledge-smoke.md',
+    })
+    render(<WorkbenchPanel sessionId="session-1" messages={messages} workDir="D:/Project" />)
+
+    expect(await screen.findByText('# Knowledge smoke')).toBeInTheDocument()
+    expect(filesystemApi.readWorkspaceTextFile).toHaveBeenCalledWith(
+      'D:/Project',
+      'docs/knowledge-smoke.md',
+    )
+  })
+
   it('shows recovery actions when a workspace file cannot be previewed', async () => {
     vi.mocked(filesystemApi.listWorkspaceDir).mockResolvedValue({
       root: 'D:/Project',

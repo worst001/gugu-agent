@@ -43,7 +43,7 @@ describe('FeishuInstallService', () => {
     expect(status.state).toBe('waiting')
     expect(status.qrCodeDataUrl).toStartWith('data:image/png;base64,')
     expect(status.authorizationUrl).toBe('https://open.feishu.cn/page/launcher?user_code=provider-secret')
-    expect(capturedOptions?.createOnly).toBe(true)
+    expect(capturedOptions?.createOnly).toBe(false)
     expect(capturedOptions?.addons.scopes.tenant).toContain(
       'im:message:send_as_bot',
     )

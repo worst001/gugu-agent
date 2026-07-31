@@ -17,6 +17,7 @@ import { AGENT_TASK_ROLE_PRESENTATION } from '../constants/agentTaskProduct'
 import { parseProjectKnowledgeTabId } from '../constants/projectKnowledge'
 import { useTranslation } from '../i18n'
 import { useChatStore } from '../stores/chatStore'
+import { useWorkbenchStore } from '../stores/workbenchStore'
 import { useTabStore } from '../stores/tabStore'
 import type {
   WorkspaceKnowledgeMap,
@@ -133,6 +134,22 @@ export function ProjectKnowledge() {
     if (!task.sessionId) return
     useTabStore.getState().openTab(task.sessionId, task.title)
     useChatStore.getState().connectToSession(task.sessionId)
+  }
+
+  const findPreviewTask = (taskIds: string[]) => knowledgeMap?.tasks.find(
+    (task) => Boolean(task.sessionId) && taskIds.includes(task.taskId),
+  )
+
+  const openFilePreview = (path: string, taskIds: string[]) => {
+    const task = findPreviewTask(taskIds)
+    if (!task?.sessionId) return
+    openTaskSession(task)
+    useWorkbenchStore.getState().openWorkbench(task.sessionId, {
+      activeTab: 'preview',
+      selectedFilePath: path,
+      selectedToolUseId: null,
+      selectedAttachmentId: null,
+    })
   }
 
   if (!workspacePath) {
@@ -267,6 +284,17 @@ export function ProjectKnowledge() {
               <KnowledgeSection title={t('projectKnowledge.section.sources')} icon={BookOpenText}>
                 {visibleSources.map((source) => (
                   <div key={source.sourceId} className="border-b border-[var(--color-border-separator)] px-1 py-3 last:border-b-0">
+                    {source.locator.kind === 'file' && findPreviewTask(source.taskIds) && (
+                      <button
+                        type="button"
+                        onClick={() => openFilePreview(sourceLocation(source), source.taskIds)}
+                        aria-label={t('projectKnowledge.previewFile', { name: source.title })}
+                        title={t('projectKnowledge.previewFile', { name: source.title })}
+                        className="float-right ml-2 flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+                      >
+                        <ExternalLink size={13} strokeWidth={1.2} aria-hidden="true" />
+                      </button>
+                    )}
                     <div className="truncate text-xs font-semibold text-[var(--color-text-primary)]">{source.title}</div>
                     <div className="mt-1 truncate text-[11px] text-[var(--color-text-tertiary)]" title={sourceLocation(source)}>
                       {t(SOURCE_LABEL_KEYS[source.kind])} · {sourceLocation(source)}
@@ -289,6 +317,17 @@ export function ProjectKnowledge() {
                   <div key={artifact.path} className="flex items-center justify-between gap-3 border-b border-[var(--color-border-separator)] px-1 py-3 last:border-b-0">
                     <span className="min-w-0 truncate text-xs text-[var(--color-text-primary)]" title={artifact.path}>{artifact.path}</span>
                     <span className="shrink-0 text-[10px] text-[var(--color-text-tertiary)]">{t('projectKnowledge.usedByTasks', { count: artifact.taskIds.length })}</span>
+                    {findPreviewTask(artifact.taskIds) && (
+                      <button
+                        type="button"
+                        onClick={() => openFilePreview(artifact.path, artifact.taskIds)}
+                        aria-label={t('projectKnowledge.previewFile', { name: artifact.path })}
+                        title={t('projectKnowledge.previewFile', { name: artifact.path })}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+                      >
+                        <ExternalLink size={13} strokeWidth={1.2} aria-hidden="true" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </KnowledgeSection>

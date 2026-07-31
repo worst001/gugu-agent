@@ -2,8 +2,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentTasksApi } from '../api/agentTasks'
 import { createProjectKnowledgeTabId } from '../constants/projectKnowledge'
+import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useTabStore } from '../stores/tabStore'
+import { useWorkbenchStore } from '../stores/workbenchStore'
 import type { WorkspaceKnowledgeMap } from '../types/agentTask'
 import { ProjectKnowledge } from './ProjectKnowledge'
 
@@ -65,6 +67,7 @@ const knowledgeMap: WorkspaceKnowledgeMap = {
 beforeEach(() => {
   vi.mocked(agentTasksApi.workspaceKnowledge).mockResolvedValue({ knowledgeMap })
   useSettingsStore.setState({ locale: 'en' })
+  useWorkbenchStore.setState({ sessions: {} })
   const tabId = createProjectKnowledgeTabId('D:\\Gugu\\short-video')
   useTabStore.setState({
     tabs: [{ sessionId: tabId, title: 'Project Knowledge', type: 'knowledge', status: 'idle' }],
@@ -74,6 +77,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   vi.clearAllMocks()
 })
 
@@ -161,6 +165,26 @@ describe('ProjectKnowledge', () => {
       expect(screen.getAllByText('Prepare Douyin launch scripts').length)
         .toBeGreaterThan(0)
       expect(screen.queryByText('Brand guide')).toBeNull()
+    })
+  })
+
+  it('opens source and artifact paths in the owning task preview', async () => {
+    const connectToSession = vi
+      .spyOn(useChatStore.getState(), 'connectToSession')
+      .mockImplementation(() => {})
+    render(<ProjectKnowledge />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Preview deliverables/scripts.docx' }),
+    ).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview Brand guide' }))
+
+    expect(connectToSession).toHaveBeenCalledWith('session-1')
+    expect(useTabStore.getState().activeTabId).toBe('session-1')
+    expect(useWorkbenchStore.getState().sessions['session-1']).toMatchObject({
+      isOpen: true,
+      activeTab: 'preview',
+      selectedFilePath: 'docs/brand-guide.md',
     })
   })
 })

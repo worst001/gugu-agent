@@ -139,7 +139,7 @@ export function FeishuConnectionCard({ onConnectionChanged }: Props) {
             )}
           </div>
           <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-            用手机系统相机扫码创建并授权 Bot，无需手动填写 App ID 或密钥。
+            扫码后可选择已有飞书应用，或新建并授权 Bot；无需手动填写 App ID 或密钥。
           </p>
           {connection?.appId && (
             <p className="mt-1 text-[11px] text-[var(--color-text-tertiary)]">
@@ -170,7 +170,7 @@ export function FeishuConnectionCard({ onConnectionChanged }: Props) {
           <p className="mt-3 text-xs text-[var(--color-text-secondary)]">
             {installation.state === 'authorizing'
               ? '授权已确认，正在保存应用并启动本地接入。'
-              : '请用手机系统相机扫码；飞书 App 内置扫一扫可能提示二维码不合法。'}
+              : '请用手机系统相机扫码；授权页可选择已有应用，飞书 App 内置扫一扫可能提示二维码不合法。'}
           </p>
           {installation.authorizationUrl && installation.state === 'waiting' && (
             <button

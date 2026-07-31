@@ -252,6 +252,14 @@ Use existing AgentTask ${task.id} with role ${task.role}; load it before substan
   }
 }
 
+export function extractAgentTaskLaunchDisplayText(content: string): string | null {
+  const match = content.match(
+    /\n\nUse existing AgentTask \S+ with role \S+; load it before substantive work\.\s*$/u,
+  )
+  return match?.index === undefined ? null : content.slice(0, match.index).trimEnd()
+}
+
+
 export function buildAgentTaskReviewRequest(
   task: AgentTask,
   template?: { teamId: string; taskTemplateId: string },

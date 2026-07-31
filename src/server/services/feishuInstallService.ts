@@ -158,7 +158,7 @@ export class FeishuInstallService {
     void this.registerAppFn({
       source: 'gugu-agent',
       signal: controller.signal,
-      createOnly: true,
+      createOnly: false,
       appPreset: {
         name: 'Gugu Agent',
         desc: '在飞书中使用本地 Gugu Agent',

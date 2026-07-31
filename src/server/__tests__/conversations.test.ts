@@ -352,14 +352,38 @@ describe('ConversationService', () => {
 
     expect(svc.hasSdkConnection('session-sdk-state')).toBe(false)
 
-    const staleSocket = { send() {} }
+    let staleSocketClosed = 0
+    const staleSocket = {
+      send() {},
+      close() {
+        staleSocketClosed += 1
+      },
+    }
     const activeSocket = { send() {} }
     svc.attachSdkConnection('session-sdk-state', staleSocket)
     expect(svc.hasSdkConnection('session-sdk-state')).toBe(true)
 
     svc.attachSdkConnection('session-sdk-state', activeSocket)
+    expect(staleSocketClosed).toBe(1)
     expect(svc.detachSdkConnection('session-sdk-state', staleSocket)).toBe(false)
     expect(svc.hasSdkConnection('session-sdk-state')).toBe(true)
+
+    let received = 0
+    svc.onOutput('session-sdk-state', () => {
+      received += 1
+    })
+    svc.handleSdkPayload(
+      'session-sdk-state',
+      JSON.stringify({ type: 'stale' }),
+      staleSocket,
+    )
+    expect(received).toBe(0)
+    svc.handleSdkPayload(
+      'session-sdk-state',
+      JSON.stringify({ type: 'active' }),
+      activeSocket,
+    )
+    expect(received).toBe(1)
 
     expect(svc.detachSdkConnection('session-sdk-state', activeSocket)).toBe(true)
     expect(svc.hasSdkConnection('session-sdk-state')).toBe(false)

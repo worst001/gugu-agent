@@ -105,7 +105,7 @@ const sourceLocatorSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('file'),
     path: z.string().min(1),
-    toolUseId: z.string().min(1),
+    toolUseId: z.string().min(1).optional(),
   }),
   z.strictObject({
     kind: z.literal('attachment'),
@@ -124,7 +124,7 @@ const sourceLocatorSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('url'),
     url: z.string().min(1),
-    toolUseId: z.string().min(1),
+    toolUseId: z.string().min(1).optional(),
   }),
 ])
 const provenanceBodySchema = z.strictObject({

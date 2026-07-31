@@ -371,7 +371,7 @@ describe('AgentTask API', () => {
       {
         sources: [
           { kind: 'message', messageId: 'user-source' },
-          { kind: 'file', path: filePath, toolUseId: 'Read:api' },
+          { kind: 'file', path: filePath },
         ],
       },
     )

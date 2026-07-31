@@ -137,7 +137,7 @@ describe('Settings > Plugins tab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useSettingsStore.setState({ locale: 'en' })
-    useUIStore.setState({ pendingSettingsTab: null })
+    useUIStore.setState({ activeSettingsTab: 'providers', pendingSettingsTab: null })
     useSessionStore.setState({
       sessions: [
         {
@@ -531,5 +531,16 @@ describe('Settings > Plugins tab', () => {
     expect(screen.getAllByText('Enable this plugin and apply changes before opening its skills, agents, or MCP entries in the shared management pages.').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /codex-rescue/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /gpt-5-4-prompting/i })).toBeDisabled()
+  })
+
+  it('keeps the selected settings section after remounting', () => {
+    const view = render(<Settings />)
+    switchToPluginsTab()
+    expect(screen.getByText('Plugins').closest('button')).toHaveClass('font-medium')
+
+    view.unmount()
+    render(<Settings />)
+
+    expect(screen.getByText('Plugins').closest('button')).toHaveClass('font-medium')
   })
 })
